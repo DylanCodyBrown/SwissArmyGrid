@@ -533,6 +533,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
     listen("keyup", (e) => { shiftHeld = e.shiftKey; });
     listen("mouseup", () => stopDrag());
     listen("mousemove", (e) => { if (dragging === "rows" || dragging === "cells") autoScroll(e.clientY); });
+    keepAtBottomOnResize();
     disposers.push(onThemeChange(() => {
       if (!gridApi || gridApi.isDestroyed()) return;
       gridApi.setGridOption("theme", gridTheme());
@@ -557,6 +558,31 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
     }));
     syncHeaderSort();
     void loadHeaderStats();
+  }
+
+  /** Scrolled to the end, stay at the end when the viewport changes size. Right after a scroll to
+   * the bottom, the sideways scrollbar strip can switch to its overlay form (grid.css then pads the
+   * rows for it) and the window can resize: the scroll area grows, the scroll position stays, and
+   * the last row was left a few pixels under the strip until the next scroll. */
+  function keepAtBottomOnResize(): void {
+    const viewport = host.querySelector<HTMLElement>(".ag-grid-viewport");
+    if (!viewport) return;
+    const atEnd = (): boolean =>
+      viewport.scrollTop > 0 && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 4;
+    let atBottom = false;
+    const onScroll = (): void => { atBottom = atEnd(); };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    const observer = new ResizeObserver(() => {
+      // Any gap at all, not atEnd()'s slack: the strip's padding leaves just a pixel or two.
+      if (atBottom && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 0.5) {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+    });
+    observer.observe(viewport);
+    disposers.push(() => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", onScroll);
+    });
   }
 
   /** Refetch rows in place (keeps scroll, sort and column layout). New columns rebuild defs. */
