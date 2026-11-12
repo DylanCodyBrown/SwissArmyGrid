@@ -19,10 +19,18 @@ import argparse
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 NPM = "npm.cmd" if sys.platform == "win32" else "npm"
+
+
+def project_version() -> str:
+    """The version in pyproject.toml: the wheel, the extension and the installers all carry it."""
+    with (HERE / "pyproject.toml").open("rb") as file:
+        version: str = tomllib.load(file)["project"]["version"]
+    return version
 
 
 def run(command: list[str], cwd: Path) -> None:
@@ -46,10 +54,17 @@ def main() -> None:
     if not (web / "static" / "build" / "main.js").is_file():
         sys.exit("The page build wrote no web/static/build/main.js.")
 
+    version = project_version()
     run(["uv", "build", "--wheel", "--out-dir", "dist"], HERE)
-    wheels = sorted((HERE / "dist").glob("swissarmygrid-*.whl"), key=lambda p: p.stat().st_mtime)
-    wheel = wheels[-1]
+    wheel = HERE / "dist" / f"swissarmygrid-{version}-py3-none-any.whl"
+    if not wheel.is_file():
+        sys.exit(f"uv build wrote no {wheel.name}.")
     print(f"\nBuilt {wheel.relative_to(HERE)}")
+    # The installers, with this version written in: they go in the release beside the wheel.
+    for name in ("install.sh", "install.ps1"):
+        text = (HERE / "installer" / name).read_text(encoding="utf-8").replace("__VERSION__", version)
+        (HERE / "dist" / name).write_text(text, encoding="utf-8", newline="\n")
+        print(f"Wrote dist/{name}")
 
     if args.vsix:
         extension = HERE / "vscode-extension"

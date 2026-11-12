@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from swissarmygrid.client.watcher import start as watch
     from swissarmygrid.client.watcher import stop as unwatch
 
-__version__: str = "0.9.1"
+__version__: str = "0.10.0"
 __all__ = [
     "DatasetTooLargeError",
     "ModelsUnavailable",

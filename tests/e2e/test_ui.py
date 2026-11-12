@@ -866,6 +866,9 @@ def test_clicking_off_the_grid_clears_selected_rows(browser: Browser, orders_url
 def test_clicking_off_the_grid_clears_a_select_all(browser: Browser, orders_url: str) -> None:
     page = open_grid(browser, orders_url)
     page.locator(row_cell(1, "quantity")).click()  # a data cell, so the grid has the keyboard focus
+    # Wait for the click to land before Ctrl+A: pressed in the same instant, the key can arrive before
+    # the grid has the focus (a race of the test's speed, not something a person can do).
+    expect(page.locator(".statusbar")).to_contain_text("1 cell selected")
     page.keyboard.press("Control+a")
     expect(page.locator(".statusbar")).to_contain_text("All selected")
     page.locator(".statusbar").click()

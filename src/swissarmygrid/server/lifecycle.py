@@ -183,6 +183,12 @@ def _bind(port: int) -> socket.socket:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if sys.platform == "win32":
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        # macOS and Linux keep a just-closed port in TIME_WAIT for a while; without SO_REUSEADDR the
+        # remembered port can't be bound again right after a stop, so a restart silently moved to a
+        # new port (and bookmarks broke). On these systems SO_REUSEADDR never lets a second socket
+        # listen on a port someone is listening on: binding a live port still fails with EADDRINUSE.
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         listener.bind((_LOCALHOST, port))
     except OSError:

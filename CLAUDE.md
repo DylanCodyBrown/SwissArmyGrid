@@ -59,6 +59,9 @@ tools/                   screenshots.py, vscode_check.py
 plugin/                  the plugin template (skills/swissarmygrid-use: SKILL.md, guide)
 examples/sample_store.py made-up nine-table store with a relationship answer key (test bed for autodetection)
 build.py                 build the page (release) and the one wheel; --vsix also packages the extension
+installer/               install.sh and install.ps1 (uv, then the server as a uv tool); build.py stamps the version
+.github/workflows/       release.yml: a v* tag builds, tests the installers on Linux and Windows, publishes
+tools/smoke_install.py   start the installed server, push the sample store, check it all arrived (used by releases)
 vscode-extension/        the optional VS Code extension (TypeScript): starts the server, shows grids in VS Code
 ```
 

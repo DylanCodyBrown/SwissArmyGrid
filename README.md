@@ -63,8 +63,17 @@ open notes are in [docs/ideas.md](docs/ideas.md).
 
 ## Install it: one package, two installs
 
-SwissArmyGrid is one Python package. Build it with `python build.py` (or take the wheel from a
-release), then:
+From a release (each release carries the wheel, the VS Code extension and two installers): download
+`install.ps1` (Windows) or `install.sh` (macOS, Linux) with the wheel, then run
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 .\swissarmygrid-<version>-py3-none-any.whl
+```
+
+The installer sets up uv when it is missing, then the server with its own Python. Without a wheel path
+it downloads the release's wheel itself (needs the GitHub CLI signed in while the repository is private).
+
+Or by hand: build it with `python build.py`, then:
 
 ```bash
 uv tool install --force "swissarmygrid-<version>-py3-none-any.whl[server]"   # the server, once per machine

@@ -2,7 +2,7 @@
   "name": "swissarmygrid",
   "displayName": "SwissArmyGrid",
   "description": "Runs the SwissArmyGrid server while VS Code is open and shows its grids inside VS Code. Push any data file (CSV, JSON, Parquet, Arrow, Excel) to a grid from the button at the top of the file.",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "publisher": "financial-insights",
   "license": "SEE LICENSE IN LICENSE.txt",
   "repository": {
