@@ -7,6 +7,8 @@ metadata is (`# /// <type>` ... `# ///`, each line starting `# `), holding TOML:
     # format = 1
     # name = "Warehouse"
     # kind = "sql"
+    # description = "The sales warehouse, read only"
+    # tags = ["sales", "orders-function-app"]
     # dialect = "sqlserver"
     # variable = "conn"
     # secrets = ["password"]
@@ -91,6 +93,10 @@ def _header_lines(blade: dict[str, Any]) -> list[str]:
         f"name = {_toml_string(str(blade['name']))}",
         f"kind = {_toml_string(kind)}",
     ]
+    if blade.get("description"):
+        lines.append(f"description = {_toml_string(str(blade['description']))}")
+    if blade.get("tags"):
+        lines.append("tags = [" + ", ".join(_toml_string(str(t)) for t in blade["tags"]) + "]")
     if kind == "sql":
         lines.append(f"dialect = {_toml_string(str(blade.get('dialect') or 'other'))}")
     if kind != "secret":
@@ -145,12 +151,28 @@ def file_name(name: str) -> str:
 # ===== reading =====
 
 
+def _header_start(lines: list[str]) -> int | None:
+    """Where the blade header opens, when it is the file's frontmatter: only blank lines and comments
+    (a shebang, an encoding line, a licence) may come before it. A header further down, after code, does
+    not count, so an ordinary script that mentions the marker is never taken for a blade."""
+    for i, line in enumerate(lines[:200]):
+        match = _OPEN.match(line)
+        if match and match["type"] == HEADER_TYPE:
+            return i
+        if line.strip() and not line.lstrip().startswith("#"):
+            return None
+    return None
+
+
+def is_blade(text: str) -> bool:
+    """True when the text opens with a blade header (the test a blade folder's files must pass)."""
+    return _header_start(text.split("\n")) is not None
+
+
 def read_blade(text: str) -> dict[str, Any]:
     """The blade a portable file holds, ready for the save screen (or BladeStore.save). Nothing runs."""
     lines = text.split("\n")
-    start = next(
-        (i for i, line in enumerate(lines) if (m := _OPEN.match(line)) and m["type"] == HEADER_TYPE), None
-    )
+    start = _header_start(lines)
     if start is None:
         raise PortableError(
             f"This file has no {HEADER_TYPE} header: it is not a blade (export one to see the form)."
@@ -211,6 +233,12 @@ def read_blade(text: str) -> dict[str, Any]:
             blade["vault_mapping"] = [{"env": env, "secret": secret} for env, secret in vault.items()]
     template = header.get("template")
     blade["template"] = template if isinstance(template, str) else None
+    description = header.get("description")
+    if isinstance(description, str) and description:
+        blade["description"] = description
+    tags = header.get("tags")
+    if isinstance(tags, list) and tags:
+        blade["tags"] = [str(t) for t in tags if isinstance(t, str)]
     return blade
 
 

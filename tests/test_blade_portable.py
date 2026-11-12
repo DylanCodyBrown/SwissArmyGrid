@@ -143,3 +143,28 @@ def test_several_blades_from_a_zip_or_files() -> None:
     ]
     broken = read_blades([("bad.blade.py", b"import os\n"), ("binary.blade.py", b"\xff\xfe\x00")])
     assert [f.blade for f in broken] == [None, None] and all(f.error for f in broken)
+
+
+def test_only_a_header_at_the_top_makes_a_file_a_blade() -> None:
+    from swissarmygrid.blade_core.portable import is_blade
+
+    blade = write_blade(SQL_BLADE)
+    assert is_blade(blade)
+    assert is_blade("#!/usr/bin/env python\n# -*- coding: utf-8 -*-\n# Copyright Bakery Ltd\n\n" + blade)
+    # A script that mentions the marker after its code, or in a string, is just a script.
+    assert not is_blade("import os\n" + blade)
+    assert not is_blade('"""Docs: # /// swissarmygrid-blade"""\n')
+    assert not is_blade("x = 1\n")
+    with pytest.raises(PortableError, match="no swissarmygrid-blade header"):
+        read_blade("import os\n" + blade)
+
+
+def test_description_and_tags_travel_in_the_header() -> None:
+    blade = SQL_BLADE | {
+        "description": "Sales warehouse, read only.\nAsk Ops for access.",
+        "tags": ["sales", "orders-function-app"],
+    }
+    text = write_blade(blade)
+    assert '# tags = ["sales", "orders-function-app"]' in text
+    back = read_blade(text)
+    assert back["description"] == blade["description"] and back["tags"] == blade["tags"]

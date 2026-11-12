@@ -91,7 +91,11 @@ def create_app(
         on_shutdown=on_shutdown or (lambda: None),
         processes=ProcessRegistry(),
         catalogs=CatalogStore(connection, settings.max_catalogs, settings.max_catalog_rows),
-        blades=BladeStore(settings.blades_dir),
+        blades=BladeStore(
+            settings.blades_dir,
+            folders_file=settings.state_dir / "blade_folders.json",
+            pins_file=settings.state_dir / "blade_pins.json",
+        ),
         notebook=NotebookServer(settings.state_dir / "notebooks"),
         notebook_cookie=secrets.token_urlsafe(32),
     )

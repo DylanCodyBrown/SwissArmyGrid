@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sqlite3
 import stat
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -220,3 +222,130 @@ def test_a_secret_blade_value_is_typed_for_one_refresh(store: BladeStore, bakery
     with pytest.raises(RefreshError, match="OVEN_PASSWORD"):
         refresh(store, "Bakery")
     assert len(refresh(store, "Bakery", {"OVEN_PASSWORD": "typed-now"})["rows"]) == 3
+
+
+# ===== description, tags, favourites and blade folders =====
+
+
+def test_description_and_tags_are_checked_and_kept(store: BladeStore, bakery: Path) -> None:
+    saved = store.save(
+        sqlite_blade(bakery)
+        | {
+            "description": "  The bakery's own database.  ",
+            "tags": ["Sales", " sales ", "orders-function-app"],
+        }
+    )
+    assert saved.description == "The bakery's own database."
+    assert saved.tags == ["Sales", "orders-function-app"]  # repeats (ignoring case) dropped
+    assert store.get("Bakery").tags == ["Sales", "orders-function-app"]
+    assert store.save(sqlite_blade(bakery, "Csv tags") | {"tags": "a, b"}).tags == ["a", "b"]
+    for bad in (["no/slash"], ["x" * 41], [1], [f"t{i}" for i in range(21)]):
+        with pytest.raises(BladeError):
+            store.save(sqlite_blade(bakery, "Bad tags") | {"tags": bad})
+
+
+def test_favourites_are_kept_on_this_computer(tmp_path: Path, vault: MemoryKeyring, bakery: Path) -> None:
+    store = BladeStore(tmp_path / "blades", pins_file=tmp_path / "pins.json")
+    store.save(sqlite_blade(bakery))
+    assert store.set_pinned("bakery", True) and store.pinned() == {"bakery"}
+    assert "pinned" not in next(store.folder.glob("*.json")).read_text()  # not in the blade itself
+    store.set_pinned("Bakery", False)
+    assert store.pinned() == set()
+    with pytest.raises(KeyError):
+        store.set_pinned("nope", True)
+
+
+def blade_file(path: Path, name: str, code: str = "x = 1\n", tags: str = "") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = (
+        f'# /// swissarmygrid-blade\n# format = 1\n# name = "{name}"\n# kind = "other"\n# variable = "x"\n'
+    )
+    if tags:
+        header += f"# tags = [{tags}]\n"
+    path.write_text(header + "# ///\n" + code)
+    return path
+
+
+@pytest.fixture
+def folders(tmp_path: Path, vault: MemoryKeyring, monkeypatch: pytest.MonkeyPatch) -> tuple[BladeStore, Path]:
+    monkeypatch.delenv("SWISSARMYGRID_BLADE_FOLDERS", raising=False)
+    root = tmp_path / "team-blades"
+    root.mkdir()
+    store = BladeStore(tmp_path / "blades", folders_file=tmp_path / "folders.json")
+    store.set_folders([str(root)])
+    return store, root
+
+
+def test_blade_folders_find_only_files_with_the_header(folders: tuple[BladeStore, Path]) -> None:
+    store, root = folders
+    blade_file(root / "warehouse.blade.py", "Warehouse", tags='"orders-function-app"')
+    blade_file(root / "nested" / "deeper" / "api.py", "Weather API")
+    (root / "ordinary.py").write_text("import os\nprint('just a script')\n")
+    (root / "mentions.py").write_text("x = 1\n# /// swissarmygrid-blade\n")  # after code: not frontmatter
+    blade_file(root / ".venv" / "lib" / "hidden.py", "Hidden")  # virtual environments are skipped
+    blade_file(root / "site-packages" / "pkg.py", "Package")
+    blade_file(root / "a" / "b" / "c" / "d" / "e" / "too_deep.py", "Too deep")
+    names = [(b.name, Path(b.path or "").name, b.tags) for b in store.all()]
+    assert names == [
+        ("Warehouse", "warehouse.blade.py", ["orders-function-app"]),
+        ("Weather API", "api.py", []),
+    ]
+    assert store.get("weather api").path == str(root / "nested" / "deeper" / "api.py")
+
+
+def test_a_folder_blade_saves_back_to_its_file_and_follows_it(folders: tuple[BladeStore, Path]) -> None:
+    store, root = folders
+    path = blade_file(root / "warehouse.blade.py", "Warehouse")
+    blade = store.get("Warehouse")
+    store.save(
+        blade.to_json() | {"description": "Edited in the app.", "tags": ["sales"]}, previous_name="Warehouse"
+    )
+    text = path.read_text()
+    assert '# description = "Edited in the app."' in text and '# tags = ["sales"]' in text
+    assert list(store.folder.glob("*.json")) == []  # it stays a file in the folder, not a saved copy
+    # Someone changes the file (a git pull): the app sees it on the next look.
+    path.write_text(text.replace("x = 1", "x = 2"))
+    os.utime(path, ns=(time.time_ns() + 10_000_000, time.time_ns() + 10_000_000))
+    assert store.get("Warehouse").code == "x = 2\n"
+    with pytest.raises(BladeError, match="Delete or move the file"):
+        store.remove("Warehouse")
+
+
+def test_a_saved_blade_comes_first_and_broken_files_are_reported(
+    folders: tuple[BladeStore, Path], bakery: Path
+) -> None:
+    store, root = folders
+    store.save(sqlite_blade(bakery))  # a saved blade named Bakery
+    with pytest.raises(BladeError, match="already exists"):
+        store.save({"name": "bakery", "kind": "other", "code": "x = 1\n", "folder": str(root)})
+    # A folder file of the same name arriving later (a git pull): the saved blade still comes first.
+    blade_file(root / "bakery.blade.py", "Bakery", code="x = 'from the folder'\n")
+    (root / "broken.blade.py").write_text("# /// swissarmygrid-blade\n# format = 1\n# name = 'Broken'\n")
+    assert store.get("Bakery").path is None and [b.name for b in store.all()] == ["Bakery"]
+    assert [p["path"] for p in store.problems] == [str(root / "broken.blade.py")]
+    assert "never closed" in store.problems[0]["error"]
+
+
+def test_new_blades_can_go_into_a_folder_and_folders_are_checked(
+    folders: tuple[BladeStore, Path], tmp_path: Path
+) -> None:
+    store, root = folders
+    saved = store.save({"name": "Pantry API", "kind": "other", "code": "session = 1\n", "folder": str(root)})
+    assert saved.path == str(root / "pantry_api.blade.py") and Path(saved.path).exists()
+    with pytest.raises(BladeError, match="not one of your blade folders"):
+        store.save({"name": "Elsewhere", "kind": "other", "code": "x = 1\n", "folder": str(tmp_path)})
+    with pytest.raises(BladeError, match="not a folder"):
+        store.set_folders([str(tmp_path / "missing")])
+    with pytest.raises(BladeError, match="full path"):
+        store.set_folders(["relative/blades"])
+
+
+def test_folders_from_the_environment(
+    tmp_path: Path, vault: MemoryKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    team = tmp_path / "team"
+    blade_file(team / "shared.blade.py", "Shared")
+    monkeypatch.setenv("SWISSARMYGRID_BLADE_FOLDERS", str(team))
+    store = BladeStore(tmp_path / "blades", folders_file=tmp_path / "folders.json")
+    assert store.folders() == [{"path": str(team), "from_env": True, "exists": True}]
+    assert [b.name for b in store.all()] == ["Shared"]
