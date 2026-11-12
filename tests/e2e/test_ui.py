@@ -667,6 +667,38 @@ def test_a_result_card_keeps_long_text_from_hiding_the_other_columns(
     assert card_box and region and region["x"] + region["width"] <= card_box["x"] + card_box["width"]
 
 
+def test_a_diagram_card_never_makes_the_page_fetch_anything(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # Mermaid's sanitizer kept <img src> in a label, so an agent's diagram made the user's
+    # browser request any URL it named (the page has no Content-Security-Policy).
+    body = (
+        '%%{init: {"themeCSS": ".node rect { fill: url(/beacon-css.png) }"}}%%\n'
+        "flowchart LR\n"
+        '  A["<img src=/beacon-label.png> label"] --> B\n'
+        '  B["<image href=/beacon-svg.png/>"] --> C\n'
+        '  click A "/beacon-click"'
+    )
+    grid = grid_of(orders_url)
+    call(
+        server,
+        "POST",
+        f"/grids/{grid}/cards",
+        {"kind": "diagram", "title": "Beacons", "body": body},
+        agent=True,
+    )
+    page = open_grid(browser, orders_url)
+    fetched: list[str] = []
+    page.on("request", lambda request: fetched.append(request.url))
+    open_agent(page)
+    card = page.locator(".card", has_text="Beacons")
+    expect(card.locator(".diagram svg")).to_be_visible(timeout=20000)
+    expect(card.locator(".diagram")).to_contain_text("label")
+    page.wait_for_timeout(1000)
+    assert not [url for url in fetched if "beacon" in url]
+    assert card.locator(".diagram img, .diagram image, .diagram [href*='beacon']").count() == 0
+
+
 def test_note_markdown_is_rendered_safely(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     grid = orders_url.split("/g/")[1].split("#")[0]
     call(
