@@ -644,7 +644,9 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 )
 
             def make(cur: duckdb.DuckDBPyConnection) -> Any:
-                return generate_code(cur, ctx.views, info, grid.steps, grid.settings, target)
+                return generate_code(
+                    cur, ctx.views, info, grid.steps, grid.settings, target, settings.duckdb_memory_limit
+                )
 
             result = await ctx.grid_query(grid, None, BACKGROUND, make)
             ctx.audit.write(

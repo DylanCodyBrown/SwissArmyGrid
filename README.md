@@ -37,9 +37,12 @@ What a grid page does:
   A table name reads that table as its tab shows it (after its steps); Run turns the result into a
   table of its own, with every tool a pushed table has. The tray stays on the tab, so Run again
   rebuilds the table in place, and its own steps apply to the new rows.
-- **Copy transformations as Python:** DuckDB, pandas or plain-Python code that reproduces the
-  view, SQL steps included. It is run against the grid before it's offered, and only verified
-  code gets a Copy button.
+- **Copy transformations as SQL or Python:** the view's steps, SQL steps included, as one DuckDB
+  query over your own table by its variable name. **Copy as SQL** gives the query; **Copy as
+  Python** gives `import duckdb` and one line, `orders_view = duckdb.sql("""...""").df()` (`.pl()`
+  for Polars, `.to_arrow_table()` for Arrow). Longer pandas and plain-Python translations are
+  there too. The copy is run exactly as copied, in a fresh namespace holding only your table,
+  and compared with the grid before it's offered; only verified code gets the Copy buttons.
 - **Key Finder:** pick another grid (or every other grid) and get the likely join columns:
   each column pair that shares values, with the percent of each side's distinct values found in
   the other, whether each side is unique (so which one looks like the key), and a score. Columns

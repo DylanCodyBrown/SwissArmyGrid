@@ -29,6 +29,7 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
+from swissarmygrid.codegen.duckdb_code import variable_name
 from swissarmygrid.engine.datasets import Column
 from swissarmygrid.engine.describe import describe_step
 from swissarmygrid.engine.sql_guard import step_query_text, step_tables
@@ -172,6 +173,7 @@ def generate_python(
 ) -> str:
     """Code for `mode` "plain" or "pandas". `stage_columns[i]` are the columns before step i."""
     pandas = mode == "pandas"
+    var_name = variable_name(dataset)
     w = _Writer()
     var = "df" if pandas else "rows"
     for index, step in enumerate(steps):
@@ -214,12 +216,12 @@ def generate_python(
         imports.insert(5 if not uses_sql else 7, "import pandas as pd")
         if not uses_sql:
             imports.insert(5, "")
-        signature = f"def transform({_ident(dataset)}: pd.DataFrame) -> pd.DataFrame:"
-        start = [f"    df = {_ident(dataset)}.reset_index(drop=True)"]
+        signature = f"def transform({var_name}: pd.DataFrame) -> pd.DataFrame:"
+        start = [f"    df = {var_name}.reset_index(drop=True)"]
         end = ["    return df.reset_index(drop=True)"]
     else:
-        signature = f"def transform({_ident(dataset)}: list[dict[str, Any]]) -> list[dict[str, Any]]:"
-        start = [f"    rows = [dict(row) for row in {_ident(dataset)}]"]
+        signature = f"def transform({var_name}: list[dict[str, Any]]) -> list[dict[str, Any]]:"
+        start = [f"    rows = [dict(row) for row in {var_name}]"]
         end = ["    return rows"]
     body = [
         signature,
@@ -228,7 +230,9 @@ def generate_python(
         *w.lines,
         *end,
     ]
-    return "\n".join([header, *imports, helpers.strip("\n"), "", "", *w.defs, *body]) + "\n"
+    # Applied to the user's own variable, so the pasted code transforms it (as the DuckDB copy does).
+    apply = ["", "", f"{var_name}_view = transform({var_name})"]
+    return "\n".join([header, *imports, helpers.strip("\n"), "", "", *w.defs, *body, *apply]) + "\n"
 
 
 def _sql_literal(query: str) -> str:
@@ -240,11 +244,6 @@ def _sql_literal(query: str) -> str:
 
 def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
-
-
-def _ident(name: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in name)
-    return cleaned if cleaned and not cleaned[0].isdigit() else f"data_{cleaned}"
 
 
 def _header(
