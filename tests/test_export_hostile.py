@@ -26,6 +26,48 @@ def whole(info: DatasetInfo) -> str:
     return f"SELECT * FROM {info.table}"  # noqa: S608 (a generated table name)
 
 
+MIXED = pa.table(
+    {
+        "text": ["=1+1", None, "plain", "-x", "a,b", 'q"uote', "\ttab", ""],
+        "int": pa.array([1, None, -3, 2**62, 0, 7, 8, 9], pa.int64()),
+        "small": pa.array([1, 2, None, 4, 5, 6, 7, 8], pa.int8()),
+        "float": [1.0, None, float("nan"), 1e308, -0.0, 0.1, float("inf"), 2.5],
+        "single": pa.array([1.1, None, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0], pa.float32()),
+        "flag": [True, None, False, True, False, True, False, True],
+        "day": [dt.date(2024, 1, 1), None, dt.date(1999, 12, 31)] + [dt.date(2000, 1, 1)] * 5,
+        "list": [[1, 2], None, [], [3], [4], [5], [6], [7]],
+    }
+)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [ExportOptions(), ExportOptions(neutralize_formulas=False, blank="NULL", quote_all=True, delimiter=";")],
+)
+def test_the_column_wise_csv_writer_matches_the_cell_by_cell_one(
+    store: DatasetStore, options: ExportOptions
+) -> None:
+    import csv
+
+    from swissarmygrid.engine.export import _text_value
+    from swissarmygrid.engine.steps import type_family
+
+    info = store.replace("mixed", MIXED, "arrow")
+    got = b"".join(delimited(batches(store.cursor(), whole(info)), info.columns, options))
+    buffer = io.StringIO()
+    writer = csv.writer(
+        buffer,
+        delimiter=options.delimiter,
+        quoting=csv.QUOTE_ALL if options.quote_all else csv.QUOTE_MINIMAL,
+        lineterminator="\r\n",
+    )
+    writer.writerow([("'" + c.name if c.name.startswith("=") else c.name) for c in info.columns])
+    texts = [type_family(c.type) == "text" for c in info.columns]
+    for row in store.cursor().execute(whole(info) + " ORDER BY rowid").fetchall():
+        writer.writerow([_text_value(v, options, texts[i]) for i, v in enumerate(row)])
+    assert got.decode() == buffer.getvalue()
+
+
 def test_header_cells_are_neutralized_like_text_cells(store: DatasetStore) -> None:
     # Column names come from the data too (a CSV someone sent): "=HYPERLINK(...)" went out raw.
     info = store.replace(
@@ -71,3 +113,20 @@ def test_dates_before_march_1900_go_to_excel_as_text(store: DatasetStore) -> Non
         (dt.datetime(1900, 3, 1), dt.datetime(1900, 3, 1)),
         (dt.datetime(2024, 2, 29), None),
     ]
+
+
+def test_the_column_wise_excel_writer_keeps_every_cell_kind(store: DatasetStore) -> None:
+    info = store.replace("mixed", MIXED, "arrow")
+    data = excel(batches(store.cursor(), whole(info)), info.columns, ExportOptions(format="xlsx"), None, 8)
+    sheet = openpyxl.load_workbook(io.BytesIO(data)).active
+    assert sheet is not None
+    rows = list(sheet.iter_rows(min_row=2, max_row=4, values_only=True))
+    single = MIXED.column("single").to_pylist()[0]  # a float32 1.1, as Python reads it
+    assert rows[0] == ("=1+1", 1, 1, 1, single, True, dt.datetime(2024, 1, 1), "[1, 2]")
+    assert rows[1] == (None, None, 2, None, None, None, None, None)
+    assert rows[2] == ("plain", -3, None, "nan", 2.5, False, dt.datetime(1999, 12, 31), "[]")
+    # 2**62 has 19 digits, more than an Excel number keeps: it stays exact as text.
+    assert sheet.cell(row=5, column=2).value == str(2**62)
+    assert sheet.cell(row=8, column=4).value == "inf"
+    # Column widths still follow the longest text, between 8 and 62.
+    assert sheet.column_dimensions["B"].width >= len(str(2**62))
