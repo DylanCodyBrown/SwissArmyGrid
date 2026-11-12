@@ -35,13 +35,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import duckdb
+import pyarrow as pa
 import sqlglot
 from sqlglot import exp
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.engine.datasets import DatasetInfo, quote
+from swissarmygrid.engine.datasets import Column, DatasetInfo, quote
 from swissarmygrid.engine.export import FORMATS
 from swissarmygrid.engine.profile import profile_column, profile_table
 from swissarmygrid.engine.sql_guard import guard
@@ -234,6 +235,62 @@ def apply_masks(
     return [names[i] for i in keep], shown, masked
 
 
+def redact_profile_row(level: int, how: str, row: dict[str, Any]) -> None:
+    """One column's summary row (min and max) as `agent_describe` shows it: at level 0 only a
+    number column keeps them, a hidden column never does, and a hashed or masked one has them
+    hashed or masked. Changes `row` in place."""
+    family = type_family(str(row.get("type", "")))
+    if (level == 0 and family != "number") or how == "hide":
+        row.pop("min", None)
+        row.pop("max", None)
+    elif how != "show" and (how == "hash" or family not in _NOT_TEXT):
+        for key in ("min", "max"):
+            if key in row:
+                row[key] = mask_value(row[key], how)
+
+
+def mask_table(
+    rules: Policy, table: pa.Table, columns: tuple[Column, ...], origins: list[Origins] | None
+) -> tuple[pa.Table, tuple[Column, ...]]:
+    """`table` (whose columns are `columns`) under the policy, as `/agent/read` shows it: the same
+    rule for each column (masking.column_rules, following `origins`) and the same value masking. A
+    hidden column is left out; a hashed or masked one becomes its masked values. For what an agent
+    has written to a file (an approved export), which the agent can read back."""
+    if rules.level >= 3:
+        return table, columns
+    names = [c.name for c in columns]
+    decided = column_rules(rules.level, rules.masks, names, origins)
+    arrays: list[pa.Array | pa.ChunkedArray] = []
+    kept: list[Column] = []
+    for i, how in enumerate(decided):
+        if how == "hide":
+            continue
+        if how == "show":
+            arrays.append(table.column(i))
+            kept.append(columns[i])
+            continue
+        values = [mask_value(v, how) for v in table.column(i).to_pylist()]
+        try:
+            array = pa.array(values)
+        except (pa.ArrowInvalid, pa.ArrowTypeError):  # mixed shapes: each value as text
+            array = pa.array([None if v is None else str(v) for v in values], pa.string())
+        arrays.append(array)
+        text = pa.types.is_string(array.type) or pa.types.is_large_string(array.type)
+        kept.append(Column(columns[i].name, "VARCHAR") if text else columns[i])
+    return pa.table(arrays, names=[c.name for c in kept]), tuple(kept)
+
+
+def export_refused(level: int, scope: str) -> Response | None:
+    """A 403 for an agent export its level allows no rows for (level 0: only the profile)."""
+    if level == 0 and scope != "profile":
+        return Response(
+            "At privacy level 0 an export would write cell values, so only scope=profile (counts and "
+            "number statistics) can be exported. The user can raise the level in Settings.",
+            status_code=403,
+        )
+    return None
+
+
 def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
     """`rules`: the one policy for every table; the level the user picks in Settings applies
     to all of them. app.py makes it and shares it with routes_context."""
@@ -335,14 +392,7 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
 
             profiled = await ctx.workers.run(AGENT, lambda: compute(ctx.store.cursor()))
             for row in profiled["columns"]:
-                how = rule_for(info.name, row["column"])
-                if (level == 0 and type_family(row["type"]) != "number") or how == "hide":
-                    row.pop("min", None)
-                    row.pop("max", None)
-                elif how != "show" and (how == "hash" or type_family(row["type"]) not in _NOT_TEXT):
-                    for key in ("min", "max"):
-                        if key in row:
-                            row[key] = mask_value(row[key], how)
+                redact_profile_row(level, rule_for(info.name, row["column"]), row)
             ctx.audit.write("agent", "describe", info.name)
             return json_response(
                 {
@@ -638,7 +688,13 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             fmt = request.query_params.get("format", "csv")
             if fmt not in FORMATS:  # the text goes into the user's approval prompt
                 raise ValueError(f"format must be one of {', '.join(FORMATS)}.")
-            if not await ask_user(info.name, "export", f"{fmt} export of {info.name} to the export folder"):
+            scope = request.query_params.get("scope", "view")
+            if (refused := export_refused(rules.level, scope)) is not None:
+                return refused  # no click asked for an export the server would not write
+            detail = f"{fmt} export of {info.name} to the export folder"
+            if rules.level < 3 and scope != "profile":
+                detail += f" (masked as the agent sees it, at most {LEVEL_ROW_CAPS[rules.level]:,} rows)"
+            if not await ask_user(info.name, "export", detail):
                 return Response("The user declined (or did not answer) this export.", status_code=403)
             return json_response({"approved": True, "ticket": rules.issue_export_ticket(grid.id)})
         except Exception as error:

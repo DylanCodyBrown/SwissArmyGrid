@@ -605,7 +605,10 @@ def grid_recipe(a: dict[str, Any]) -> Any:
 )
 def grid_export(a: dict[str, Any]) -> Any:
     fmt = a.get("format") or "csv"
-    approved = api.call("POST", f"/agent/export-approval/{_q(a['grid'])}", params={"format": fmt})
+    scope = a.get("scope") or "view"
+    approved = api.call(
+        "POST", f"/agent/export-approval/{_q(a['grid'])}", params={"format": fmt, "scope": scope}
+    )
     params: dict[str, Any] = dict(a.get("options") or {})
     params |= {"format": fmt, "save": "1", "ticket": approved.get("ticket")}
     for key in ("file", "scope", "overwrite"):

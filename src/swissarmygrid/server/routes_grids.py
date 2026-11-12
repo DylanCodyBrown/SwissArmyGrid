@@ -36,6 +36,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import duckdb
+import pyarrow as pa
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import BaseRoute, Route
@@ -67,11 +68,16 @@ from swissarmygrid.server.context import (
     read_json,
 )
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.masking import Origins, column_rules
 from swissarmygrid.server.routes_agent import (
+    LEVEL_ROW_CAPS,
     Policy,
     agent_may_see_raw_values,
+    export_refused,
+    mask_table,
     pivot_refused,
     raw_values_refused,
+    redact_profile_row,
 )
 from swissarmygrid.server.routes_datasets import budget, store_table
 from swissarmygrid.server.selection import combine_stats, selection_scope, stats_sql
@@ -551,19 +557,26 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         try:
             grid, info = ctx.grid_and_info(request.path_params["grid_id"])
             params = dict(request.query_params)
-            # An agent's export writes the whole view, unmasked, to disk: only after the user's
-            # click (POST /agent/export-approval), whose one-time ticket this spends.
-            if actor(request) == "agent" and not policy.redeem_export_ticket(
-                params.pop("ticket", None), grid.id
-            ):
+            who = actor(request)
+            # An agent's export writes to disk, where the agent can read it: only after the user's
+            # click (POST /agent/export-approval), whose one-time ticket this spends, and only what
+            # the agent may read at its level (masked, capped; no rows at level 0).
+            if who == "agent" and not policy.redeem_export_ticket(params.pop("ticket", None), grid.id):
                 return Response(
                     "An agent export needs the user's approval first; table_export asks for it.",
                     status_code=403,
                 )
+            level = policy.level if who == "agent" else 3
             options = exporting.ExportOptions.from_query(params)
             scope = params.get("scope", "view")
             if scope not in ("view", "rows", "columns", "selection", "source", "profile"):
                 raise ValueError("scope must be view, rows, columns, selection, source or profile.")
+            if (refused := export_refused(level, scope)) is not None:
+                return refused
+            # Rows written for an agent below level 3: its level's cap, and masks traced to the
+            # source columns the way /agent/read traces them.
+            row_cap = LEVEL_ROW_CAPS[level] if level < 3 and scope != "profile" else None
+            trace_masks = level in (1, 2) and bool(policy.masks)
             selection = json.loads(params["selection"]) if scope == "selection" else None
             wanted_columns = [c for c in params.get("columns", "").split(",") if c]
             wanted_rows = [int(r) for r in params.get("rows", "").split(",") if r.strip().isdigit()]
@@ -572,13 +585,27 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 raise ValueError("File names may use letters, digits, '_' and '-'.")
             extension, media_type = exporting.FORMATS[options.format]
             file_name = file_stem + extension
-            who = actor(request)
+
+            def view_origins(compiled: Any, names: list[str]) -> list[Origins] | None:
+                """Where each exported view column came from, for the agent's masks."""
+                if not trace_masks:
+                    return None
+                traced = ctx.trace(compiled.sql())
+                by_name = dict(zip([c.name for c in compiled.columns], traced or [], strict=False))
+                return [by_name.get(n) for n in names] if traced is not None else None
 
             def prepare(cur: duckdb.DuckDBPyConnection) -> Any:
                 compiled = ctx.compiled(cur, grid, info)
                 if scope == "profile":
                     with ctx.views.reading(cur, info, grid.steps, grid.settings) as rows:
                         profiled = profile_table(cur, rows, compiled.columns)
+                    if level < 3:  # as agent_describe shows it
+                        profiled_names = [r["column"] for r in profiled["columns"]]
+                        decided = column_rules(
+                            level, policy.masks, profiled_names, view_origins(compiled, profiled_names)
+                        )
+                        for row, how in zip(profiled["columns"], decided, strict=True):
+                            redact_profile_row(level, how, row)
                     header = ["column", "type", "blanks", "blank_percent", "distinct", "min", "max"]
                     values = ", ".join(
                         "(" + ", ".join(_sql_value(row.get(n)) for n in header) + ")"
@@ -589,11 +616,12 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                         f"SELECT {select} FROM (VALUES {values}) AS t({', '.join(quote(n) for n in header)})"
                     )
                     cols = tuple(Column(n, "VARCHAR") for n in header)
-                    return sql, cols, len(profiled["columns"]), []
+                    return sql, cols, len(profiled["columns"]), [], None
                 if scope == "source":
                     names = ", ".join(quote(c.name) for c in info.columns)
                     sql = f"SELECT {names} FROM {info.table} ORDER BY rowid"
-                    return sql, info.columns, info.row_count, []
+                    source_origins = [ctx.column_origins(info.name, c.name) for c in info.columns]
+                    return sql, info.columns, info.row_count, [], source_origins if trace_masks else None
                 positioned, columns = ctx.views.positioned_sql(cur, info, grid.steps, grid.settings)
                 if scope == "columns":
                     unknown = set(wanted_columns) - {c.name for c in columns}
@@ -610,9 +638,15 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                     where = f"WHERE {POS} IN ({', '.join(str(r) for r in sorted(set(wanted_rows)))})"
                 sql = f"SELECT {names} FROM ({positioned}) {where} ORDER BY {POS}"
                 total = cur.execute(f"SELECT count(*) FROM ({sql})").fetchone()
-                return sql, columns, int(total[0]) if total else 0, describe_steps(grid.steps)
+                origins = view_origins(compiled, [c.name for c in columns])
+                return sql, columns, int(total[0]) if total else 0, describe_steps(grid.steps), origins
 
-            sql, columns, total, step_text = await ctx.grid_query(grid, None, BACKGROUND, prepare)
+            sql, columns, total, step_text, origins = await ctx.grid_query(grid, None, BACKGROUND, prepare)
+            capped_from: int | None = None
+            if row_cap is not None:
+                sql = f"{sql} LIMIT {row_cap}"
+                if total > row_cap:
+                    capped_from, total = total, row_cap
             provenance = (
                 exporting.Provenance(
                     source=f"{info.name} (version {info.version}, {info.source_kind})",
@@ -625,16 +659,20 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 else None
             )
 
-            def build() -> bytes:
+            def build() -> tuple[bytes, int]:
                 cur = ctx.store.cursor()
                 reader = exporting.batches(cur, sql)
+                written = columns
+                if row_cap is not None:  # at most a capped read's rows: mask them as /agent/read does
+                    masked, written = mask_table(policy, reader.read_all(), columns, origins)
+                    reader = pa.RecordBatchReader.from_batches(masked.schema, masked.to_batches())
                 if options.format == "xlsx":
-                    return exporting.excel(reader, columns, options, provenance, total)
+                    return exporting.excel(reader, written, options, provenance, total), len(written)
                 if options.format == "parquet":
-                    return exporting.parquet(reader, options, provenance)
-                return b"".join(exporting.delimited(reader, columns, options))
+                    return exporting.parquet(reader, options, provenance), len(written)
+                return b"".join(exporting.delimited(reader, written, options)), len(written)
 
-            data: bytes = await ctx.workers.run(BACKGROUND, build)
+            data, width = await ctx.workers.run(BACKGROUND, build)
             ctx.audit.write(
                 who,
                 "export",
@@ -643,9 +681,13 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 format=options.format,
                 file=file_name,
                 scope=scope,
-                columns=len(columns),
+                columns=width,
             )
-            message = f"Exported {total:,} rows x {len(columns)} columns to {file_name}"
+            message = f"Exported {total:,} rows x {width} columns to {file_name}"
+            if capped_from is not None:
+                message += f" (the first {total:,} of {capped_from:,}: privacy level {level}'s cap per read)"
+            elif row_cap is not None and level < 3:
+                message += f" (masked for privacy level {level})"
             if params.get("save") == "1" or who == "agent":
                 folder = settings.export_dir
                 folder.mkdir(parents=True, exist_ok=True)
