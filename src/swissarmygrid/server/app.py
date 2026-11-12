@@ -140,7 +140,7 @@ def create_app(
             *routes_context.routes(ctx, policy),
             *routes_models.routes(ctx, relationships),
             *routes_cards.routes(ctx, policy),
-            *routes_keyfinder.routes(ctx),
+            *routes_keyfinder.routes(ctx, policy),
             *routes_compare.routes(ctx, policy),
             *routes_processes.routes(ctx),
             *routes_snapshots.routes(ctx),

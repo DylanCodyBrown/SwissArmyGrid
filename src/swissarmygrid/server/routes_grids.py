@@ -39,6 +39,7 @@ from typing import Any
 
 import duckdb
 import pyarrow as pa
+import sqlglot
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import BaseRoute, Route
@@ -71,6 +72,7 @@ from swissarmygrid.server.context import (
     read_json,
 )
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.level_zero import query_classes, step_refusal, value_use_refusal
 from swissarmygrid.server.masking import Origins, column_rules
 from swissarmygrid.server.routes_agent import (
     LEVEL_ROW_CAPS,
@@ -436,6 +438,22 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         sql_steps = [s.params.get("sql") for s in new_steps if s.kind == "sql"]
         if (refused := pivot_refused(request, policy, *sql_steps)) is not None:
             return refused
+        before = {s.id: (s.kind, s.params) for s in grid.steps}
+        changed = [i for i, s in enumerate(new_steps) if before.get(s.id) != (s.kind, s.params)]
+        if who == "agent" and level == 0 and changed:
+            why = await ctx.grid_query(
+                grid,
+                None,
+                AGENT,
+                lambda cur: step_refusal(ctx, cur, info, new_steps, new_settings, changed),
+            )
+            if why is not None:
+                return Response(why, status_code=403)
+        for i in changed:  # who wrote each step last: level_zero.probe_reason reads it
+            if who == "agent":
+                grid.agent_steps.add(new_steps[i].id)
+            else:
+                grid.agent_steps.discard(new_steps[i].id)
         if isinstance(gen, int):  # newer gen from this page: interrupt its older queries
             grid.release(grid.admit(gen, ctx.store.cursor(), client))
         grid.steps, grid.settings = new_steps, new_settings
@@ -580,6 +598,18 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 return refused
             who = actor(request)
             row_cap = settings.max_sql_rows
+            if not agent_may_see_raw_values(request, policy):
+                # A SELECT here returns cells, so it is refused below level 3; refused before it runs,
+                # so whether it would have failed (an error() in a CASE) can't be read either.
+                if _creates_table(text) is False:
+                    return raw_values_refused()
+                if policy.level == 0:
+                    upto_step = body.get("upto") if isinstance(body.get("upto"), int) else None
+                    tables = await ctx.grid_query(
+                        grid, None, AGENT, lambda cur: query_classes(ctx, cur, grid, info, upto_step)
+                    )
+                    if (why := value_use_refusal(text, tables, returns_rows=False)) is not None:
+                        return Response(why, status_code=403)
 
             def execute(cur: duckdb.DuckDBPyConnection) -> Any:
                 # `upto`: while editing step N, `grid` is the table entering that step. A dataset
@@ -913,6 +943,15 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         Route("/grids/{grid_id}/code", code),
         Route("/grids/{grid_id}/recipe", recipe, methods=["POST", "DELETE"]),
     ]
+
+
+def _creates_table(text: str) -> bool | None:
+    """Whether `text` is a CREATE TABLE (True) or something else (False); None when it can't be
+    read, which the SQL guard then refuses with its own message before anything runs."""
+    try:
+        return isinstance(sqlglot.parse_one(text, read="duckdb"), sqlglot.exp.Create)
+    except Exception:
+        return None
 
 
 def _sql_value(value: Any) -> str:

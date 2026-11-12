@@ -5,7 +5,8 @@ page can tell agent actions from the user's. One privacy level covers every tabl
 the user in Settings (an agent cannot raise its own level), default 3:
 
   0  schema, counts and profile numbers only: no text values, no rows. A query may return
-     only whole-table aggregates (SELECT count(*), sum(x) FROM grid), never group keys.
+     only whole-table aggregates (SELECT count(*), sum(x) FROM grid), never group keys, and no
+     SQL, step or card an agent sends may turn a non-number value into a number (level_zero.py).
   1  also small masked samples: at most 20 rows, every text column masked unless the user
      marked it "show".
   2  rows, up to 200 per read, with the column masks.
@@ -57,6 +58,7 @@ from swissarmygrid.server.context import (
     read_json_object,
 )
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.level_zero import query_classes, value_use_refusal
 from swissarmygrid.server.masking import (
     Origins,
     column_rules,
@@ -185,9 +187,10 @@ def is_whole_table_aggregate(sql: str) -> bool:
         target = projection.this if isinstance(projection, exp.Alias) else projection
         if not isinstance(target, exp.AggFunc) and not target.find(exp.AggFunc):
             return False
-        # A bare column outside the aggregate (count(*) + id) would leak a value.
+        # A bare column outside the aggregate (count(*) + id) would leak a value; one in the
+        # aggregate's FILTER (WHERE ...) only picks the rows it reads.
         for column in target.find_all(exp.Column):
-            if not column.find_ancestor(exp.AggFunc):
+            if not column.find_ancestor(exp.AggFunc, exp.Filter):
                 return False
     return True
 
@@ -460,6 +463,13 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                     "the level in the grid's Settings.",
                     status_code=403,
                 )
+            if rules.level == 0:
+                # Numbers made from text (length, ascii, a FILTER on a value) are refused before running.
+                tables = await ctx.workers.run(
+                    AGENT, lambda: query_classes(ctx, ctx.store.cursor(), grid, info)
+                )
+                if (why := value_use_refusal(text, tables, returns_rows=True)) is not None:
+                    return Response(why, status_code=403)
             asked = False
             if not aggregate and not rules.auto_rows and rules.level < 3:
                 if not await ask_user(info.name, "query", text):

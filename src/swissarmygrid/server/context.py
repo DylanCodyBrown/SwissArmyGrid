@@ -66,6 +66,9 @@ class Context:
     # For a table made by a query: each column's origins, the dataset columns it was computed
     # from (masking.py), so a privacy mask on a source column follows the data into it.
     derived_columns: dict[str, dict[str, Origins]] = field(default_factory=dict)
+    # Datasets an agent made (loaded, pasted, or built by a query), whose values the agent chose:
+    # at privacy level 0 they are not compared against the user's data (server/level_zero.py).
+    agent_made: set[str] = field(default_factory=set)
 
     def grid_url(self, grid: Grid, with_token: bool = True) -> str:
         """The grid's page. The fragment carries the token to the page without ever sending it to

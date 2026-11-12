@@ -61,7 +61,7 @@ is no command that tries.
 | 3 (default) | everything: up to 1,048,576 rows per read (one Excel sheet), no masks, no waiting |
 | 2 | rows, up to 200 per read, after column masks; each read waits for the user's click unless they allowed automatic reads |
 | 1 | at most 20 rows, text masked (also inside lists and JSON) unless the user marked its columns shown |
-| 0 | schema, counts and profile numbers only; `agent_query` accepts only whole-table aggregates that return numbers |
+| 0 | schema, counts and profile numbers only; `agent_query` accepts only whole-table aggregates that return numbers; step values are hidden |
 
 At levels 0 to 2, the commands that return cells straight from the page (`row_read`, `cell_view`,
 `table_profile`, `column_profile`, `table_header_stats`, `cell_selection_stats`, `compare_rows`,
@@ -69,6 +69,19 @@ At levels 0 to 2, the commands that return cells straight from the page (`row_re
 Use `agent_read_grid` and `agent_query`, which mask, cap and ask. Commands that return no cells work
 at every level: counts, steps, `tabs_new_query`, `CREATE TABLE ... AS` in `steps_run_sql`, the Key
 Finder, relationships.
+
+At level 0 a number must never be made out of a value. Everything you send is checked before it runs
+(`agent_query`, `CREATE TABLE` in the SQL box, `tabs_new_query`, SQL steps, table cards and charts): a
+number column (one computed only from number columns) can be used freely, but a text, date, boolean,
+list, struct or JSON column may only be counted (`count(col)`, `count(DISTINCT col)`), grouped by
+without returning it, tested with `IS NULL`, or passed through a subquery unchanged. Functions and
+casts on it (`length`, `substr`, `hash`, `year`, `json_extract`, `CAST`), comparisons and sorts
+(`WHERE`, `FILTER`, `CASE`, `JOIN ... ON`, `ORDER BY`, window `PARTITION BY`), aggregates other than
+count (`min`, `string_agg`) and `UNION`/`INTERSECT`/`EXCEPT` over it are refused. Steps follow the same
+rule: a filter on such a column keeps only blank or non-blank rows, bucket and categorize need a
+number column, and group-by sums, means, mins and maxes need one too; sort, keep, rename, distinct,
+limit and counts work. The Key Finder and compare skip tables you made (loaded, pasted or built by a
+query) and grids with a SQL, bucket or categorize step you added, since those hold values you chose.
 
 A column mask follows the data: a column computed from a hidden or hashed column (renamed, in an
 expression, an aggregate, or a table made by a query) is hidden or hashed too, and a column the server

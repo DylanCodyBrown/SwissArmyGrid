@@ -30,11 +30,14 @@ from swissarmygrid.engine.keyfinder import KeyOptions, find_keys, most_distinct,
 from swissarmygrid.engine.workers import AGENT, BACKGROUND
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.level_zero import probe_reason, probe_refusal
+from swissarmygrid.server.routes_agent import Policy
 
 MAX_PAIRS: int = 200
 
 
-def routes(ctx: Context) -> list[BaseRoute]:
+def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
+    """`policy`: the agent privacy policy (routes_agent); at level 0 an agent's own tables are not matched."""
     settings = ctx.settings
 
     def view(
@@ -92,6 +95,16 @@ def routes(ctx: Context) -> list[BaseRoute]:
             options = KeyOptions.from_json(body.get("options"))
             chosen = targets(source, body.get("target", "*"))
             who = actor(request)
+            left_out: dict[str, str] = {}
+            if who == "agent" and policy.level == 0:
+                # Match counts against a table of values the agent chose would tell the user's values.
+                explicit = body.get("target", "*") != "*"
+                if (why := probe_refusal(ctx, source, *(chosen if explicit else []))) is not None:
+                    return Response(why, status_code=403)
+                for grid in chosen:
+                    if (reason := probe_reason(ctx, grid)) is not None:
+                        left_out[grid.id] = f"left out at privacy level 0: {reason}"
+                chosen = [g for g in chosen if g.id not in left_out]
 
             def compute(cur: duckdb.DuckDBPyConnection) -> dict[str, Any]:
                 with ExitStack() as held:
@@ -100,7 +113,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
             def search(cur: duckdb.DuckDBPyConnection, held: ExitStack) -> dict[str, Any]:
                 src_sql, src_cols, src_info = view(cur, source, held)
                 pairs: list[dict[str, Any]] = []
-                skipped: dict[str, Any] = {}
+                skipped: dict[str, Any] = dict(left_out)
                 checked: list[str] = []
                 for target in chosen:
                     with ExitStack() as held_target:

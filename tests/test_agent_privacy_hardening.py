@@ -58,9 +58,10 @@ def test_engine_errors_never_quote_a_value_to_an_agent_below_level_2(
     set_policy(client, level)
     method, path, extra = _error_routes(gid)[index]
     refused = client.request(method, path, headers=AGENT, **extra)
-    assert refused.status_code == 400
+    # Level 0 refuses a cast of a text column before it runs (level_zero.py); level 1 runs it.
+    assert refused.status_code == (403 if level == 0 else 400)
     assert SECRET not in refused.text
-    assert "hidden" in refused.text
+    assert ("level 0" if level == 0 else "hidden") in refused.text
 
 
 def test_a_failing_view_count_hides_the_value_too(client: TestClient) -> None:
@@ -446,8 +447,11 @@ def test_the_user_and_a_level_3_agent_may_pivot(client: TestClient) -> None:
     open_grid(client)
     assert client.post("/datasets/pq/query", json={"sql": PIVOT_SQL}, headers=AUTH).status_code == 200
     unpivot = "SELECT * FROM (UNPIVOT clients ON client INTO NAME k VALUE v)"  # names into values: fine
-    set_policy(client, 0)
+    set_policy(client, 1)
     assert client.post("/datasets/up/query", json={"sql": unpivot}, headers=AGENT).status_code == 200
+    # Level 0 refuses it: an UNPIVOT can put a literal the agent chose beside the user's values.
+    set_policy(client, 0)
+    assert client.post("/datasets/up0/query", json={"sql": unpivot}, headers=AGENT).status_code == 403
     set_policy(client, 3)
     assert client.post("/datasets/pq2/query", json={"sql": PIVOT_SQL}, headers=AGENT).status_code == 200
 
