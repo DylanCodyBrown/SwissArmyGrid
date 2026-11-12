@@ -50,6 +50,8 @@ export function openExport(): void {
   const neutralize = h("input", { type: "checkbox", checked: true });
   const neutralizeWarning = h("p", { class: "warning-text", hidden: true }, "⚠ Text starting with = + - or @ may run as a formula when the file is opened in Excel.");
   const sheet = h("input", { type: "text", value: "Data", "aria-label": "Sheet name" });
+  // Off by default: a longer cell is refused with a message naming it, and this cuts it instead.
+  const cutLong = h("input", { type: "checkbox" });
   const provenance = h("input", { type: "checkbox", checked: true });
   // An Excel sheet or Parquet metadata; delimited text has nowhere to put it.
   const provenanceField = h("label", { class: "check" }, provenance, "Include provenance (source, steps, time; never data)");
@@ -68,7 +70,7 @@ export function openExport(): void {
     h("div", { class: "checklist", role: "group", "aria-label": "Columns to export" }, ...boxes.map((b) => h("label", { class: "check" }, b.box, b.name))),
   );
   const textOptions = h("div", { class: "form-grid" }, field("Delimiter", delimiter), field("Line endings", lineEnding), field("Blank cells as", blank), h("label", { class: "check" }, header, "Header row"), h("label", { class: "check" }, quoteAll, "Quote every cell"), h("label", { class: "check", title: "Adds a byte order mark so Excel reads accented characters correctly" }, bom, "UTF-8 BOM (for Excel)"), h("label", { class: "check" }, neutralize, "Neutralize formula-like text"));
-  const excelOptions = h("div", { class: "form-grid" }, field("Sheet name", sheet));
+  const excelOptions = h("div", { class: "form-grid" }, field("Sheet name", sheet), h("label", { class: "check" }, cutLong, "Cut text longer than an Excel cell holds (32,767 characters)"));
   const parquetOptions = h("div", { class: "form-grid" }, field("Compression", compression));
   const sync = (): void => {
     const f = format.value;
@@ -103,6 +105,7 @@ export function openExport(): void {
     blank: blank.value,
     neutralize_formulas: neutralize.checked ? "1" : "0",
     sheet_name: sheet.value,
+    allow_cell_truncation: cutLong.checked ? "1" : "0",
     provenance: provenance.checked ? "1" : "0",
     compression: compression.value,
     save: save ? "1" : undefined,

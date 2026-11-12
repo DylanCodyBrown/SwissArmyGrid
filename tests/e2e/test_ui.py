@@ -521,6 +521,27 @@ def test_export_excel_download(browser: Browser, orders_url: str) -> None:
     assert download_info.value.suggested_filename == "orders.xlsx"
 
 
+def test_excel_export_can_cut_a_cell_over_excels_limit(browser: Browser, server: dict[str, Any]) -> None:
+    # The refusal said "Export CSV instead, or allow truncation", and the dialog had no way to.
+    import io
+
+    import openpyxl
+
+    url = push_client.push(pd.DataFrame({"id": [1, 2], "text": ["short", "y" * 40_000]}), name="long_cells")
+    page = open_grid(browser, url)
+    page.get_by_role("button", name="Export", exact=True).click()
+    dialog = page.locator("dialog")
+    dialog.get_by_label("Format").select_option("xlsx")
+    dialog.get_by_role("button", name="Download").click()
+    expect(dialog.locator(".status-error")).to_contain_text("holds 40,000 characters")
+    dialog.get_by_label("Cut text longer than an Excel cell holds (32,767 characters)").check()
+    with page.expect_download() as download_info:
+        dialog.get_by_role("button", name="Download").click()
+    sheet = openpyxl.load_workbook(io.BytesIO(Path(download_info.value.path()).read_bytes()))["Data"]
+    assert len(str(sheet["B3"].value)) == 32_767
+    call(server, "DELETE", f"/grids/{grid_of(url)}")
+
+
 # ===== analysis panel: charts, notes, zoom, split layouts =====
 
 
