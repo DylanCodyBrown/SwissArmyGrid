@@ -200,10 +200,11 @@ def steps_from_json(raw: Any) -> list[Step]:
 class StepError(ValueError):
     """A step that cannot apply. `index` is the step's position, or None for the whole list."""
 
-    def __init__(self, index: int | None, message: str) -> None:
+    def __init__(self, index: int | None, message: str, from_engine: bool = False) -> None:
         super().__init__(message if index is None else f"Step {index + 1}: {message}")
         self.index = index
         self.message = message
+        self.from_engine = from_engine  # the message is DuckDB's, which can quote a value
 
 
 # ===== SQL building blocks =====
@@ -370,7 +371,10 @@ def compile_view(
                 _check_sql_columns(columns)
         except StepError as error:
             return CompiledView(tuple(ctes), tuple(stages), StepError(index, error.message))
-        except (ValueError, duckdb.Error) as error:
+        except duckdb.Error as error:
+            # DuckDB's own text, which can quote a cell value: the server hides it from an agent.
+            return CompiledView(tuple(ctes), tuple(stages), StepError(index, str(error), from_engine=True))
+        except ValueError as error:
             return CompiledView(tuple(ctes), tuple(stages), StepError(index, str(error)))
         ctes = candidate
         stages.append(Stage(name, columns))

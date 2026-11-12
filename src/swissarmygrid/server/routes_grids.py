@@ -12,6 +12,7 @@
   GET    /grids/{id}/header-stats        distinct count and blank percent per column
   GET    /grids/{id}/categorize-stats?step=         unmatched and overlapping rows of a rule set
   POST   /grids/{id}/steps               {"steps": [...], "settings": {...}, "gen": n}
+  POST   /grids/{id}/step-ops            {"op": add|edit|delete|toggle|move, "index"|"id", ...} one step
   POST   /grids/{id}/header-sort         {"keys": [["col", "asc"]], "gen": n}
   POST   /grids/{id}/sql                 {"sql": "..."} guarded; CREATE TABLE AS pins a new grid
   GET    /grids/{id}/export?format=&scope=&...      a download (or ?save=1 into the export folder)
@@ -32,6 +33,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -49,6 +51,7 @@ from swissarmygrid.engine.profile import header_stats, profile_column, profile_t
 from swissarmygrid.engine.recipes import delete_recipe, save_recipe
 from swissarmygrid.engine.sql_guard import guard
 from swissarmygrid.engine.steps import (
+    Step,
     StepError,
     ViewSettings,
     categorize_conditions,
@@ -80,16 +83,35 @@ from swissarmygrid.server.routes_agent import (
     redact_profile_row,
 )
 from swissarmygrid.server.routes_datasets import budget, store_table
+from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
 from swissarmygrid.server.selection import combine_stats, selection_scope, stats_sql
+from swissarmygrid.server.step_privacy import HIDDEN, mentions_hidden, redact_step, restore_hidden
 
 _SAFE_FILE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def describe_grid(
-    ctx: Context, grid: Grid, info: DatasetInfo, cursor: duckdb.DuckDBPyConnection
+    ctx: Context, grid: Grid, info: DatasetInfo, cursor: duckdb.DuckDBPyConnection, agent_level: int = 3
 ) -> dict[str, Any]:
+    """The grid in full. `agent_level`: the privacy level of an agent asking (3 for the user). At
+    level 0 the steps and the "+" tab's query are shown without their values (step_privacy.py),
+    and below level 2 a step error in DuckDB's own words (which can quote a cell) is hidden."""
     compiled = ctx.compiled(cursor, grid, info)
     error = compiled.error
+    step_error: dict[str, Any] | None = None
+    if error is not None:
+        message = error.message
+        if agent_level == 0:
+            message = (
+                "This step cannot apply. Its message is hidden at privacy level 0, since it can quote values."
+            )
+        elif agent_level < ENGINE_ERRORS_SHOWN_FROM_LEVEL and error.from_engine:
+            message = ENGINE_ERROR_HIDDEN
+        step_error = {"index": error.index, "message": message}
+    if agent_level == 0:
+        steps = [redact_step(s) for s in grid.steps]
+    else:
+        steps = [s.to_json() | {"description": describe_step(s)} for s in grid.steps]
     return {
         "grid": grid.id,
         "dataset": info.name,
@@ -97,13 +119,13 @@ def describe_grid(
         "version": info.version,
         "row_count": info.row_count,
         "source_kind": info.source_kind,
-        "query": info.query,
+        "query": HIDDEN if agent_level == 0 and info.query is not None else info.query,
         "source_columns": [{"name": c.name, "type": c.type} for c in info.columns],
         "columns": [{"name": c.name, "type": c.type} for c in compiled.columns],
         # Columns after each step (index 0 = the source), for previewing a step.
         "stage_columns": [[{"name": c.name, "type": c.type} for c in s.columns] for s in compiled.stages],
-        "steps": [s.to_json() | {"description": describe_step(s)} for s in grid.steps],
-        "step_error": None if error is None else {"index": error.index, "message": error.message},
+        "steps": steps,
+        "step_error": step_error,
         "settings": grid.settings.to_json(),
         "gen": grid.gen,
         "budget": budget(ctx),
@@ -141,6 +163,10 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
     def priority(request: Request) -> int:
         return AGENT if actor(request) == "agent" else BACKGROUND
+
+    def agent_level(request: Request) -> int:
+        """The privacy level the caller reads at: the policy's for an agent, 3 for the user."""
+        return policy.level if actor(request) == "agent" else 3
 
     # ===== grid lifecycle =====
 
@@ -185,8 +211,11 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     async def get_grid(request: Request) -> Response:
         try:
             grid, info = ctx.grid_and_info(request.path_params["grid_id"])
+            level = agent_level(request)
             return json_response(
-                await ctx.grid_query(grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur))
+                await ctx.grid_query(
+                    grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur, level)
+                )
             )
         except Exception as error:
             return error_response(error)
@@ -382,30 +411,134 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
     # ===== changing the view =====
 
+    async def commit_steps(
+        request: Request,
+        grid: Grid,
+        info: DatasetInfo,
+        new_steps: list[Step],
+        new_settings: ViewSettings,
+        gen: Any = None,
+        client: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> Response:
+        """Make `new_steps` the grid's steps: the one path for the whole list (POST .../steps) and
+        for one change (POST .../step-ops). Returns the grid described for the caller."""
+        who = actor(request)
+        level = agent_level(request)
+        if who == "agent":
+            # Values hidden from the agent at level 0 come back as they were (step_privacy.py).
+            new_steps = restore_hidden(new_steps, grid.steps)
+            if any(mentions_hidden(s.params) for s in new_steps):
+                raise ValueError(
+                    "A step still holds the hidden-value marker. Change one step with steps_edit and its "
+                    "full params, or post the step exactly as tabs_get showed it to keep it unchanged."
+                )
+        sql_steps = [s.params.get("sql") for s in new_steps if s.kind == "sql"]
+        if (refused := pivot_refused(request, policy, *sql_steps)) is not None:
+            return refused
+        if isinstance(gen, int):  # newer gen from this page: interrupt its older queries
+            grid.release(grid.admit(gen, ctx.store.cursor(), client))
+        grid.steps, grid.settings = new_steps, new_settings
+        described = await ctx.grid_query(
+            grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur, level)
+        )
+        await ctx.live.broadcast({"type": "grid_updated", "grid": grid.id, "by": who, "gen": grid.gen})
+        ctx.audit.write(who, "steps", info.name, steps=len(new_steps))
+        return json_response(described | (extra or {}))
+
     async def put_steps(request: Request) -> Response:
         try:
             grid, info = ctx.grid_and_info(request.path_params["grid_id"])
             body = await read_json(request)
             if not isinstance(body, dict):
                 raise ValueError('Send {"steps": [...], "settings": {...}}.')
-            new_steps = steps_from_json(body.get("steps", [s.to_json() for s in grid.steps]))
-            sql_steps = [s.params.get("sql") for s in new_steps if s.kind == "sql"]
-            if (refused := pivot_refused(request, policy, *sql_steps)) is not None:
-                return refused
+            new_steps = steps_from_json(body["steps"]) if "steps" in body else list(grid.steps)
             new_settings = ViewSettings.from_json(body["settings"]) if "settings" in body else grid.settings
-            gen = body.get("gen")
             client = str(body.get("client", ""))[:40]
-            if isinstance(gen, int):  # newer gen from this page: interrupt its older queries
-                grid.release(grid.admit(gen, ctx.store.cursor(), client))
-            grid.steps, grid.settings = new_steps, new_settings
-            described = await ctx.grid_query(
-                grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur)
-            )
-            await ctx.live.broadcast(
-                {"type": "grid_updated", "grid": grid.id, "by": actor(request), "gen": grid.gen}
-            )
-            ctx.audit.write(actor(request), "steps", info.name, steps=len(new_steps))
-            return json_response(described)
+            return await commit_steps(request, grid, info, new_steps, new_settings, body.get("gen"), client)
+        except StepError as error:
+            return Response(str(error), status_code=400)
+        except Exception as error:
+            return error_response(error)
+
+    async def step_op(request: Request) -> Response:
+        """One change to one step, by its id or index, so an agent never needs the step values back:
+        {"op": "add", "step": {...}, "index"?} | {"op": "edit", "params": {...}} |
+        {"op": "delete"} | {"op": "toggle", "enabled"?} | {"op": "move", "to": n},
+        each but add naming the step with "id" or "index"."""
+        try:
+            grid, info = ctx.grid_and_info(request.path_params["grid_id"])
+            body = await read_json(request)
+            if not isinstance(body, dict):
+                raise ValueError('Send {"op": "add" | "edit" | "delete" | "toggle" | "move", ...}.')
+            steps = list(grid.steps)
+
+            def whole(name: str) -> int | None:
+                value = body.get(name)
+                if value is None:
+                    return None
+                if type(value) is not int:
+                    raise ValueError(f"{name} must be a whole number.")
+                return value
+
+            def position() -> int:
+                step_id = body.get("id")
+                if step_id is not None:
+                    found = next((i for i, s in enumerate(steps) if s.id == step_id), None)
+                    if found is None:
+                        raise LookupError(
+                            f"No step with id {str(step_id)[:40]!r} in this grid; tabs_get lists them."
+                        )
+                    return found
+                index = whole("index")
+                if index is None:
+                    raise ValueError("Name the step with its index (from 0) or its id.")
+                if not 0 <= index < len(steps):
+                    raise ValueError(
+                        f"index {index} is out of range: the grid has {len(steps)} step(s), numbered from 0."
+                    )
+                return index
+
+            op = body.get("op")
+            if op == "add":
+                raw = body.get("step")
+                if not isinstance(raw, dict):
+                    raise ValueError('add needs "step": {"kind": ..., "params": {...}}.')
+                new = Step.from_json({k: v for k, v in raw.items() if k != "id"}, len(steps))
+                index = whole("index")
+                if index is None:  # before a header-click sort, which stays the last word
+                    at = next((i for i, s in enumerate(steps) if s.params.get("header")), len(steps))
+                else:
+                    at = max(0, min(index, len(steps)))
+                steps.insert(at, new)
+            elif op == "edit":
+                at = position()
+                params = body.get("params")
+                if not isinstance(params, dict):
+                    raise ValueError('edit needs "params": the step\'s full new params, an object.')
+                steps[at] = replace(steps[at], params=params)
+            elif op == "delete":
+                at = position()
+                del steps[at]
+            elif op == "toggle":
+                at = position()
+                enabled = body.get("enabled")
+                if enabled is not None and not isinstance(enabled, bool):
+                    raise ValueError("enabled must be true or false.")
+                steps[at] = replace(
+                    steps[at], enabled=(not steps[at].enabled) if enabled is None else enabled
+                )
+            elif op == "move":
+                start = position()
+                to = whole("to")
+                if to is None:
+                    raise ValueError('move needs "to": the new index.')
+                moved = steps.pop(start)
+                at = max(0, min(to, len(steps)))
+                steps.insert(at, moved)
+            else:
+                raise ValueError("op must be add, edit, delete, toggle or move.")
+            return await commit_steps(request, grid, info, steps, grid.settings, extra={"index": at})
         except StepError as error:
             return Response(str(error), status_code=400)
         except Exception as error:
@@ -423,8 +556,9 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             if isinstance(gen, int):
                 grid.release(grid.admit(gen, ctx.store.cursor(), client))
             grid.steps = with_header_sort(grid.steps, keys)
+            level = agent_level(request)
             described = await ctx.grid_query(
-                grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur)
+                grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur, level)
             )
             await ctx.live.broadcast(
                 {"type": "grid_updated", "grid": grid.id, "by": actor(request), "gen": grid.gen}
@@ -770,6 +904,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         Route("/grids/{grid_id}/header-stats", stats),
         Route("/grids/{grid_id}/categorize-stats", categorize_stats),
         Route("/grids/{grid_id}/steps", put_steps, methods=["POST"]),
+        Route("/grids/{grid_id}/step-ops", step_op, methods=["POST"]),
         Route("/grids/{grid_id}/header-sort", header_sort, methods=["POST"]),
         Route("/grids/{grid_id}/sql", run_sql, methods=["POST"]),
         Route("/grids/{grid_id}/cancel", cancel, methods=["POST"]),

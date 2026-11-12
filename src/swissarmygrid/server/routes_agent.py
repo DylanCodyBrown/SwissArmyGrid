@@ -67,6 +67,7 @@ from swissarmygrid.server.masking import (
     pivots,
 )
 from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
+from swissarmygrid.server.step_privacy import redact_step
 from swissarmygrid.settings import EXCEL_MAX_ROWS
 
 # Level 3 reads as much as one Excel worksheet holds; the agent still picks its own limit.
@@ -625,10 +626,9 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                 )
             except duckdb.Error:
                 row_count = None  # the view fails to compute; the steps show which one
-            steps = [s.to_json() for s in grid.steps]
-            if level == 0:
-                # Step values are text the user typed, which can be client data: names only.
-                steps = [{"kind": s["kind"], "column": s["params"].get("column")} for s in steps]
+            # Step values are text the user typed, which can be client data: at level 0 the steps'
+            # shape only, as tabs_get shows them (step_privacy.py).
+            steps = [redact_step(s) if level == 0 else s.to_json() for s in grid.steps]
             return json_response(
                 {
                     "grid": grid.id,

@@ -175,7 +175,10 @@ def test_view_state_highlights_and_selection(client: TestClient) -> None:
     client.post(f"/grids/{grid}/selection", json={"count": 2}, headers=AUTH)
     state = client.get(f"/agent/view-state/{grid}", headers=AGENT).json()
     assert state["selected_rows"] == 2
-    assert state["steps"] == [{"kind": "filter", "column": "client"}]  # level 0: no values
+    # Level 0: the step's shape, not its value (step_privacy.py).
+    (step,) = state["steps"]
+    assert step["kind"] == "filter" and step["params"]["column"] == "client"
+    assert "Globex" not in str(state)
     marked = client.post(
         f"/grids/{grid}/highlights",
         json={"highlights": [{"column": "balance", "op": "gt", "value": 50, "label": "large"}]},
