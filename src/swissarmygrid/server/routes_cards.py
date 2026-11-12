@@ -297,7 +297,7 @@ def _click_filter(field: str, family: str, value: Any, time_unit: str | None) ->
     if value is None:
         return {"column": field, "op": "blank"}
     if time_unit is None:
-        return {"column": field, "op": "eq", "value": value}
+        return {"column": field, "op": "eq", "value": _as_family(value, family)}
     if not isinstance(value, str):
         raise ValueError(f"A {time_unit} of {field} is picked by its first day, as YYYY-MM-DD.")
     start = value[:10]
@@ -305,6 +305,22 @@ def _click_filter(field: str, family: str, value: Any, time_unit: str | None) ->
     if family == "timestamp":
         end += "T23:59:59.999999"  # the whole last day, not just its midnight
     return {"column": field, "op": "date_between", "low": start, "high": end}
+
+
+def _as_family(value: Any, family: str) -> Any:
+    """A value an agent gave as text (`sag sandbox_select --value 3`) as its column's type; any
+    other value as it came (the filter step says what is wrong with it)."""
+    if not isinstance(value, str):
+        return value
+    if family == "boolean" and value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    if family == "number":
+        try:
+            number = float(value)
+        except ValueError:
+            return value
+        return int(value) if value.strip().lstrip("+-").isdigit() else number
+    return value
 
 
 def _bucket_end(start: str, unit: str) -> str:

@@ -383,6 +383,20 @@ def test_a_click_on_a_chart_whose_column_left_the_view_says_so(client: TestClien
     assert refused.status_code == 400 and "kind" in refused.text
 
 
+def test_a_click_value_given_as_text_is_read_as_the_columns_type(client: TestClient) -> None:
+    # `sag sandbox_select <card> --value 3` sends "3": the filter step was refused for a number column.
+    grid = grid_id(push(client, "o", big_table(100)))
+    by_qty = chart(client, grid, {"mark": "bar", "x": {"field": "qty"}, "y": {"aggregate": "count"}})
+    assert client.post(f"/cards/{by_qty}/select", json={"value": "3"}, headers=AUTH).status_code == 200
+    assert row_count(client, grid) == 2
+    client.post(f"/grids/{grid}/steps", json={"steps": []}, headers=AUTH)
+    by_price = chart(client, grid, {"mark": "bar", "x": {"field": "price"}, "y": {"aggregate": "count"}})
+    assert client.post(f"/cards/{by_price}/select", json={"value": "0.0"}, headers=AUTH).status_code == 200
+    assert row_count(client, grid) == 1
+    refused = client.post(f"/cards/{by_qty}/select", json={"value": "three"}, headers=AUTH)
+    assert refused.status_code == 400
+
+
 def test_a_heatmap_click_filters_on_both_axes(client: TestClient) -> None:
     grid = grid_id(push(client, "o", hours()))
     cells = {"mark": "heatmap", "x": {"field": "kind"}, "y": {"field": "day", "aggregate": "count"}}
