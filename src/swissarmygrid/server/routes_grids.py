@@ -146,7 +146,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                         "grid": g.id,
                         "dataset": g.dataset,
                         "steps": len(g.steps),
-                        "url": ctx.grid_url(g),
+                        "url": ctx.grid_url(g, with_token=actor(request) != "agent"),
                     }
                     for g in ctx.grids.all()
                 ],
@@ -168,8 +168,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             return json_response(
                 {
                     "grid": grid.id,
-                    "grid_url": ctx.grid_url(grid),
-                    "workspace_url": ctx.workspace_url(grid),
+                    "grid_url": ctx.grid_url(grid, with_token=actor(request) != "agent"),
+                    "workspace_url": ctx.workspace_url(grid, with_token=actor(request) != "agent"),
                     "shown": shown,
                 }
             )

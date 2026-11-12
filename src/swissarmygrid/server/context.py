@@ -67,14 +67,20 @@ class Context:
     # from (masking.py), so a privacy mask on a source column follows the data into it.
     derived_columns: dict[str, dict[str, Origins]] = field(default_factory=dict)
 
-    def grid_url(self, grid: Grid) -> str:
-        # The fragment carries the token to the page without ever sending it to the server.
-        return f"http://127.0.0.1:{self.port}/g/{grid.id}#token={self.token}"
+    def grid_url(self, grid: Grid, with_token: bool = True) -> str:
+        """The grid's page. The fragment carries the token to the page without ever sending it to
+        the server. `with_token=False` for an agent: the token is the user's credential (a request
+        with it and no X-Actor is the user's, at any level), so an agent gets the address only."""
+        address = f"http://127.0.0.1:{self.port}/g/{grid.id}"
+        return f"{address}#token={self.token}" if with_token else address
 
-    def workspace_url(self, grid: Grid | None = None) -> str:
+    def workspace_url(self, grid: Grid | None = None, with_token: bool = True) -> str:
         """The tabbed workspace (one window, a tab per grid), opened on `grid` when given."""
+        address = f"http://127.0.0.1:{self.port}/workspace"
+        if not with_token:
+            return address + (f"#grid={grid.id}" if grid else "")
         focus = f"&grid={grid.id}" if grid else ""
-        return f"http://127.0.0.1:{self.port}/workspace#token={self.token}{focus}"
+        return f"{address}#token={self.token}{focus}"
 
     def grid_and_info(self, grid_id: str) -> tuple[Grid, DatasetInfo]:
         grid = self.grids.get(grid_id)

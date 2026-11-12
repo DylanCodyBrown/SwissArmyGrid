@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
@@ -294,6 +295,79 @@ def test_show_follows_a_rename_at_level_1(client: TestClient) -> None:
     rename = {"kind": "rename", "params": {"mapping": {"client": "c"}}}
     client.post(f"/grids/{gid}/steps", json={"steps": [rename]}, headers=AGENT)
     assert read_view(client, gid)["rows"][0][0] == SECRET
+
+
+# ===== the token never reaches an agent =====
+
+
+def test_no_response_to_an_agent_carries_the_token(client: TestClient) -> None:
+    """Grid addresses carried the token in their #fragment (the page reads it there), and the agent
+    got them from tabs_list, tabs_create_grid, the + tab, a paste and a pinned table. The token is
+    the user's credential: with it a request without X-Actor is the user's, at any level."""
+    from tests.conftest import TOKEN
+
+    gid = open_grid(client)
+    answers = [
+        client.get("/grids", headers=AGENT),
+        client.post("/grids", json={"dataset": "clients"}, headers=AGENT),
+        client.post("/datasets/q1/query", json={"sql": "SELECT * FROM clients"}, headers=AGENT),
+        client.post("/datasets/p1/paste", content=b"a\tb\n1\t2\n", headers=AGENT),
+        client.post(
+            f"/grids/{gid}/sql", json={"sql": "CREATE TABLE pinned AS SELECT * FROM grid"}, headers=AGENT
+        ),
+        push(client, "pushed", TABLE, headers=AGENT),
+    ]
+    for answer in answers:
+        assert answer.status_code == 200, answer.text
+        assert TOKEN not in answer.text
+    # The page and the push client still get links that open.
+    assert f"#token={TOKEN}" in client.get("/grids", headers=AUTH).text
+    assert f"#token={TOKEN}" in push(client, "pushed", TABLE).text
+
+
+def test_swissarmygrid_s_own_files_cannot_be_loaded_as_a_table(client: TestClient, tmp_path: Path) -> None:
+    """The connection file is one line of JSON, so it loaded as a table, token and all."""
+    state = tmp_path / "state"
+    state.mkdir(exist_ok=True)
+    for name in ("server.json", "recipes.json"):
+        (state / name).write_text('{"port": 1, "token": "abc"}')
+    for path in (state / "server.json", state / "recipes.json", state / ".." / "state" / "server.json"):
+        for headers in (AGENT, AUTH):
+            refused = client.post("/datasets/x/load", json={"path": str(path)}, headers=headers)
+            assert refused.status_code == 403, refused.text
+
+
+def test_the_connection_file_cannot_be_loaded_wherever_it_lives(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    info = tmp_path / "elsewhere" / "server.json"
+    info.parent.mkdir()
+    info.write_text('{"port": 1, "token": "abc"}')
+    monkeypatch.setenv("SWISSARMYGRID_INFO", str(info))
+    assert client.post("/datasets/x/load", json={"path": str(info)}, headers=AGENT).status_code == 403
+    other = tmp_path / "elsewhere" / "data.jsonl"
+    other.write_text('{"a": 1}\n')
+    assert client.post("/datasets/x/load", json={"path": str(other)}, headers=AGENT).status_code == 200
+
+
+def test_an_export_can_still_be_loaded_back(tmp_path: Path) -> None:
+    """The export folder sits inside the state folder by default; an export is a table."""
+    from swissarmygrid.server.app import create_app
+    from swissarmygrid.settings import Settings
+    from tests.conftest import BASE, PORT, TOKEN
+
+    state = tmp_path / "state"
+    settings = Settings(state_dir=state, export_dir=state / "exports")
+    with TestClient(create_app(PORT, TOKEN, settings), base_url=BASE) as c:
+        gid = grid_id(push(c, "clients", TABLE))
+        assert (
+            c.get(f"/grids/{gid}/export", params={"format": "csv", "save": "1"}, headers=AUTH).status_code
+            == 200
+        )
+        loaded = c.post(
+            "/datasets/back/load", json={"path": str(state / "exports" / "clients.csv")}, headers=AUTH
+        )
+        assert loaded.status_code == 200, loaded.text
 
 
 # ===== a cross compare's picked row carries its key values =====

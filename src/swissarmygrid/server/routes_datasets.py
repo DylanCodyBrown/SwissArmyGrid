@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -51,6 +52,7 @@ from swissarmygrid.server.context import (
     read_json,
 )
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.info_file import info_file_path
 from swissarmygrid.server.masking import Origins
 from swissarmygrid.server.routes_agent import Policy, pivot_refused
 
@@ -124,7 +126,7 @@ async def store_table(
         )
         return {
             "grid_url": None,
-            "workspace_url": ctx.workspace_url(),
+            "workspace_url": ctx.workspace_url(with_token=who != "agent"),
             "grid": None,
             "dataset": name,
             "version": info.version,
@@ -157,8 +159,8 @@ async def store_table(
         # Nothing shows it yet: VS Code opens the workspace (its window the user was last in).
         watched = ctx.live.shown_or_opening(grid.id) or await ctx.live.ask_opener(ctx.workspace_url(grid))
     return {
-        "grid_url": ctx.grid_url(grid),
-        "workspace_url": ctx.workspace_url(grid),
+        "grid_url": ctx.grid_url(grid, with_token=who != "agent"),
+        "workspace_url": ctx.workspace_url(grid, with_token=who != "agent"),
         "grid": grid.id,
         "dataset": name,
         "version": info.version,
@@ -171,6 +173,22 @@ async def store_table(
 def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     """`policy`: the agent privacy policy (routes_agent), for the SQL an agent may send."""
     settings = ctx.settings
+
+    def own_file_refused(path: str) -> Response | None:
+        """A 403 for a file of SwissArmyGrid's own: the connection file (one line of JSON, so it
+        loaded as a table, token and all), the audit log, recipes: the state folder, except the
+        export folder inside it (an export loaded back is a table)."""
+        try:
+            target = Path(path).expanduser().resolve()
+            connection = info_file_path().expanduser().resolve()
+            state = settings.state_dir.expanduser().resolve()
+            exports = settings.export_dir.expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            return None  # an unusable path: the loader says why
+        inside_state = target.is_relative_to(state) and not target.is_relative_to(exports)
+        if target == connection or inside_state:
+            return Response("That is one of SwissArmyGrid's own files, not a table.", status_code=403)
+        return None
 
     async def health(request: Request) -> Response:
         return JSONResponse({"status": "ok", "version": __version__, "pid": os.getpid()})
@@ -272,6 +290,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             path = body.get("path") if isinstance(body, dict) else None
             if not isinstance(path, str):
                 return Response('Send {"path": "<full path to the file>"}.', status_code=400)
+            if (refused := own_file_refused(path)) is not None:
+                return refused
             sheet = body.get("sheet") if isinstance(body.get("sheet"), str) else None
             table, kind = await ctx.workers.run(
                 BACKGROUND, load_file, path, settings.max_dataset_bytes, sheet
@@ -289,6 +309,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             path = body.get("path") if isinstance(body, dict) else None
             if not isinstance(path, str):
                 return Response('Send {"path": "<full path to the .xlsx file>"}.', status_code=400)
+            if (refused := own_file_refused(path)) is not None:
+                return refused
             return json_response({"sheets": await ctx.workers.run(BACKGROUND, excel_sheets, path)})
         except Exception as error:
             return error_response(error)
