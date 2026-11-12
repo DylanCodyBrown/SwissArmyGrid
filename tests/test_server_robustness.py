@@ -89,6 +89,53 @@ def test_json_bodies_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         assert small.status_code == 200
 
 
+class _FakeSocket:
+    """Stands in for a page's WebSocket: records what it is sent, or never finishes a send."""
+
+    def __init__(self, stuck: bool = False) -> None:
+        self.stuck = stuck
+        self.sent: list[str] = []
+        self.closed = False
+
+    async def send_text(self, text: str) -> None:
+        import asyncio
+
+        if self.stuck:
+            await asyncio.Event().wait()  # a frozen tab: its buffers are full and it never reads
+        self.sent.append(text)
+
+    async def close(self, code: int = 1000) -> None:
+        self.closed = True
+
+
+def test_a_page_that_stops_reading_never_holds_up_a_broadcast(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import json as json_module
+    import time
+
+    from swissarmygrid.server import live_updates
+    from swissarmygrid.server.live_updates import LiveUpdates
+
+    monkeypatch.setattr(live_updates, "SEND_TIMEOUT_SECONDS", 0.2)
+    live = LiveUpdates()
+    pages: list[Any] = [_FakeSocket() for _ in range(5)]
+    stuck: Any = _FakeSocket(stuck=True)
+    for page in [*pages[:2], stuck, *pages[2:]]:
+        live.add(page, "g1")
+
+    async def go() -> float:
+        started = time.perf_counter()
+        await live.broadcast({"type": "grid_updated", "grid": "g1"})
+        return time.perf_counter() - started
+
+    took = asyncio.run(go())
+    assert took < 1.0  # the stuck page held the broadcast up by the limit at most, not forever
+    assert all(json_module.loads(p.sent[0]) == {"type": "grid_updated", "grid": "g1"} for p in pages)
+    # The stuck page is dropped and its socket closed, so the next broadcast does not wait at all.
+    assert stuck.closed and stuck not in live._sockets
+    assert asyncio.run(go()) < 0.1 and all(len(p.sent) == 2 for p in pages)
+
+
 def test_jsonable_keeps_its_meaning_on_the_fast_path() -> None:
     from datetime import date, datetime
     from decimal import Decimal

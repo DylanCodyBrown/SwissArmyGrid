@@ -12,6 +12,9 @@ also how a server VS Code started knows VS Code has closed (`openers_gone_for`).
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
 from time import monotonic
 from typing import Any
 
@@ -20,6 +23,8 @@ from starlette.websockets import WebSocket
 # How long a window a push was told to open may take to connect before the next push opens
 # another. A browser that isn't running yet takes a few seconds to start and load the page.
 WINDOW_GRACE_SECONDS: float = 15.0
+# How long one page may take to take one notice before it is dropped and its socket closed.
+SEND_TIMEOUT_SECONDS: float = 5.0
 
 
 class LiveUpdates:
@@ -117,11 +122,27 @@ class LiveUpdates:
     async def broadcast(self, message: dict[str, Any]) -> None:
         """Send one notice to every page. Kinds: dataset_updated, dataset_closed,
         grid_updated (steps changed elsewhere, e.g. by an agent), grid_closed,
-        cards_updated, approval_requested, approval_resolved."""
+        cards_updated, approval_requested, approval_resolved.
+
+        Encoded once, then sent page by page, each send given SEND_TIMEOUT_SECONDS. Without the
+        limit a page that stopped reading (a frozen tab, its buffers full) could hold up every page
+        after it, and the push or step change that broadcast, until the connection's ping timed out;
+        now it holds up one broadcast by at most the limit and is dropped. (Sending to all pages at
+        once costs a task per page: slower with 200 pages, 8.7 -> 10.5 ms, so it is not done.)"""
+        if not self._sockets:
+            return
+        text = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
         for websocket in list(self._sockets):
-            try:
-                await websocket.send_json(message)
-            except Exception:
-                # Best effort on purpose: a tab closed mid-send must never fail the push.
-                # The socket's own endpoint loop removes it when it sees the disconnect.
-                self.discard(websocket)
+            await self._send(websocket, text)
+
+    async def _send(self, websocket: WebSocket, text: str) -> None:
+        try:
+            async with asyncio.timeout(SEND_TIMEOUT_SECONDS):
+                await websocket.send_text(text)
+        except Exception:
+            # Best effort on purpose: a tab closed mid-send must never fail the push. The socket's
+            # own endpoint loop removes a closed one when it sees the disconnect; one that timed out
+            # is closed here, so the page shows it is no longer live instead of silently missing updates.
+            self.discard(websocket)
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(websocket.close(code=1011), SEND_TIMEOUT_SECONDS)
