@@ -299,14 +299,17 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
             def compute(cur: duckdb.DuckDBPyConnection) -> Any:
                 compiled = ctx.compiled(cur, grid, info)
-                sql = compiled.sql(upto)
                 columns = compiled.columns_at(upto)
+
+                def rows() -> str:  # the view cache, not every step again (engine/views.rows_sql)
+                    return ctx.views.rows_sql(cur, info, grid.steps, grid.settings, upto)
+
                 if column_name is None:
-                    return cached(key, lambda: profile_table(cur, sql, columns))
+                    return cached(key, lambda: profile_table(cur, rows(), columns))
                 match = next((c for c in columns if c.name == column_name), None)
                 if match is None:
                     raise LookupError(f"No column {column_name!r} in this view.")
-                return cached(key, lambda: profile_column(cur, sql, match))
+                return cached(key, lambda: profile_column(cur, rows(), match))
 
             result = await ctx.grid_query(grid, None, priority(request), compute)
             ctx.audit.write(actor(request), "profile", info.name, column=column_name)
@@ -323,7 +326,12 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
             def compute(cur: duckdb.DuckDBPyConnection) -> Any:
                 compiled = ctx.compiled(cur, grid, info)
-                return cached(key, lambda: header_stats(cur, compiled.sql(), compiled.columns))
+                return cached(
+                    key,
+                    lambda: header_stats(
+                        cur, ctx.views.rows_sql(cur, info, grid.steps, grid.settings), compiled.columns
+                    ),
+                )
 
             return json_response(
                 await ctx.grid_query(grid, query_int(request, "gen"), BACKGROUND, compute, client_of(request))
@@ -537,7 +545,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             def prepare(cur: duckdb.DuckDBPyConnection) -> Any:
                 compiled = ctx.compiled(cur, grid, info)
                 if scope == "profile":
-                    profiled = profile_table(cur, compiled.sql(), compiled.columns)
+                    rows = ctx.views.rows_sql(cur, info, grid.steps, grid.settings)
+                    profiled = profile_table(cur, rows, compiled.columns)
                     header = ["column", "type", "blanks", "blank_percent", "distinct", "min", "max"]
                     values = ", ".join(
                         "(" + ", ".join(_sql_value(row.get(n)) for n in header) + ")"
