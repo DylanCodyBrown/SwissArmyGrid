@@ -185,3 +185,12 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   matches a tag and a description, tag chips narrow and widen the list, a pinned blade comes first and
   stays first after a reload, a dropped name clash offers "keep both" first and saves "Bakery DB 2",
   and Export downloads `orders_app_db.blade.py`. Full suite: 1,356 passed.
+- (2026-11-12) The agent makes blades, release 1.5.0 (routes_agent `/agent/blades`, commands
+  `blades_list`, `blades_templates`, `blades_create`): a proposal waits for the user's Allow and is
+  saved only then; the approval shows the blade's whole `.blade.py` file and the packages it imports that
+  are missing. Refused before the user is asked: a secret's value, a taken name (in any letter case),
+  code that is not Python or makes no variable, an unknown kind. A `folder` or `path` from the agent is
+  ignored (the blade is kept by the app; the blade folder stayed empty). `blades_list` carries no code,
+  catalog command or secret names. In Chrome for Testing 153: the approval window opens on the blades
+  page with the code, and Allow saves it into the list. The tool list is 95 tools, 21,040 characters
+  (cap 24,000). Full suite: 1,371 passed.
