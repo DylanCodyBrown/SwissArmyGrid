@@ -196,9 +196,15 @@
   background: var(--selected);
 }
 
-.cat-tree:focus-visible [role="treeitem"][aria-selected="true"] > .node {
+.cat-tree:focus-visible [role="treeitem"][aria-selected="true"] > .node,
+[role="treeitem"]:focus-visible > .node {
   outline: var(--focus-width) solid var(--focus);
   outline-offset: -2px;
+}
+
+/* The item itself takes focus (roving tabindex); its row shows it, not a ring round its children. */
+[role="treeitem"]:focus {
+  outline: none;
 }
 
 .twisty {

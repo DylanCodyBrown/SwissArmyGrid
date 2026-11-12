@@ -155,6 +155,25 @@ def main() -> None:
             if page.status != 200 or len(page.read()) < 5_000:
                 sys.exit("The blades page's script is missing from the install.")
         print("Blades refresh, run with sag.blade, and sag.load fills a catalog.")
+
+        # The notebook: marimo starts inside the installed server's own Python and is served at /marimo.
+        session = urllib.request.Request(
+            f"http://127.0.0.1:{info['port']}/notebook/session",
+            data=b"",
+            method="POST",
+            headers={"Authorization": f"Bearer {info['token']}"},
+        )
+        try:
+            with urllib.request.urlopen(session, timeout=180) as response:  # noqa: S310 (fixed local URL)
+                cookie = response.headers["Set-Cookie"].split(";")[0]
+                src = json.load(response)["src"]
+        except urllib.error.HTTPError as error:
+            sys.exit(f"The notebook did not start: {error.read().decode()[:800]}")
+        page = urllib.request.Request(f"http://127.0.0.1:{info['port']}{src}", headers={"Cookie": cookie})
+        with urllib.request.urlopen(page, timeout=60) as response:  # noqa: S310 (fixed local URL)
+            if response.status != 200 or b"marimo" not in response.read():
+                sys.exit("The notebook's page did not come through SwissArmyGrid.")
+        print("The notebook (marimo) starts and is served through SwissArmyGrid.")
     finally:
         subprocess.run([command, "stop"], check=False)
         try:

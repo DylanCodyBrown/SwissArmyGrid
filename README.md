@@ -63,6 +63,11 @@ What a grid page does:
   installs missing ones. A blade can fill the **catalog**: every schema, table and column of its
   source with its type, as a searchable tree, readable by the agent so it can write SQL in the
   source's own dialect.
+- **The notebook** (its own tab, from the code button by Settings): marimo, started by SwissArmyGrid
+  the first time you open it, with the blades and the catalog on its left. Drag a blade onto a cell
+  for its `sag.blade(...)` line, a table for a SQL cell over that blade's connection, a column for its
+  quoted name; any import a drop needs is added at the top of the notebook. Highlight code in a cell
+  and press **Save as blade** to keep it.
 - **Themes:** light, dark, high contrast light and high contrast dark, following the system by
   default; Windows forced colors are supported. Zoom with Ctrl+= and Ctrl+-.
 
@@ -204,6 +209,27 @@ sag.load(conn.execute("SELECT * FROM INFORMATION_SCHEMA.COLUMNS").df(), name="Wa
 The agent reads catalogs with `catalog_list`, `catalog_schemas`, `catalog_tables`, `catalog_columns`
 (with a first SELECT quoted for the source) and `catalog_search`. It never sees a blade's code or any
 secret: every blade route refuses it.
+
+## The notebook
+
+The code button beside Settings (or `/notebook`) opens a marimo notebook in a tab of its own, so it can
+sit on another screen. SwissArmyGrid starts marimo the first time the tab opens, in the server's own
+Python, and serves it through its own address and token. The notebook file is
+`~/.swissarmygrid/notebooks/workspace.py`; its first cell imports `marimo as mo` and
+`swissarmygrid as sag`.
+
+- Drag a **blade** from the left onto a cell: an empty cell gets `conn = sag.blade("Warehouse")`; a
+  cell with code gets a new cell after it.
+- Drag a **table** from the catalog: a marimo SQL cell over the connection of the blade the catalog came
+  from (`orders_rows = mo.sql("""SELECT ...""", engine=conn)`), quoted for the source's own SQL.
+- Drag a **column** for its quoted name, inside the line you are writing.
+- A drop that needs an import the notebook doesn't make yet (`import swissarmygrid as sag`,
+  `import marimo as mo`) gets it in a new cell at the top, run at once. An import already there, in
+  any form, is never repeated.
+- **Save as blade:** highlight code in a cell and press the button. The save screen opens with it, its
+  kind and SQL dialect guessed from the driver it imports.
+
+The agent never reaches the notebook: it runs code, so it is yours alone.
 
 ## The agent commands: `sag` and the MCP server
 

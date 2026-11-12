@@ -272,7 +272,8 @@ With the notebook built in, the direction reverses (decision 11):
   returns a working connection in a fresh Python, `sag.load(information_schema_frame, name=...)` shows
   a 500,000-column catalog instantly, and the agent finds a column and gets a correct SELECT.
 
-**Part 2 (with phase 2):** the same navigation left of the notebook; **Save as blade** on the
+**Part 2 (done 2026-11-12, release 1.2.0, with the first piece of phase 2: marimo started by SAG on
+first use and served at /marimo in its own tab):** the same navigation left of the notebook; **Save as blade** on the
 notebook's toolbar takes the highlighted code into the save screen. Dropping a blade into a script
 **adds any import it needs at the top when the script does not have it yet** (the owner, 2026-11-12):
 `import swissarmygrid as sag` for the `sag.blade(...)` line, or the blade's own imports when its code is
