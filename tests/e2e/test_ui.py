@@ -512,7 +512,10 @@ def test_export_excel_download(browser: Browser, orders_url: str) -> None:
     page = open_grid(browser, orders_url)
     page.get_by_role("button", name="Export", exact=True).click()
     dialog = page.locator("dialog")
+    # Only Excel (a sheet) and Parquet (file metadata) carry provenance; a CSV never did.
+    expect(dialog.get_by_text("Include provenance")).to_be_hidden()
     dialog.get_by_label("Format").select_option("xlsx")
+    expect(dialog.get_by_text("Include provenance")).to_be_visible()
     with page.expect_download() as download_info:
         dialog.get_by_role("button", name="Download").click()
     assert download_info.value.suggested_filename == "orders.xlsx"

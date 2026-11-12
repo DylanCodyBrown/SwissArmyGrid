@@ -51,6 +51,8 @@ export function openExport(): void {
   const neutralizeWarning = h("p", { class: "warning-text", hidden: true }, "⚠ Text starting with = + - or @ may run as a formula when the file is opened in Excel.");
   const sheet = h("input", { type: "text", value: "Data", "aria-label": "Sheet name" });
   const provenance = h("input", { type: "checkbox", checked: true });
+  // An Excel sheet or Parquet metadata; delimited text has nowhere to put it.
+  const provenanceField = h("label", { class: "check" }, provenance, "Include provenance (source, steps, time; never data)");
   const compression = select([["snappy", "Snappy (widest support)"], ["zstd", "Zstandard (smaller)"]], "snappy");
   const boxes = info.columns.map((c) => ({ name: c.name, box: h("input", { type: "checkbox", checked: true }) }));
   const count = h("span", { class: "hint" });
@@ -73,6 +75,7 @@ export function openExport(): void {
     textOptions.hidden = !(f === "csv" || f === "txt");
     excelOptions.hidden = f !== "xlsx";
     parquetOptions.hidden = f !== "parquet";
+    provenanceField.hidden = f !== "xlsx" && f !== "parquet";
     columnsField.hidden = scope.value !== "columns";
     if (f === "txt" && delimiter.value === "comma") delimiter.value = "tab";
     neutralizeWarning.hidden = neutralize.checked;
@@ -83,8 +86,7 @@ export function openExport(): void {
   body.append(
     h("fieldset", { class: "fieldset" }, h("legend", {}, "What and where"), h("div", { class: "form-grid" }, field("Rows", scope), field("Format", format), field("File name", file))),
     columnsField,
-    h("fieldset", { class: "fieldset", id: "format-options" }, h("legend", {}, "Format options"), textOptions, neutralizeWarning, excelOptions, parquetOptions,
-      h("label", { class: "check" }, provenance, "Include provenance (source, steps, time; never data)")),
+    h("fieldset", { class: "fieldset", id: "format-options" }, h("legend", {}, "Format options"), textOptions, neutralizeWarning, excelOptions, parquetOptions, provenanceField),
     error,
   );
   const params = (save: boolean): Record<string, string | number | undefined> => ({
