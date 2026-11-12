@@ -1,11 +1,11 @@
 /**
- * stepsPanel.ts: the Table Transformations panel (applied steps) and its Python tab
+ * stepsPanel.ts: the Table Transformations panel (applied steps) and its Code tab
  * (plan sections 7, 9, 10). [WIRE]
  * It sits on the right of the grid and collapses to a slim labelled rail; the choice is remembered.
  *
  * ROUTING: [COLLAPSE TOGGLE]                 -> setCollapsed() (workspace data-steps="open" | "collapsed")
  *          [CREATE SQL TRANSFORMATION]       -> toggleSqlBox() (the SQL box opens above the grid)
- *          [COPY TRANSFORMATIONS AS PYTHON]  -> showCode() (the Python tab: verified code + Copy)
+ *          [COPY AS SQL OR PYTHON]           -> showCode() (the Code tab: the verified query + Copy as SQL / Python)
  *          [STEP ROW]        click text -> state.setPreview(i + 1); click again -> full view
  *          [ON/OFF BOX]      -> toggle(i)        [DRAG GRIP] -> drop(from, to)
  *          [EDIT / DELETE]   -> editStep(kind, i) / remove(i)
@@ -13,7 +13,7 @@
  *          [STEP ERROR]      -> read-only, from state.info.step_error
  *          [CATEGORIZE INFO] -> read-only, from GET /grids/{id}/categorize-stats
  *          [ADD STEP MENU]   -> editStep(kind)
- *          [CODE TAB]        -> loadCode(target); Copy only when the code verified identical
+ *          [CODE TAB]        -> renderCode(target); the Copy buttons only when the code verified identical
  *          [POP OUT]         -> window.open(?panel=steps); both windows follow the server
  */
 import { api, clientId, grid, gridId, query, token, type StepJson } from "./api";
@@ -94,7 +94,7 @@ async function render(): Promise<void> {
     h(
       "div",
       { class: "panel-actions" },
-      // The SQL box lives above the grid, so the pop-out window offers only the Python copy.
+      // The SQL box lives above the grid, so the pop-out window offers only the code copy.
       inPopout
         ? null
         : button("Create SQL transformation", () => void toggleSqlBox().then(() => render()), {
@@ -102,17 +102,17 @@ async function render(): Promise<void> {
             pressed: isSqlOpen(),
             title: "Write SQL against this grid's view; pin the result as a new grid",
           }),
-      button("Copy transformations as Python", () => showCode(), {
+      button("Copy transformations as SQL or Python", () => showCode(), {
         icon: "code",
         pressed: tab === "code",
-        title: "Generated Python for these transformations, verified against the grid",
+        title: "These transformations as one DuckDB query over your own table, verified against the grid",
       }),
     ),
     h(
       "div",
       { class: "tabs", role: "tablist", "aria-labelledby": "steps-title" },
       h("button", { class: "tab", role: "tab", "aria-selected": String(tab === "steps"), onclick: () => { tab = "steps"; void render(); } }, "Steps"),
-      h("button", { class: "tab", role: "tab", "aria-selected": String(tab === "code"), onclick: () => { tab = "code"; void render(); } }, "Python"),
+      h("button", { class: "tab", role: "tab", "aria-selected": String(tab === "code"), onclick: () => { tab = "code"; void render(); } }, "Code"),
     ),
     body,
   );
@@ -256,29 +256,62 @@ async function saveRecipe(): Promise<void> {
   }
 }
 
+interface CodeResult {
+  target: string;
+  code: string;
+  sql: string;
+  reads: string;
+  verified: boolean;
+  difference: string | null;
+  note: string | null;
+  rows_checked: number;
+}
+
+/** What the user pastes into their own Python: one DuckDB query over their table by its variable
+ * name ("Copy as SQL"), or `import duckdb` plus the one line that runs it ("Copy as Python").
+ * pandas and plain Python are longer translations, offered second. */
 async function renderCode(body: HTMLElement): Promise<void> {
-  const info = state.info!;
-  const targets: [string, string][] = [["duckdb", "DuckDB"], ["pandas", "pandas"], ["plain", "Plain Python"]];
+  const targets: [string, string][] = [
+    ["duckdb", "DuckDB SQL"],
+    ["pandas", "pandas (longer translation)"],
+    ["plain", "Plain Python (longer translation)"],
+  ];
   const picker = h("select", { "aria-label": "Language" });
   const status = h("span", { class: "hint" }, "Generating and verifying…");
   const pre = h("pre", { class: "mono" });
-  const copy = button("Copy transformations as Python", () => void navigator.clipboard.writeText(pre.textContent ?? "").then(() => toast("Copied verified code.")), { icon: "copy", class: "primary" });
-  copy.hidden = true;
-  body.append(h("div", { class: "code-view" }, h("div", { class: "code-toolbar" }, picker, copy, status), pre));
-  try {
-    const result = await api<{ target: string; code: string; verified: boolean; difference: string | null; rows_checked: number }>(
-      `${grid}/code${query({ target: codeTarget })}`,
+  let result: CodeResult | null = null;
+  const copyText = (text: string, what: string): void =>
+    void navigator.clipboard.writeText(text).then(
+      () => toast(`Copied the verified ${what}.`),
+      () => toast("The browser blocked the clipboard. Select the text and copy it.", "error"),
     );
-    for (const [v, label] of targets) picker.append(h("option", { value: v, selected: v === result.target }, label));
+  const copySql = button("Copy as SQL", () => result && copyText(result.sql.trim() + "\n", "SQL query"), {
+    icon: "copy",
+    class: "primary",
+    title: "One DuckDB query over your own table, by its variable name",
+  });
+  const copyPython = button("Copy as Python", () => result && copyText(result.code, "Python"), {
+    icon: "copy",
+    title: "import duckdb and one line that runs the query on your table",
+  });
+  copySql.hidden = copyPython.hidden = true;
+  body.append(h("div", { class: "code-view" }, h("div", { class: "code-toolbar" }, picker, copySql, copyPython, status), pre));
+  try {
+    result = await api<CodeResult>(`${grid}/code${query({ target: codeTarget })}`);
+    const shown = result;
+    for (const [v, label] of targets) picker.append(h("option", { value: v, selected: v === shown.target }, label));
     picker.addEventListener("change", () => { codeTarget = picker.value; void render(); });
-    pre.textContent = result.code;
-    if (result.verified) {
-      copy.hidden = false;
-      clear(status, h("span", { class: "badge ok" }, icon("eye"), `Verified identical on ${formatCount(result.rows_checked)} rows`));
+    pre.textContent = shown.code;
+    if (shown.verified) {
+      copySql.hidden = shown.target !== "duckdb";
+      copyPython.hidden = false;
+      if (shown.target !== "duckdb") copyPython.classList.add("primary");
+      clear(status, h("span", { class: "badge ok" }, icon("eye"), `Verified identical on ${formatCount(shown.rows_checked)} rows`));
     } else {
-      clear(status, h("span", { class: "badge error" }, "Not verified"), " ", result.difference ?? "");
+      clear(status, h("span", { class: "badge error" }, "Not verified"), " ", shown.difference ?? "");
     }
-    body.append(h("p", { class: "hint" }, `Matches what was pushed (${info.source_kind}). The code embeds no data.`));
+    body.append(h("p", { class: "hint" }, `${shown.reads} The code embeds no data.`));
+    if (shown.note) body.append(h("p", { class: "hint" }, shown.note));
   } catch (e) {
     status.textContent = (e as Error).message;
     status.className = "status-error";
