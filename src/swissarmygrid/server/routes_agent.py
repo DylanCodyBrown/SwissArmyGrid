@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -41,6 +42,7 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.engine.datasets import DatasetInfo
+from swissarmygrid.engine.export import FORMATS
 from swissarmygrid.engine.profile import profile_column, profile_table
 from swissarmygrid.engine.sql_guard import guard
 from swissarmygrid.engine.steps import filter_condition, type_family
@@ -54,6 +56,8 @@ from swissarmygrid.settings import EXCEL_MAX_ROWS
 LEVEL_ROW_CAPS: dict[int, int] = {0: 0, 1: 20, 2: 200, 3: EXCEL_MAX_ROWS}
 DEFAULT_LEVEL: int = 3
 APPROVAL_TIMEOUT_SECONDS: float = 180.0
+# How long the user's click on an export stays good for the export it approved.
+EXPORT_TICKET_SECONDS: float = 120.0
 
 
 @dataclass
@@ -61,9 +65,23 @@ class Policy:
     level: int = DEFAULT_LEVEL
     auto_rows: bool = False
     masks: dict[str, str] = field(default_factory=dict)  # column -> hide | hash | show
+    # Approved agent exports not yet written: ticket -> (grid id, when it lapses). One click, one file.
+    export_tickets: dict[str, tuple[str, float]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         return {"level": self.level, "auto_rows": self.auto_rows, "masks": self.masks}
+
+    def issue_export_ticket(self, grid_id: str) -> str:
+        now = time.monotonic()
+        self.export_tickets = {k: v for k, v in self.export_tickets.items() if v[1] > now}
+        ticket = secrets.token_urlsafe(16)
+        self.export_tickets[ticket] = (grid_id, now + EXPORT_TICKET_SECONDS)
+        return ticket
+
+    def redeem_export_ticket(self, ticket: str | None, grid_id: str) -> bool:
+        """True once for a ticket the user approved for this grid; it is used up either way."""
+        held = self.export_tickets.pop(ticket, None) if ticket else None
+        return held is not None and held[0] == grid_id and held[1] > time.monotonic()
 
 
 def agent_may_see_raw_values(request: Request, policy: Policy) -> bool:
@@ -492,13 +510,17 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             return error_response(error)
 
     async def approve_export(request: Request) -> Response:
-        """An agent export: always waits for the user's click (plan section 10a)."""
+        """An agent export: always waits for the user's click (plan section 10a). The click gives a
+        one-time ticket, and the export route writes an agent's file only against one, so skipping
+        this step is refused by the server, not just by the command that normally calls it."""
         try:
-            _grid, info = ctx.grid_and_info(request.path_params["grid_id"])
+            grid, info = ctx.grid_and_info(request.path_params["grid_id"])
             fmt = request.query_params.get("format", "csv")
+            if fmt not in FORMATS:  # the text goes into the user's approval prompt
+                raise ValueError(f"format must be one of {', '.join(FORMATS)}.")
             if not await ask_user(info.name, "export", f"{fmt} export of {info.name} to the export folder"):
                 return Response("The user declined (or did not answer) this export.", status_code=403)
-            return json_response({"approved": True})
+            return json_response({"approved": True, "ticket": rules.issue_export_ticket(grid.id)})
         except Exception as error:
             return error_response(error)
 

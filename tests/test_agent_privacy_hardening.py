@@ -6,6 +6,8 @@ that should hide it. The user (no X-Actor header) is never affected.
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 
 import pyarrow as pa
@@ -77,3 +79,62 @@ def test_the_user_and_a_level_2_agent_still_get_the_full_message(client: TestCli
     assert SECRET in client.post(f"/grids/{gid}/sql", json=body, headers=AUTH).text
     set_policy(client, 2)
     assert SECRET in client.post(f"/grids/{gid}/sql", json=body, headers=AGENT).text
+
+
+# ===== an agent export always waits for the user's click, on the server too =====
+
+
+def _approve_next(client: TestClient) -> threading.Thread:
+    def approve() -> None:
+        for _ in range(200):
+            pending = client.get("/agent/approvals", headers=AUTH).json()["pending"]
+            if pending:
+                client.post(f"/agent/approvals/{pending[0]['id']}", json={"approve": True}, headers=AUTH)
+                return
+            time.sleep(0.02)
+
+    thread = threading.Thread(target=approve)
+    thread.start()
+    return thread
+
+
+@pytest.mark.parametrize("ticket", [None, "forged"])
+def test_an_agent_export_without_the_users_approval_is_refused(
+    client: TestClient, ticket: str | None
+) -> None:
+    gid = open_grid(client)
+    params = {"format": "csv", "save": "1"} | ({"ticket": ticket} if ticket else {})
+    refused = client.get(f"/grids/{gid}/export", params=params, headers=AGENT)
+    assert refused.status_code == 403
+    assert "approval" in refused.text
+
+
+def test_an_approved_export_is_written_once(client: TestClient) -> None:
+    gid = open_grid(client)
+    helper = _approve_next(client)
+    approved = client.post(f"/agent/export-approval/{gid}", params={"format": "csv"}, headers=AGENT)
+    helper.join()
+    assert approved.status_code == 200, approved.text
+    ticket = approved.json()["ticket"]
+    params = {"format": "csv", "file": "approved", "ticket": ticket}
+    saved = client.get(f"/grids/{gid}/export", params=params, headers=AGENT)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["saved"].endswith("approved.csv")
+    # One click, one export: the same approval does not write a second file.
+    again = client.get(f"/grids/{gid}/export", params=params | {"file": "again"}, headers=AGENT)
+    assert again.status_code == 403
+
+
+def test_an_approval_for_one_grid_does_not_export_another(client: TestClient) -> None:
+    gid = open_grid(client)
+    other = grid_id(push(client, "others", TABLE))
+    helper = _approve_next(client)
+    ticket = client.post(f"/agent/export-approval/{gid}", headers=AGENT).json()["ticket"]
+    helper.join()
+    refused = client.get(f"/grids/{other}/export", params={"ticket": ticket}, headers=AGENT)
+    assert refused.status_code == 403
+
+
+def test_the_user_exports_without_any_ticket(client: TestClient) -> None:
+    gid = open_grid(client)
+    assert client.get(f"/grids/{gid}/export", params={"format": "csv"}, headers=AUTH).status_code == 200

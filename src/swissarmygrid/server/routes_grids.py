@@ -520,6 +520,15 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         try:
             grid, info = ctx.grid_and_info(request.path_params["grid_id"])
             params = dict(request.query_params)
+            # An agent's export writes the whole view, unmasked, to disk: only after the user's
+            # click (POST /agent/export-approval), whose one-time ticket this spends.
+            if actor(request) == "agent" and not policy.redeem_export_ticket(
+                params.pop("ticket", None), grid.id
+            ):
+                return Response(
+                    "An agent export needs the user's approval first; table_export asks for it.",
+                    status_code=403,
+                )
             options = exporting.ExportOptions.from_query(params)
             scope = params.get("scope", "view")
             if scope not in ("view", "rows", "columns", "selection", "source", "profile"):
