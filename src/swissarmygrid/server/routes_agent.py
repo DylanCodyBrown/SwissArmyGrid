@@ -47,7 +47,14 @@ from swissarmygrid.engine.profile import profile_column, profile_table
 from swissarmygrid.engine.sql_guard import guard
 from swissarmygrid.engine.steps import filter_condition, type_family
 from swissarmygrid.engine.workers import AGENT
-from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
+from swissarmygrid.server.context import (
+    Context,
+    actor,
+    error_response,
+    json_response,
+    read_json,
+    read_json_object,
+)
 from swissarmygrid.server.grids import Grid
 from swissarmygrid.server.masking import (
     Origins,
@@ -273,15 +280,19 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
         if actor(request) == "agent":
             return Response("Only the user can change what an agent may see.", status_code=403)
         try:
-            body = await read_json(request)
+            body = await read_json_object(request, '{"level": 0-3, "auto_rows": bool, "masks": {...}}')
             level = body.get("level", rules.level)
-            if level not in LEVEL_ROW_CAPS:
+            # Exactly an int: True == 1 and 1.0 == 1 would otherwise pass and be stored as given.
+            if type(level) is not int or level not in LEVEL_ROW_CAPS:
                 raise ValueError("level must be 0, 1, 2 or 3.")
             masks = body.get("masks", rules.masks)
             if not isinstance(masks, dict) or not all(v in ("hide", "hash", "show") for v in masks.values()):
                 raise ValueError("masks maps column names to hide, hash or show.")
+            auto_rows = body.get("auto_rows", rules.auto_rows)
+            if not isinstance(auto_rows, bool):  # bool("false") is True
+                raise ValueError("auto_rows must be true or false.")
             rules.level = level
-            rules.auto_rows = bool(body.get("auto_rows", rules.auto_rows))
+            rules.auto_rows = auto_rows
             rules.masks = dict(masks)
             ctx.audit.write("user", "agent_policy", None, level=level)
             return json_response(rules.to_json())
@@ -297,7 +308,10 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
         approval = approvals.get(request.path_params["approval_id"])
         if approval is None:
             return Response("No such pending request (it may have timed out).", status_code=404)
-        body = await read_json(request)
+        try:
+            body = await read_json(request)
+        except ValueError as error:
+            return error_response(error)
         approved = bool(isinstance(body, dict) and body.get("approve"))
         if not approval.future.done():
             approval.future.set_result(approved)
@@ -380,7 +394,7 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
 
     async def query(request: Request) -> Response:
         try:
-            body = await read_json(request)
+            body = await read_json_object(request, '{"dataset": name, "sql": "SELECT ... FROM grid"}')
             info, grid = dataset_for(body)
             text = body.get("sql")
             if not isinstance(text, str):

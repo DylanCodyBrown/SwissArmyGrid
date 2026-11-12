@@ -28,6 +28,7 @@ from swissarmygrid.engine.datasets import (
     DatasetLimitError,
     DatasetStore,
     DatasetTooLargeError,
+    mib,
 )
 from swissarmygrid.engine.export import ExportError
 from swissarmygrid.engine.sql_guard import SqlRefused
@@ -44,6 +45,8 @@ T = TypeVar("T")
 
 # JavaScript numbers are exact only up to 2**53; larger integers travel as text.
 _JS_SAFE_INTEGER: int = 2**53 - 1
+# The largest JSON body a control request may send (steps, a query, a selection, a model).
+MAX_JSON_BODY_BYTES: int = 64 * 1024 * 1024
 
 
 @dataclass
@@ -173,7 +176,7 @@ def json_response(content: Any, status_code: int = 200, max_bytes: int | None = 
 def error_response(error: Exception) -> Response:
     """Map the engine's error types to HTTP status codes with plain-language messages."""
     status = 500
-    if isinstance(error, DatasetTooLargeError):
+    if isinstance(error, DatasetTooLargeError | BodyTooLargeError):
         status = 413
     elif isinstance(error, DatasetLimitError | GridLimitError | StaleRequestError):
         status = 409
@@ -187,11 +190,42 @@ def error_response(error: Exception) -> Response:
     return PlainTextResponse(message or type(error).__name__, status_code=status)
 
 
+class BodyTooLargeError(ValueError):
+    """A request body over its cap. Maps to HTTP 413."""
+
+
+async def read_body(request: Request, cap: int) -> bytes:
+    """The request body, refused past `cap` bytes: on Content-Length first, then while reading,
+    so an oversized body is never held in memory whole."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap:
+        raise BodyTooLargeError(f"The request body is over the {mib(cap)} limit.")
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > cap:
+            raise BodyTooLargeError(f"The request body is over the {mib(cap)} limit.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def read_json(request: Request) -> Any:
+    """The JSON body of a control request (steps, a query, a card...), at most MAX_JSON_BODY_BYTES.
+    Data arrives by push or paste, which have their own, larger cap."""
+    body = await read_body(request, MAX_JSON_BODY_BYTES)
     try:
-        return json.loads(await request.body())
+        return json.loads(body)
     except ValueError as error:
         raise ValueError("The request body is not valid JSON.") from error
+
+
+async def read_json_object(request: Request, shape: str) -> dict[str, Any]:
+    """`read_json`, refusing anything but an object with `shape` (the message names what to send)."""
+    body = await read_json(request)
+    if not isinstance(body, dict):
+        raise ValueError(f"Send a JSON object: {shape}.")
+    return body
 
 
 def query_int(request: Request, name: str, default: int | None = None) -> int | None:

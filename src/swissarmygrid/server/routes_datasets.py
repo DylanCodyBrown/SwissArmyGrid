@@ -46,6 +46,8 @@ from swissarmygrid.server.context import (
     actor,
     error_response,
     json_response,
+    query_int,
+    read_body,
     read_json,
 )
 from swissarmygrid.server.grids import Grid
@@ -174,6 +176,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         return JSONResponse({"status": "ok", "version": __version__, "pid": os.getpid()})
 
     async def shutdown(request: Request) -> Response:
+        if actor(request) == "agent":
+            return Response("Stopping the server is for the user.", status_code=403)
         ctx.audit.write(actor(request), "shutdown")
         ctx.on_shutdown()
         return JSONResponse({"status": "stopping"})
@@ -182,7 +186,10 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         """The audit log's last entries, for the page's activity list (never cell values)."""
         if actor(request) == "agent":
             return Response("The audit log is for the user.", status_code=403)
-        limit = min(500, int(request.query_params.get("limit", "100") or 100))
+        try:
+            limit = max(1, min(500, query_int(request, "limit", 100) or 100))
+        except ValueError as error:
+            return error_response(error)
         return json_response({"entries": ctx.audit.tail(limit)})
 
     async def list_datasets(request: Request) -> Response:
@@ -289,7 +296,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     async def paste(request: Request) -> Response:
         try:
             name = validate_name(request.path_params["name"])
-            text = (await request.body()).decode("utf-8", "replace")
+            text = (await read_body(request, settings.max_push_body_bytes)).decode("utf-8", "replace")
             table = await ctx.workers.run(INTERACTIVE, parse_pasted, text, settings.max_dataset_bytes)
             return json_response(await store_table(ctx, name, table, "clipboard", True, actor(request)))
         except Exception as error:
