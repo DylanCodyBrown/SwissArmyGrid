@@ -38,6 +38,17 @@ def get(info: dict[str, Any], route: str) -> Any:
         return json.load(response)
 
 
+def post(info: dict[str, Any], route: str, body: Any) -> Any:
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{info['port']}{route}",
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={"Authorization": f"Bearer {info['token']}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 (fixed local URL)
+        return json.load(response)
+
+
 def main() -> None:
     command = shutil.which("swissarmygrid")
     if command is None:
@@ -79,6 +90,18 @@ def main() -> None:
             sys.exit(f"A time-zone column did not come back: {rows}")
         print(f"A time-zone column comes back: {rows[0]}")
         tables["time_zones"] = stamps
+
+        # Copy as code: the server runs exactly the copied Python (`.df()` included) before offering it.
+        orders_grid = push(tables["orders"], name="orders").split("/g/")[1].split("#")[0]
+        post(
+            info,
+            f"/grids/{orders_grid}/steps",
+            {"steps": [{"kind": "filter", "params": {"column": "status_code", "op": "gt", "value": 2}}]},
+        )
+        code = get(info, f"/grids/{orders_grid}/code")
+        if not code.get("verified") or code.get("note"):
+            sys.exit(f"The copied code was not fully verified: {code.get('note') or code}")
+        print("Copied code is verified as pasted.")
         datasets = {d["name"] for d in get(info, "/datasets")["datasets"]}
         missing = set(tables) - datasets
         if missing:
