@@ -34,6 +34,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from swissarmygrid.blade_core import fill
+from swissarmygrid.blade_core.code import BladeCodeError
 from swissarmygrid.blade_core.packages import needed
 from swissarmygrid.blade_core.portable import write_blade
 from swissarmygrid.engine.datasets import DatasetInfo, quote
@@ -444,6 +446,19 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
                 notes.append(f"It asks for: {', '.join(secret_names)}. You type them on its save screen.")
             if missing:
                 notes.append(f"Not installed here yet: {', '.join(missing)}.")
+            try:
+                settings = fill.detect(blade.code) if blade.code else []
+            except BladeCodeError:
+                settings = []
+            if settings:
+                notes.append(
+                    "Settings in it: "
+                    + "; ".join(
+                        f"{s.key} = {s.value}" + (" (a placeholder)" if s.placeholder else "")
+                        for s in settings
+                    )
+                    + "."
+                )
             detail = "\n".join(notes) + "\n\n" + write_blade(blade.to_json())
             if not await ask_user(blade.name, "save the new blade", detail):
                 return Response(

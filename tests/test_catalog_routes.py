@@ -329,3 +329,81 @@ def test_folders_and_favourites_over_http(
     for path in ("/blades/folders", "/blades/export", "/blades/Pantry/export"):
         assert client.get(path, headers=AGENT).status_code == 403
     assert client.put("/blades/Pantry/pin", json={"pinned": False}, headers=AGENT).status_code == 403
+
+
+# ===== settings: the values each person fills in =====
+
+POSTGRES_CODE = (
+    "import psycopg\n\nconn = psycopg.connect(\n"
+    '    host="my-server",\n    port=5432,\n    dbname="my_database",\n'
+    '    user="my_user",\n    password=secret("password"),\n)\n'
+)
+
+
+def test_the_save_screen_sees_settings_with_suggestions_and_writes_new_values(client: TestClient) -> None:
+    mine = 'import psycopg\nconn = psycopg.connect(host="db01.corp.local", dbname="sales", user="reader")\n'
+    client.post(
+        "/blades", json={"name": "Sales DB", "kind": "sql", "dialect": "postgres", "code": mine}, headers=AUTH
+    )
+    answer = client.post("/blades/inspect", json={"code": POSTGRES_CODE}, headers=AUTH).json()
+    settings = {s["key"]: s for s in answer["settings"]}
+    assert settings["host"]["placeholder"] is True and settings["port"]["type"] == "number"
+    assert settings["host"]["suggestions"][0] == {"value": "db01.corp.local", "from": "your blade Sales DB"}
+    assert "password" not in settings
+    written = client.post(
+        "/blades/fill",
+        json={
+            "code": POSTGRES_CODE,
+            "values": {settings["host"]["id"]: "db01.corp.local", settings["port"]["id"]: 6432},
+        },
+        headers=AUTH,
+    ).json()
+    assert 'host="db01.corp.local"' in written["code"] and "port=6432" in written["code"]
+    assert {s["key"]: s["value"] for s in written["settings"]}["host"] == "db01.corp.local"
+    # A blade's own settings never suggest its own values back.
+    own = client.get("/blades/Sales%20DB", headers=AUTH).json()["inspect"]["settings"]
+    assert all(s["suggestions"] == [] for s in own if s["key"] == "host")
+    bad = client.post("/blades/fill", json={"code": POSTGRES_CODE, "values": {"1:2": "x"}}, headers=AUTH)
+    assert bad.status_code == 400 and "read them again" in bad.text
+    assert (
+        client.post("/blades/fill", json={"code": POSTGRES_CODE, "values": {}}, headers=AGENT).status_code
+        == 403
+    )
+
+
+def test_csv_starter_path_needs_a_value(client: TestClient) -> None:
+    from swissarmygrid.server.blade_templates import TEMPLATES
+
+    csv = next(t for t in TEMPLATES if t.id == "csv")
+    plain = client.post("/blades/inspect", json={"code": csv.code}, headers=AUTH).json()["settings"]
+    starter = client.post("/blades/inspect", json={"code": csv.code, "template": "csv"}, headers=AUTH).json()
+    assert plain[0]["placeholder"] is False and starter["settings"][0]["placeholder"] is True
+
+
+def test_import_review_offers_settings_and_import_writes_them_and_keeps_typed_secrets(
+    client: TestClient,
+) -> None:
+    from swissarmygrid.blade_core.portable import write_blade
+
+    text = write_blade(
+        {"name": "Orders DB", "kind": "sql", "dialect": "postgres", "code": POSTGRES_CODE, "variable": "conn"}
+    )
+    files = [{"name": "orders_db.blade.py", "data": base64.b64encode(text.encode()).decode()}]
+    [item] = client.post("/blades/import", json={"files": files}, headers=AUTH).json()["items"]
+    settings = {s["key"]: s for s in item["settings"]}
+    assert [s["key"] for s in item["settings"]] == ["host", "port", "dbname", "user"]
+    assert settings["dbname"]["placeholder"] is True and item["secrets"] == ["password"]
+    fill = {
+        "0": {
+            "settings": {settings["host"]["id"]: "db01.corp.local", settings["dbname"]["id"]: "orders"},
+            "secrets": {"password": "made-up-42"},
+        }
+    }
+    [result] = client.post(
+        "/blades/import", json={"files": files, "apply": True, "fill": fill}, headers=AUTH
+    ).json()["results"]
+    assert result["status"] == "saved" and "message" not in result
+    saved = client.get("/blades/Orders%20DB", headers=AUTH).json()
+    assert 'host="db01.corp.local"' in saved["code"] and 'dbname="orders"' in saved["code"]
+    assert saved["secrets"] == {"password": True}
+    assert "made-up-42" not in str(saved)

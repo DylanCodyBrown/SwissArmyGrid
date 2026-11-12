@@ -154,6 +154,7 @@ NOT_COMMANDS = {
     "/blades/{}": "as /blades",
     "/blades/templates": "as /blades",
     "/blades/inspect": "as /blades",
+    "/blades/fill": "as /blades: writes the user's own values into a blade's code, refused to the agent",
     "/blades/install": "as /blades: installing packages is the user's click",
     "/blades/{}/secrets": "as /blades",
     "/blades/{}/refresh": "as /blades: running a blade's code is the user's click",
