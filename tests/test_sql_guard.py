@@ -113,6 +113,28 @@ def test_duckdb_parse_check_catches_what_sqlglot_misses() -> None:
         with pytest.raises(SqlRefused):
             check_duckdb_parse(sql, {"ds_pub"})
     check_duckdb_parse("SELECT * FROM ds_pub, range(3), unnest([1]) WITH ORDINALITY", {"ds_pub"})
+    with pytest.raises(SqlRefused, match="one statement"):
+        check_duckdb_parse("SELECT 1; SELECT 2", {"ds_pub"})
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "SELECT 1 -- */ ; DROP TABLE ds_other; --",
+        "SELECT a FROM grid -- */; DROP TABLE ds_other; SELECT 1 /*",
+        "SELECT a FROM grid /* nested /* */ ; DROP TABLE ds_other; -- */",
+        "SELECT E'\\' ; DROP TABLE ds_other; --'",
+    ],
+)
+def test_comments_and_strings_cannot_smuggle_a_second_statement(store: DatasetStore, text: str) -> None:
+    # sqlglot writes comments back as /* ... */; a "*/" inside one must not end it early, since
+    # DuckDB runs every statement in the text it is given.
+    try:
+        run(store, text)
+    except SqlRefused:
+        pass
+    tables = {r[0] for r in store.cursor().execute("SELECT table_name FROM duckdb_tables()").fetchall()}
+    assert "ds_other" in tables
 
 
 def test_step_query_cannot_reach_other_datasets(store: DatasetStore) -> None:

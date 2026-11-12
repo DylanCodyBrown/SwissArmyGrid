@@ -146,6 +146,9 @@ def check_duckdb_parse(sql: str, tables: set[str]) -> None:
     parsed: Any = json.loads(str(row[0])) if row else {"error": True}
     if parsed.get("error"):
         raise SqlRefused(f"DuckDB could not read the query: {parsed.get('error_message', 'unknown error')}")
+    # DuckDB runs every statement it is given, so the text it will run must be exactly one.
+    if not isinstance(parsed.get("statements"), list) or len(parsed["statements"]) != 1:
+        raise SqlRefused("Run one statement at a time.")
     allowed = {t.lower() for t in tables}
     stack: list[Any] = [parsed.get("statements")]
     while stack:
