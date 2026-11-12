@@ -6,6 +6,7 @@ Route modules, one per area, like ASP.NET controllers:
   routes_agent.py      the MCP door: the agent's reads and export approvals (plan section 12)
   routes_cards.py      side-panel charts and notes (plan section 11)
   routes_catalog.py    catalogs (a source's names and types) and blades (saved code that loads)
+  routes_notebook.py   the notebook tab: marimo served at /marimo, imports added to the open notebook
   routes_keyfinder.py  the Key Finder: likely join columns between grids
   routes_compare.py    two grids aligned row for row on key columns
   routes_processes.py  Python sessions offering tables: the Open list (processes.py)
@@ -18,6 +19,7 @@ All DuckDB work runs on the priority worker pool (engine/workers.py), never on t
 from __future__ import annotations
 
 import asyncio
+import secrets
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
@@ -45,6 +47,7 @@ from swissarmygrid.server import (
     routes_grids,
     routes_keyfinder,
     routes_models,
+    routes_notebook,
     routes_processes,
     routes_snapshots,
 )
@@ -52,6 +55,7 @@ from swissarmygrid.server.blade_store import BladeStore
 from swissarmygrid.server.context import Context
 from swissarmygrid.server.grids import GridRegistry
 from swissarmygrid.server.live_updates import LiveUpdates
+from swissarmygrid.server.notebook import NotebookServer
 from swissarmygrid.server.processes import ProcessRegistry
 from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, LocalOnlyGuard
 from swissarmygrid.settings import Settings
@@ -88,6 +92,8 @@ def create_app(
         processes=ProcessRegistry(),
         catalogs=CatalogStore(connection, settings.max_catalogs, settings.max_catalog_rows),
         blades=BladeStore(settings.blades_dir),
+        notebook=NotebookServer(settings.state_dir / "notebooks"),
+        notebook_cookie=secrets.token_urlsafe(32),
     )
 
     tickets = routes_agent.ExportTickets()  # the agent exports the user approved, not yet written
@@ -141,6 +147,7 @@ def create_app(
         yield
         pruner.cancel()
         workers.close()
+        ctx.notebook.stop()
 
     app = Starlette(
         routes=[
@@ -151,6 +158,7 @@ def create_app(
             *routes_models.routes(ctx, relationships),
             *routes_cards.routes(ctx),
             *routes_catalog.routes(ctx),
+            *routes_notebook.routes(ctx),
             *routes_keyfinder.routes(ctx),
             *routes_compare.routes(ctx),
             *routes_processes.routes(ctx),
@@ -161,7 +169,7 @@ def create_app(
             Route("/catalog", catalog_page),
             Mount("/static", StaticFiles(directory=settings.web_root, check_dir=False)),
         ],
-        middleware=[Middleware(LocalOnlyGuard, port=port, token=token)],
+        middleware=[Middleware(LocalOnlyGuard, port=port, token=token, notebook_cookie=ctx.notebook_cookie)],
         lifespan=lifespan,
     )
     app.state.ctx = ctx

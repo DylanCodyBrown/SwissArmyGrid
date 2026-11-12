@@ -40,6 +40,7 @@ from swissarmygrid.engine.workers import PriorityWorkers
 from swissarmygrid.server.blade_store import BladeError, BladeStore
 from swissarmygrid.server.grids import Grid, GridLimitError, GridRegistry, StaleRequestError
 from swissarmygrid.server.live_updates import LiveUpdates
+from swissarmygrid.server.notebook import NotebookServer
 from swissarmygrid.server.processes import ProcessRegistry
 from swissarmygrid.settings import Settings
 
@@ -68,6 +69,9 @@ class Context:
     # Source databases' names and types (engine/catalog.py) and the saved blades (blade_store.py).
     catalogs: CatalogStore
     blades: BladeStore
+    # The notebook (marimo), started on first use, and the cookie its frame is let in with.
+    notebook: NotebookServer
+    notebook_cookie: str
 
     def grid_url(self, grid: Grid, with_token: bool = True) -> str:
         """The grid's page. The fragment carries the token to the page without ever sending it to

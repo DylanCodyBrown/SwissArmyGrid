@@ -19,6 +19,8 @@ server = [
     # Blades' secrets (passwords, keys) live in the operating system's vault: Windows Credential
     # Manager, macOS Keychain, the Secret Service on Linux. Never in a blade's file.
     "keyring>=25",
+    # The notebook, in its own tab beside the blades and the catalog (plan decision 8, approved).
+    "marimo>=0.25",
     "mcp>=2.3.0",
     # Excel workbooks (.xlsx), read sheet by sheet in read-only mode.
     "openpyxl>=3.1.5",
