@@ -47,6 +47,7 @@ from swissarmygrid.engine.steps import filter_condition, type_family
 from swissarmygrid.engine.workers import AGENT
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
 from swissarmygrid.settings import EXCEL_MAX_ROWS
 
 # Level 3 reads as much as one Excel worksheet holds; the agent still picks its own limit.
@@ -131,13 +132,9 @@ def mask_value(value: Any, how: str) -> Any:
 def hidden_error(error: duckdb.Error, level: int) -> Response:
     """A DuckDB error for the agent. Its text can quote a cell value ("Could not convert string
     'Acme Corp' to INT32"), so below level 2 the agent gets only that something failed."""
-    if level >= 2:
+    if level >= ENGINE_ERRORS_SHOWN_FROM_LEVEL:
         return Response(f"DuckDB: {error}", status_code=400)
-    return Response(
-        f"DuckDB could not compute this. The message is hidden at privacy level {level} because "
-        "it can quote cell values; check the query or the grid's steps.",
-        status_code=400,
-    )
+    return Response(ENGINE_ERROR_HIDDEN, status_code=400)
 
 
 def apply_masks(
