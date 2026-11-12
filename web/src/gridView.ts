@@ -40,7 +40,7 @@ import { formatCount, h, icon, isDateType, isNumericType, toast } from "./dom";
 import { onRelationshipsChange, primaryKey } from "./relationships";
 import { GridSelection } from "./selection";
 import type { PageState } from "./state";
-import { gridRowHeight, gridTheme, headerProfiles, onHeaderProfilesChange, onThemeChange } from "./theme";
+import { gridRowHeight, gridTheme, gridZoom, headerProfiles, onHeaderProfilesChange, onThemeChange } from "./theme";
 import { openValueViewer } from "./valueViewer";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -117,6 +117,15 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
   // Bumped when what a header draws changes (new stats, profiles switched on or off); a header
   // drawn at an older version is rebuilt on the next refreshHeader().
   let headerVersion = 0;
+  // What destroy() undoes: the document listeners and page-wide subscriptions this grid made.
+  // Without them a closed grid stayed reachable (its AG Grid, its rows) and every closed grid
+  // left four more document listeners behind.
+  const disposers: (() => void)[] = [];
+  let destroyed = false;
+  function listen<K extends keyof DocumentEventMap>(type: K, listener: (event: DocumentEventMap[K]) => void, capture = false): void {
+    document.addEventListener(type, listener, capture);
+    disposers.push(() => document.removeEventListener(type, listener, capture));
+  }
 
   // ===== the column header: name, sort, stats, a tiny histogram, a profile button =====
 
@@ -148,6 +157,9 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
           onmousedown: (event: MouseEvent) => {
             if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
             event.preventDefault();
+            // preventDefault also kept the focus where it was (often the page itself), so Ctrl+C,
+            // Ctrl+A and Escape never reached the grid after a header click. Focus the header.
+            this.gui.closest<HTMLElement>(".ag-header-cell")?.focus({ preventScroll: true });
             selection.selectColumns(name, event.shiftKey ? "extend" : event.ctrlKey || event.metaKey ? "add" : "replace");
             dragging = "columns";
           },
@@ -250,7 +262,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
         colId: ROWNUM,
         headerName: "",
         headerComponent: CornerHeader,
-        width: 64,
+        width: rowNumberWidth(shownTotal),
         pinned: "left",
         lockPosition: "left",
         sortable: false,
@@ -343,6 +355,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
       const body = await api<RowsResponse>(
         `${grid}/rows${query({ start: params.startRow, end: params.endRow, gen, upto, client: clientId })}`,
       );
+      if (destroyed) return; // the tab closed while its rows loaded
       if (gen !== state.gen) {
         params.failCallback(); // a newer view replaced this one while it loaded
         return;
@@ -360,8 +373,10 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
       showEmpty(body.row_count === 0 && params.startRow === 0);
       gridApi?.setColumnsVisible([MARKER], highlights.size > 0);
       shownTotal = body.row_count;
+      fitRowNumbers();
       state.emit("selection");
     } catch (error) {
+      if (destroyed) return;
       params.failCallback();
       if ((error as { status?: number }).status !== 409) toast(String((error as Error).message ?? error), "error");
     }
@@ -372,6 +387,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
     const body = await api<RowsResponse & { placeholders: number[]; diffs: [number, number][] }>(
       `/compares/${encodeURIComponent(cmp.id)}/rows${query({ side: cmp.side, start: params.startRow, end: params.endRow })}`,
     );
+    if (destroyed) return;
     if (compare?.id !== cmp.id) {
       params.failCallback();
       return;
@@ -382,6 +398,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
     params.successCallback(body.rows, body.row_count);
     showEmpty(body.row_count === 0 && params.startRow === 0);
     shownTotal = body.row_count;
+    fitRowNumbers();
     state.emit("selection");
   }
 
@@ -405,17 +422,27 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
 
   let shownTotal = 0;
 
+  /** The row numbers' column fits the largest number at this zoom ("1,000,000" read "999,..."
+   * in a fixed 64px, and so did "5,000" at 200%). */
+  function fitRowNumbers(): void {
+    const column = gridApi?.getColumn(ROWNUM);
+    const width = rowNumberWidth(shownTotal);
+    if (column && column.getActualWidth() !== width) gridApi?.setColumnWidths([{ key: ROWNUM, newWidth: width }]);
+  }
+
   function showEmpty(empty: boolean): void {
     host.querySelector(".grid-empty")?.remove();
     if (!empty) return;
     const upto = state.previewUpto;
     const where = upto === null ? "after the steps" : upto === 0 ? "in the source" : `after step ${upto}`;
+    // A table pushed with no rows has nothing for a step to have filtered away.
+    const sourceEmpty = state.info?.row_count === 0 && !compare;
     host.append(
       h(
         "div",
         { class: "grid-empty", role: "status" },
-        h("strong", {}, `No rows ${where}.`),
-        h("span", {}, "A filter may be too strict: turn a step off or edit it in the steps panel."),
+        h("strong", {}, sourceEmpty ? `${state.info?.dataset ?? "This table"} has no rows.` : `No rows ${where}.`),
+        h("span", {}, sourceEmpty ? "Push it again with rows and this grid refreshes in place." : "A filter may be too strict: turn a step off or edit it in the steps panel."),
       ),
     );
   }
@@ -431,7 +458,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
     if (!(target instanceof Element) || host.contains(target) || target.closest(KEEP_SELECTION_UNDER)) return;
     selection.clear();
   }
-  document.addEventListener("pointerdown", clearOnClickOff, true);
+  listen("pointerdown", clearOnClickOff, true);
 
   // ===== public: build, refresh, sync =====
 
@@ -497,15 +524,16 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
       onDisplayedColumnsChanged: () => setTimeout(fitFiller, 0),
       onFirstDataRendered: () => fitFiller(),
       onBodyScrollEnd: () => state.emit("selection"),
-      overlayNoRowsTemplate: "<span>No rows in this view.</span>",
+      // showEmpty() says why there are no rows; AG Grid's own "no rows" line repeated it below.
+      suppressNoRowsOverlay: true,
     });
     // Capture phase: AG Grid handles Ctrl+A and Ctrl+C itself and stops them reaching us.
     host.addEventListener("keydown", onGridKey, true);
-    document.addEventListener("keydown", (e) => { shiftHeld = e.shiftKey; });
-    document.addEventListener("keyup", (e) => { shiftHeld = e.shiftKey; });
-    document.addEventListener("mouseup", () => stopDrag());
-    document.addEventListener("mousemove", (e) => { if (dragging === "rows" || dragging === "cells") autoScroll(e.clientY); });
-    onThemeChange(() => {
+    listen("keydown", (e) => { shiftHeld = e.shiftKey; });
+    listen("keyup", (e) => { shiftHeld = e.shiftKey; });
+    listen("mouseup", () => stopDrag());
+    listen("mousemove", (e) => { if (dragging === "rows" || dragging === "cells") autoScroll(e.clientY); });
+    disposers.push(onThemeChange(() => {
       if (!gridApi || gridApi.isDestroyed()) return;
       gridApi.setGridOption("theme", gridTheme());
       // Zoom changes the row height too; the infinite model lays rows out again only after a purge.
@@ -513,19 +541,20 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
         gridApi.setGridOption("rowHeight", gridRowHeight());
         gridApi.purgeInfiniteCache();
       }
-    });
-    onRelationshipsChange(() => {
+      fitRowNumbers();
+    }));
+    disposers.push(onRelationshipsChange(() => {
       // Keys changed: rebuild the headers so the key marks follow.
       headerVersion += 1;
       if (gridApi && !gridApi.isDestroyed()) gridApi.refreshHeader();
-    });
-    onHeaderProfilesChange(() => {
+    }));
+    disposers.push(onHeaderProfilesChange(() => {
       // New header height, and headers rebuilt with (or without) their profile lines.
       headerVersion += 1;
       gridApi?.setGridOption("theme", gridTheme());
       gridApi?.refreshHeader();
       void loadHeaderStats();
-    });
+    }));
     syncHeaderSort();
     void loadHeaderStats();
   }
@@ -573,7 +602,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
 
   async function loadHeaderStats(): Promise<void> {
     // Off by default: the profile queries run only when the headers show them.
-    if (!headerProfiles()) return;
+    if (!headerProfiles() || destroyed) return;
     try {
       headerStats = await api(`${grid}/header-stats${query({ gen: state.gen, client: clientId })}`);
       // Tiny histograms for up to 12 number columns, from the (cached) profiles.
@@ -588,6 +617,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
             sparks[c.name] = counts.map((n) => Math.round((100 * n) / top));
           }),
       );
+      if (destroyed) return;
       headerVersion += 1;
       gridApi?.refreshHeader();
     } catch {
@@ -676,6 +706,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
 
   /** The status bar's Count / Sum / Average, computed by the server over the whole selection. */
   async function loadSelectionStats(): Promise<void> {
+    if (destroyed) return;
     const descriptor = selection.descriptor();
     const asked = ++statsAsked;
     if (!descriptor) {
@@ -686,7 +717,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
     }
     try {
       const stats = await api<SelectionStats>(`${grid}/selection-stats${query({ gen: state.gen, client: clientId })}`, "POST", { selection: descriptor });
-      if (asked !== statsAsked) return; // a newer selection is on its way
+      if (asked !== statsAsked || destroyed) return; // a newer selection is on its way
       state.selection = { ...stats, kind: selection.kind };
       state.emit("selection");
     } catch {
@@ -825,7 +856,27 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
 
   function displayedRange(): [number, number] {
     if (!gridApi) return [0, 0];
-    // Rows on screen, not the rows rendered ahead of the scroll position.
+    // Rows on screen, not the rows rendered ahead of the scroll position: measured from a drawn
+    // row, since past the browser's tallest scroll area AG Grid "stretches" the scroll (one
+    // pixel of scrollbar is then more than one pixel of rows) and scrollTop / rowHeight drifts.
+    const viewport = host.querySelector<HTMLElement>(".ag-grid-viewport");
+    const drawn = host.querySelector<HTMLElement>(".ag-row[row-index]");
+    if (viewport && drawn && shownTotal > 0) {
+      const box = viewport.getBoundingClientRect();
+      const at = drawn.getBoundingClientRect();
+      if (box.height > 0 && at.height > 0) {
+        const top = Math.max(box.top, host.querySelector(".ag-header")?.getBoundingClientRect().bottom ?? box.top);
+        // An overlay scrollbar strip (grid.css) covers the bottom of the viewport.
+        const strip = host.querySelector(".ag-body-horizontal-scroll.ag-scrollbar-invisible")?.getBoundingClientRect();
+        const bottom = Math.min(box.top + viewport.clientTop + viewport.clientHeight, strip?.height ? strip.top : Infinity);
+        const index = Number(drawn.getAttribute("row-index"));
+        // A row counts as shown when its middle is on screen.
+        const clamp = (n: number): number => Math.max(0, Math.min(shownTotal - 1, n));
+        const first = clamp(index + Math.ceil((top - at.top) / at.height - 0.5));
+        const last = clamp(index + Math.floor((bottom - at.top) / at.height - 0.5));
+        return [first, Math.max(first, last)];
+      }
+    }
     const range = gridApi.getVerticalPixelRange();
     const row = gridApi.getDisplayedRowAtIndex(gridApi.getFirstDisplayedRowIndex());
     const height = row?.rowHeight ?? 32;
@@ -869,10 +920,28 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
       gridApi?.redrawRows();
     },
     destroy: () => {
-      document.removeEventListener("pointerdown", clearOnClickOff, true);
+      destroyed = true;
+      for (const dispose of disposers.splice(0)) dispose();
+      stopDrag();
+      window.clearTimeout(statsTimer);
+      pickListeners.length = 0;
+      headerMarks.clear();
       gridApi?.destroy();
+      gridApi = null;
     },
   };
+}
+
+let measure: CanvasRenderingContext2D | null = null;
+
+/** The row-number column's width for a view of `total` rows: the widest number plus padding. */
+function rowNumberWidth(total: number): number {
+  const zoom = gridZoom();
+  measure ??= document.createElement("canvas").getContext("2d");
+  if (!measure) return Math.round(64 * zoom);
+  measure.font = `${Math.round(13 * zoom)}px "Segoe UI", system-ui, sans-serif`;
+  const text = measure.measureText(formatCount(Math.max(1, total))).width;
+  return Math.max(Math.round(64 * zoom), Math.ceil(text + 28 * zoom));
 }
 
 // ===== the active view: what the panels and the ribbon act on =====
@@ -900,3 +969,17 @@ export const viewColumns = (): ColumnInfo[] => active?.viewColumns() ?? [];
 export const displayedRange = (): [number, number] => active?.displayedRange() ?? [0, 0];
 export const shownTotal = (): number => active?.shownTotal() ?? 0;
 export const autoSizeColumns = (names?: string[]): void => active?.autoSizeColumns(names);
+
+// Ctrl+C with the focus outside the grid (on a ribbon button just used, or on the page itself)
+// still copies the active grid's selection, unless something else is being copied: text in a
+// field or an editor, a dialog, or text selected on the page.
+document.addEventListener("keydown", (event) => {
+  if (!active || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c" || event.altKey) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target && (active.host.contains(target) || target.closest("input, textarea, select, [contenteditable], .monaco-editor, dialog, .popover"))) return;
+  if (String(getSelection() ?? "") || active.selection.kind === "none") return;
+  // Only while the grid is on screen (not behind the Agent, ERD or a query tab).
+  if (!active.host.isConnected || active.host.closest("[hidden]") || document.body.classList.contains("agent-view")) return;
+  event.preventDefault();
+  void active.copySelection();
+});

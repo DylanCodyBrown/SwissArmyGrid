@@ -24,8 +24,13 @@ export function currentModel(): RelationshipModel {
   return model;
 }
 
-export function onRelationshipsChange(listener: () => void): void {
+/** Subscribe to model changes; returns the unsubscribe (a grid view calls it when it closes). */
+export function onRelationshipsChange(listener: () => void): () => void {
   listeners.push(listener);
+  return () => {
+    const at = listeners.indexOf(listener);
+    if (at >= 0) listeners.splice(at, 1);
+  };
 }
 
 /** Fetch the model again (on load, and when the server says it changed). */
@@ -35,7 +40,7 @@ export async function loadRelationships(): Promise<void> {
   } catch {
     return; // keep what we have
   }
-  for (const listener of listeners) listener();
+  for (const listener of [...listeners]) listener();
 }
 
 export function primaryKey(dataset: string): string[] {

@@ -145,8 +145,19 @@ function headers(json: boolean): Record<string, string> {
 
 /** GET/POST/PATCH/DELETE returning JSON; a non-2xx status throws ApiError with the server's
  * plain-language message. */
+/** fetch, with the browser's bare "Failed to fetch" (the server stopped, or never answered)
+ * turned into a message a person can act on. A deliberate abort stays an AbortError. */
+async function send(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (error) {
+    if ((error as Error).name === "AbortError") throw error;
+    throw new ApiError(0, "The SwissArmyGrid server is not answering: it may have stopped. Start it again (and push the data again) to go on.");
+  }
+}
+
 export async function api<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, {
+  const response = await send(path, {
     method,
     headers: headers(body !== undefined),
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -158,7 +169,7 @@ export async function api<T>(path: string, method = "GET", body?: unknown, signa
 
 /** A download (export): returns the bytes, the file name and the server's summary message. */
 export async function download(path: string): Promise<{ blob: Blob; name: string; message: string }> {
-  const response = await fetch(path, { headers: headers(false) });
+  const response = await send(path, { headers: headers(false) });
   if (!response.ok) throw new ApiError(response.status, await response.text());
   const disposition = response.headers.get("Content-Disposition") ?? "";
   const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "export";
@@ -174,20 +185,67 @@ export function query(params: Record<string, string | number | undefined | null>
 
 type Listener = (notice: Notice) => void;
 const listeners: Listener[] = [];
-let socket: WebSocket | null = null;
 
 export function onNotice(listener: Listener): void {
   listeners.push(listener);
 }
 
-export function connect(onState: (live: boolean) => void, who: Record<string, string> = { grid: gridId }): void {
-  // ?grid= tells the server which grid this page shows (?workspace=1: a tab bar that shows every
-  // grid), so a push knows its grid is on screen and opens no new window.
-  socket = new WebSocket(`ws://${location.host}/ws?${new URLSearchParams(who).toString()}`, ["swissarmygrid", token]);
-  socket.addEventListener("open", () => onState(true));
-  socket.addEventListener("close", () => onState(false));
-  socket.addEventListener("message", (event: MessageEvent<string>) => {
-    const notice = JSON.parse(event.data) as Notice;
-    for (const listener of listeners) listener(notice);
-  });
+/** The live connection. `onState(live, again)` hears each open and close; `again` is true on an
+ * open after the first, when notices may have been missed while the socket was down.
+ *
+ * A dropped socket is opened again while this server still knows the token (it answers /health
+ * with it): a stall or a network blip no longer leaves the page "not live" for good, which also
+ * made every later push open a new window instead of a tab here. A restarted server has a new
+ * token, so this page's link is dead and it stops trying. */
+export function connect(onState: (live: boolean, again: boolean) => void, who: Record<string, string> = { grid: gridId }): void {
+  let delay = 1000;
+  let opened = false;
+  const retryLater = (): void => {
+    window.setTimeout(() => void retry(), delay);
+    delay = Math.min(delay * 2, 15000);
+  };
+  const retry = async (): Promise<void> => {
+    try {
+      const health = await fetch("/health", { headers: headers(false) });
+      if (health.status === 401 || health.status === 403) return; // another server now: the link is dead
+      if (!health.ok) throw new Error(health.statusText);
+    } catch {
+      retryLater(); // not answering yet
+      return;
+    }
+    open();
+  };
+  const open = (): void => {
+    // ?grid= tells the server which grid this page shows (?workspace=1: a tab bar that shows every
+    // grid), so a push knows its grid is on screen and opens no new window.
+    const socket = new WebSocket(`ws://${location.host}/ws?${new URLSearchParams(who).toString()}`, ["swissarmygrid", token]);
+    let live = false;
+    socket.addEventListener("open", () => {
+      live = true;
+      delay = 1000;
+      onState(true, opened);
+      opened = true;
+    });
+    socket.addEventListener("close", () => {
+      if (live) onState(false, false);
+      retryLater();
+    });
+    socket.addEventListener("message", (event: MessageEvent<string>) => {
+      let notice: Notice;
+      try {
+        notice = JSON.parse(event.data) as Notice;
+      } catch {
+        return;
+      }
+      // One listener's failure must not keep the notice from the others.
+      for (const listener of listeners) {
+        try {
+          listener(notice);
+        } catch (error) {
+          console.error(error);
+        }
+      }
+    });
+  };
+  open();
 }

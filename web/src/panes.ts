@@ -147,6 +147,8 @@ export function gridList(): { id: string; label: string }[] {
 }
 let order: string[] = [];
 let activeId: string | null = null;
+// Counts activateGrid calls, so a slow first load can't take the front from a later click.
+let activations = 0;
 let split: [string, string] | null = null; // [left, right]
 let dragging: string | null = null;
 let tabRow: HTMLElement;
@@ -232,6 +234,19 @@ export async function openGrids(focus: string | null): Promise<void> {
   else render();
 }
 
+/** After the live connection came back: notices sent while it was down never arrived, so match
+ * the tabs to the server's grids and reload the ones already drawn. */
+export async function resyncGrids(): Promise<void> {
+  const { grids } = await api<{ grids: { grid: string; dataset: string }[] }>("/grids");
+  const open = new Set(grids.map((g) => g.grid));
+  for (const id of [...contexts.keys()]) if (!open.has(id)) dropGrid(id);
+  for (const g of grids) addGrid(g.grid, g.dataset);
+  for (const ctx of contexts.values()) {
+    if (ctx.state.info) void ctx.state.load().then(() => ctx.view?.refresh()).catch(() => undefined);
+  }
+  if (!activeId && order[0]) await activateGrid(order[0]);
+}
+
 export function addGrid(id: string, dataset: string): void {
   if (contexts.has(id)) return;
   contexts.set(id, { id, dataset, state: new PageState(id), view: null, pane: null });
@@ -302,15 +317,18 @@ function previewBanner(ctx: Context, slot: HTMLElement): void {
 export async function activateGrid(id: string): Promise<void> {
   const ctx = contexts.get(id);
   if (!ctx) return;
+  const mine = ++activations;
   // Tell the server which table is in front, so an agent's prompt can say so (routes_context.py).
   void api("/workspace/active", "POST", { grid: id }).catch(() => undefined);
   if (!ctx.state.info) {
     try {
       await ctx.state.load();
     } catch (e) {
-      toast((e as Error).message, "error");
+      if (mine === activations && contexts.get(id) === ctx) toast((e as Error).message, "error");
       return;
     }
+    // Another tab was clicked (or this one closed) while this one loaded: the last click wins.
+    if (mine !== activations || contexts.get(id) !== ctx) return;
   }
   if (split && !split.includes(id) && activeId) {
     // Opening another tab while split: it replaces the active side.

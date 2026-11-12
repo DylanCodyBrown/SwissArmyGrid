@@ -34,14 +34,26 @@ let workspace: HTMLElement | null = null;
 export function mountStepsPanel(element: HTMLElement, popout: boolean): void {
   host = element;
   inPopout = popout;
-  state.on("info", () => void render());
-  state.on("preview", () => void render());
+  // Switching tabs announces both: one render (and one step-counts request), not two.
+  state.on("info", scheduleRender);
+  state.on("preview", scheduleRender);
   if (!popout) {
     workspace = element.closest<HTMLElement>(".workspace");
     if (workspace) workspace.dataset.steps = recall("steps.mode") === "collapsed" ? "collapsed" : "open";
     return;
   }
   document.body.classList.add("popout");
+}
+
+let renderQueued = false;
+
+function scheduleRender(): void {
+  if (renderQueued) return;
+  renderQueued = true;
+  queueMicrotask(() => {
+    renderQueued = false;
+    void render();
+  });
 }
 
 function isCollapsed(): boolean {

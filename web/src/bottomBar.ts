@@ -75,6 +75,7 @@ export function renderMeter(budget: Budget): void {
 }
 
 export function setLive(on: boolean): void {
+  if (!live) return; // the pop-out windows have no status bar
   live.textContent = on ? "● live" : "○ not live: the server stopped or restarted; push again for a new link";
   live.className = on ? "" : "off";
 }

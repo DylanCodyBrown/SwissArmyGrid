@@ -679,6 +679,36 @@ def test_paste_tab_separated_text_makes_a_dataset(
     assert any(d["name"].startswith("pasted_") for d in call(server, "GET", "/datasets")["datasets"])
 
 
+def test_two_quick_pastes_make_two_datasets(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    def pasted() -> set[str]:
+        return {
+            d["name"] for d in call(server, "GET", "/datasets")["datasets"] if d["name"].startswith("pasted_")
+        }
+
+    before = pasted()
+    page = open_grid(browser, orders_url)
+    page.evaluate(
+        """() => {
+            for (const text of ['a\\tb\\n1\\tx\\n', 'c\\td\\n2\\ty\\n']) {
+              const data = new DataTransfer();
+              data.setData('text/plain', text);
+              document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+            }
+        }"""
+    )
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and len(pasted() - before) < 2:
+        time.sleep(0.2)
+    made = pasted() - before
+    try:
+        assert len(made) == 2, made  # the second paste did not replace the first
+    finally:
+        for name in made:
+            call(server, "DELETE", f"/datasets/{name}")
+
+
 # ===== themes =====
 
 
@@ -1548,3 +1578,379 @@ def test_an_agent_snapshot_follows_what_the_user_has_done(
     wait_for_cell(page, 0, "region", "North")
     after, _ = snapshot_while_page_runs(page, server, {"area": "grid"})
     assert before != after, "the picture did not change when the grid did"
+
+
+# ===== hardening: leaks, big tables, races, the live connection =====
+
+LISTENER_COUNTER = """
+(() => {
+  const live = new Map();
+  const key = (type, options) =>
+    `${type}|${typeof options === "boolean" ? options : Boolean(options && options.capture)}`;
+  const add = document.addEventListener.bind(document);
+  const remove = document.removeEventListener.bind(document);
+  document.addEventListener = (type, listener, options) => {
+    const k = key(type, options);
+    if (!live.has(k)) live.set(k, new Set());
+    live.get(k).add(listener);
+    add(type, listener, options);
+  };
+  document.removeEventListener = (type, listener, options) => {
+    live.get(key(type, options))?.delete(listener);
+    remove(type, listener, options);
+  };
+  window.__documentListeners = (type) =>
+    [...live].filter(([k]) => k.startsWith(`${type}|`)).reduce((n, [, s]) => n + s.size, 0);
+})();
+"""
+
+
+def test_a_closed_grid_leaves_no_document_listeners_behind(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    context = browser.new_context(viewport={"width": 1600, "height": 900})
+    context.add_init_script(LISTENER_COUNTER)
+    page = context.new_page()
+    page.goto(orders_url)
+    expect(page.locator(".ag-row[row-index='0']").first).to_be_visible(timeout=20000)
+    for _ in range(4):
+        grid = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+        expect(page.locator(f".pane[data-grid='{grid}'] .ag-row[row-index='0']").first).to_be_visible(
+            timeout=20000
+        )
+        call(server, "DELETE", f"/grids/{grid}")
+        expect(page.locator(f".pane[data-grid='{grid}']")).to_have_count(0, timeout=10000)
+    # Each grid view listens for keyup and mousemove on the document: one per open pane, no more.
+    panes = page.locator(".pane").count()
+    assert page.evaluate("window.__documentListeners('keyup')") == panes
+    assert page.evaluate("window.__documentListeners('mousemove')") == panes
+
+
+def test_a_table_over_a_million_pixels_scrolls_row_for_row(browser: Browser, server: dict[str, Any]) -> None:
+    rows = 40_000  # 40,000 rows of 32px: past the 1,000,000px AG Grid measured in the page's flex body
+    url = push_client.push(pd.DataFrame({"n": range(rows)}), name="tall", new_grid=True)
+    try:
+        page = open_grid(browser, url)
+        expect(page.locator("#status")).to_contain_text("of 40,000", timeout=15000)
+        viewport = page.locator(".pane.active .ag-grid-viewport")
+        assert viewport.evaluate("v => v.scrollHeight") > rows * 32  # not "stretched" scrolling
+        viewport.evaluate("v => { v.scrollTop = 20000 * 32; }")
+        wait_for_cell(page, 20000, "n", "20000")
+        expect(page.locator("#status")).to_contain_text("Rows 20,001", timeout=10000)
+        # The row numbers fit, at 100% and at 200% zoom.
+        fits = (
+            "() => { const c = document.querySelector("
+            "\".pane.active .ag-row[row-index='39999'] .ag-cell[col-id='__sag_rownum']\");"
+            " return Boolean(c) && c.textContent === '40,000' && c.scrollWidth <= c.clientWidth; }"
+        )
+        viewport.evaluate("v => { v.scrollTop = v.scrollHeight; }")
+        page.wait_for_function(fits, timeout=10000)
+        for _ in range(8):
+            page.keyboard.press("Control+Equal")
+        expect(page.locator(".zoom-control output").first).to_have_text("200%")
+        page.wait_for_timeout(500)
+        viewport.evaluate("v => { v.scrollTop = v.scrollHeight; }")
+        page.wait_for_function(fits, timeout=10000)
+        page.keyboard.press("Control+0")
+    finally:
+        call(server, "DELETE", "/datasets/tall")
+
+
+def test_the_last_row_scrolls_clear_of_the_sideways_scrollbar(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url)
+    expect(page.locator("#status")).to_contain_text("of 5,000", timeout=15000)
+    viewport = page.locator(".pane.active .ag-grid-viewport")
+    viewport.evaluate("v => { v.scrollTop = v.scrollHeight; }")
+    last = page.locator(f".pane.active .ag-row[row-index='{ROWS - 1}']").last
+    expect(last).to_be_visible(timeout=10000)
+    page.wait_for_timeout(300)
+    row = last.bounding_box()
+    strip = page.locator(".pane.active .ag-body-horizontal-scroll").bounding_box()
+    bottom = viewport.evaluate("v => v.getBoundingClientRect().top + v.clientHeight")
+    assert row is not None and strip is not None
+    assert row["y"] + row["height"] <= min(bottom, strip["y"]) + 1
+
+
+def test_the_last_tab_clicked_wins_over_a_slow_first_load(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    slow = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+    try:
+        page = open_grid(browser, orders_url)
+        first = grid_of(orders_url)
+        expect(page.locator(f".tab-item[data-grid='{slow}']")).to_be_visible(timeout=10000)
+        page.locator(f".tab-item[data-grid='{first}']").click()
+
+        def delayed(route: Any) -> None:
+            time.sleep(1.5)
+            route.continue_()
+
+        page.route(re.compile(f"/grids/{slow}$"), delayed)
+        # Both clicks inside the page, so the second lands while the first tab's info still loads.
+        page.evaluate(
+            "([slow, first]) => { for (const id of [slow, first])"
+            " document.querySelector(`.tab-item[data-grid='${id}']`).click(); }",
+            [slow, first],
+        )
+        page.wait_for_timeout(2500)
+        expect(page.locator(".tab-item.active")).to_have_attribute("data-grid", first)
+        expect(page.locator(f".pane[data-grid='{first}']")).to_be_visible()
+    finally:
+        call(server, "DELETE", f"/grids/{slow}")
+
+
+SOCKET_KEEPER = """
+(() => {
+  const Native = window.WebSocket;
+  window.__sockets = [];
+  window.WebSocket = class extends Native {
+    constructor(...args) { super(...args); window.__sockets.push(this); }
+  };
+})();
+"""
+
+
+def test_the_page_reconnects_when_its_live_socket_drops(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    context = browser.new_context(viewport={"width": 1600, "height": 900})
+    context.add_init_script(SOCKET_KEEPER)
+    page = context.new_page()
+    page.goto(orders_url)
+    expect(page.locator("#live")).to_have_text(re.compile("^● live"), timeout=15000)
+    page.evaluate("window.__sockets.forEach(s => s.close())")
+    expect(page.locator("#live")).to_contain_text("not live")
+    # A grid opened while the socket is down still arrives once it is back.
+    grid = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+    try:
+        expect(page.locator("#live")).to_have_text(re.compile("^● live"), timeout=15000)
+        expect(page.locator(f".tab-item[data-grid='{grid}']")).to_be_visible(timeout=10000)
+    finally:
+        call(server, "DELETE", f"/grids/{grid}")
+    expect(page.locator(f".tab-item[data-grid='{grid}']")).to_have_count(0, timeout=10000)
+
+
+def test_the_pop_out_windows_start_without_errors(browser: Browser, orders_url: str) -> None:
+    path, fragment = orders_url.split("#")
+    for panel in ("steps", "keys"):
+        page = browser.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda error, errors=errors: errors.append(str(error)))
+        page.goto(f"{path}?panel={panel}#{fragment}")
+        page.wait_for_timeout(2500)
+        assert errors == [], f"{panel}: {errors}"
+
+
+CAPTURE_CLIPBOARD = """() => {
+  window.__copied = undefined;
+  navigator.clipboard.write = async (items) => {
+    window.__copied = await (await items[0].getType('text/plain')).text();
+  };
+  navigator.clipboard.writeText = async (text) => { window.__copied = text; };
+}"""
+
+
+def test_ctrl_c_copies_a_column_picked_by_its_header_or_used_from_the_ribbon(
+    browser: Browser, orders_url: str
+) -> None:
+    page = open_grid(browser, orders_url)
+    page.evaluate(CAPTURE_CLIPBOARD)
+    page.locator(".ag-header-cell[col-id='product'] .sag-header-name").click()
+    expect(page.locator(".statusbar")).to_contain_text("5,000 cells selected")
+    page.keyboard.press("Control+c")
+    page.wait_for_function("window.__copied !== undefined", timeout=10000)
+    lines = page.evaluate("window.__copied").strip().split("\r\n")
+    assert lines[:3] == ["product", "Widget", "Gadget"] and len(lines) == ROWS + 1
+    # The focus on a ribbon button just used: Ctrl+C still copies the grid's selection.
+    page.evaluate(CAPTURE_CLIPBOARD)
+    page.locator(".ribbon").get_by_role("button", name="Auto width", exact=True).nth(1).click()
+    page.keyboard.press("Control+c")
+    page.wait_for_function("window.__copied !== undefined", timeout=10000)
+    assert page.evaluate("window.__copied").startswith("product\r\nWidget")
+
+
+def test_ctrl_click_on_the_only_selected_header_selects_nothing(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url)
+    refused: list[str] = []
+    page.on("response", lambda r: refused.append(r.url) if r.status >= 400 else None)
+    name = page.locator(".ag-header-cell[col-id='product'] .sag-header-name")
+    name.click()
+    expect(page.locator(".statusbar")).to_contain_text("5,000 cells selected")
+    name.click(modifiers=["Control"])
+    expect(page.locator(".statusbar")).not_to_contain_text("selected")
+    expect(page.locator(".ribbon-caption").nth(1)).to_contain_text("select a column")
+    page.wait_for_timeout(500)
+    assert refused == []
+
+
+def test_a_narrow_window_has_no_sideways_page_scroll(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url, width=420, height=760)
+    expect(page.locator(".steps-panel .step.source")).to_be_visible(timeout=15000)
+    assert page.evaluate("document.documentElement.scrollWidth") <= 420
+    grid = page.locator(".pane.active .grid-host").bounding_box()
+    assert grid is not None and grid["width"] > 200  # most of the width stays with the grid
+
+
+def test_switching_tabs_asks_for_the_step_counts_once_and_not_for_hidden_cards(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    other = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+    try:
+        page = open_grid(browser, orders_url)
+        first = grid_of(orders_url)
+        page.locator(f".tab-item[data-grid='{other}']").click()
+        expect(page.locator(f".pane[data-grid='{other}'] .ag-row[row-index='0']").first).to_be_visible(
+            timeout=15000
+        )
+        page.wait_for_timeout(500)
+        seen: list[str] = []
+        page.on("request", lambda request: seen.append(request.url))
+        page.locator(f".tab-item[data-grid='{first}']").click()
+        expect(page.locator(".steps-panel .step.source")).to_contain_text("orders")
+        page.wait_for_timeout(1000)
+        assert sum("/step-counts" in url for url in seen) == 1, seen
+        assert not any(url.endswith("/cards") for url in seen), seen  # the Agent tab is not showing
+    finally:
+        call(server, "DELETE", f"/grids/{other}")
+
+
+def test_the_sandbox_draws_cleanly_and_a_chart_click_keeps_the_step_counts(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    grid = grid_of(orders_url)
+    chart = {"mark": "bar", "x": {"field": "product"}, "y": {"aggregate": "count"}}
+    cards = [
+        call(
+            server,
+            "POST",
+            f"/grids/{grid}/cards",
+            {"kind": "chart", "title": "Rows per product", "spec": chart},
+        )["card"],
+        call(
+            server,
+            "POST",
+            f"/grids/{grid}/cards",
+            {"kind": "diagram", "title": "Broken diagram", "body": 'erDiagram\n  A["x"] ||--o{ B : "y"'},
+        )["card"],
+    ]
+    try:
+        page = open_grid(browser, orders_url)
+        noise: list[str] = []
+        page.on("console", lambda m: noise.append(m.text) if m.type in ("warning", "error") else None)
+        page.on("response", lambda r: noise.append(f"{r.status} {r.url}") if r.status >= 400 else None)
+        open_agent(page)
+        # A diagram Mermaid can't parse says so in its card and leaves nothing under the page.
+        broken = page.locator(".card", has_text="Broken diagram")
+        expect(broken).to_contain_text("could not be drawn", timeout=30000)
+        assert page.locator("body > [id*='sag-diagram']").count() == 0
+        expect(page.locator("body")).not_to_contain_text("Syntax error in text")
+        card = page.locator(".card", has_text="Rows per product")
+        card.locator(".chart svg path.mark-rect, .chart svg .mark-rect path").first.click()
+        expect(page.locator(".toast").last).to_contain_text("Filtered the grid", timeout=15000)
+        back_to_grid(page, orders_url)
+        expect(page.locator(".step .meta").first).to_contain_text("5,000 →", timeout=15000)
+        page.wait_for_timeout(500)
+        assert noise == [], noise  # no version warnings from the charts, no refused (409) requests
+    finally:
+        for card_id in cards:
+            call(server, "DELETE", f"/cards/{card_id}")
+
+
+def test_closing_one_side_of_a_compare_gives_the_other_grid_its_own_rows_back(
+    browser: Browser, server: dict[str, Any]
+) -> None:
+    lefts = pd.DataFrame({"invoice": [1, 1, 2], "amount": [10.0, 11.0, 20.0]})
+    rights = pd.DataFrame({"invoice": [1, 2, 3], "amount": [10.0, 25.0, 30.0]})
+    right_url = push_client.push(rights, new_grid=True)
+    page = open_grid(browser, push_client.push(lefts, new_grid=True))
+    tabs = page.locator(".tab-item")
+    tabs.filter(has_text="rights").drag_to(tabs.filter(has_text="lefts"))
+    picker = page.locator("dialog .compare-dialog")
+    expect(picker.locator("tbody tr").first).to_contain_text("invoice", timeout=20000)
+    page.locator("dialog").get_by_role("button", name="Compare", exact=True).click()
+    left = page.locator(".pane:not([hidden])").nth(0)
+    expect(left.locator(".ag-row")).to_have_count(4, timeout=20000)  # keys 1, 1, 2, 3 lined up
+    page.locator(f".tab-item[data-grid='{grid_of(right_url)}'] .tab-close").click()
+    expect(page.locator(".panes")).to_have_attribute("data-split", "off")
+    # lefts is its own three rows again, not the compare's four.
+    expect(page.locator(".pane.active .ag-row")).to_have_count(3, timeout=15000)
+    expect(page.locator("#status")).to_contain_text("of 3")
+
+
+def test_a_query_that_answers_after_a_tab_switch_stays_off_the_new_tab(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    other = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+    try:
+        page = open_grid(browser, orders_url)
+        first = grid_of(orders_url)
+        page.get_by_role("button", name="Create SQL transformation").click()
+        editor = page.locator(".sql-editor .monaco-editor, .sql-editor textarea").first
+        expect(editor).to_be_visible(timeout=20000)
+
+        def slow(route: Any) -> None:
+            time.sleep(1.5)
+            route.continue_()
+
+        page.route(re.compile(f"/grids/{first}/sql$"), slow)
+        # The tab switch happens in the page while the query is held up.
+        page.evaluate(
+            "id => setTimeout(() => document.querySelector(`.tab-item[data-grid='${id}']`).click(), 300)",
+            other,
+        )
+        page.get_by_role("button", name="Run", exact=True).click()
+        page.wait_for_timeout(2500)
+        expect(page.locator(".tab-item.active")).to_have_attribute("data-grid", other)
+        expect(page.locator("#sql-result-bar")).to_have_count(0)
+        expect(page.locator(".sql-status")).to_contain_text("finished after you switched tabs")
+        expect(page.locator("#status")).to_contain_text("of 5,000")
+    finally:
+        call(server, "DELETE", f"/grids/{other}")
+
+
+def test_a_server_that_stops_answering_gets_one_plain_message(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url)
+    page.route(re.compile("/steps$"), lambda route: route.abort("connectionrefused"))
+    page.locator(".ag-header-cell[col-id='product'] .sag-header-name").click()
+    sort = page.locator(".ribbon").get_by_role("button", name="Sort A→Z", exact=True)
+    sort.click()
+    sort.click()
+    expect(page.locator(".toast.error")).to_have_text(re.compile("server is not answering"), timeout=10000)
+    page.wait_for_timeout(500)
+    expect(page.locator(".toast.error")).to_have_count(1)  # the same message once, not stacked
+    expect(page.locator(".toast")).not_to_contain_text("Failed to fetch")
+
+
+def test_long_names_and_empty_tables_read_well(browser: Browser, server: dict[str, Any]) -> None:
+    long = "amount_" + "very_long_name_" * 8
+    frame = pd.DataFrame({long: pd.Series([], dtype="int64"), "label": pd.Series([], dtype="object")})
+    page = open_grid_without_rows(browser, push_client.push(frame, name="nothing_here", new_grid=True))
+    try:
+        # One message that says what is going on, not a filter hint plus AG Grid's own line.
+        expect(page.locator(".grid-empty")).to_contain_text("nothing_here has no rows.", timeout=15000)
+        expect(page.locator(".grid-empty")).not_to_contain_text("filter")
+        expect(page.get_by_text("No rows in this view.")).to_have_count(0)
+        # A long name is cut at its end with an ellipsis, also in a right-aligned number column.
+        name = page.locator(f".ag-header-cell[col-id='{long}'] .sag-header-name")
+        expect(name).to_be_visible()
+        first_letter_shown = name.evaluate(
+            """el => {
+              const r = document.createRange();
+              r.setStart(el.firstChild, 0);
+              r.setEnd(el.firstChild, 1);
+              return r.getBoundingClientRect().left >= el.getBoundingClientRect().left - 1;
+            }"""
+        )
+        assert first_letter_shown
+        assert name.evaluate(
+            "el => getComputedStyle(el).textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth"
+        )
+    finally:
+        call(server, "DELETE", "/datasets/nothing_here")
+
+
+def open_grid_without_rows(browser: Browser, url: str) -> Page:
+    page = browser.new_context(viewport={"width": 1600, "height": 900}).new_page()
+    page.goto(url)
+    expect(page.locator(".pane.active .ag-header-cell").first).to_be_visible(timeout=20000)
+    return page

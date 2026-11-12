@@ -26,7 +26,7 @@
  * ?panel=steps opens only the steps panel (the pop-out window), and ?panel=keys only the Key
  * Finder; both follow the same server state through the WebSocket, so edits show in every window.
  */
-import { connect, gridId, onNotice, openedWith, token, type Notice } from "./api";
+import { api, connect, gridId, onNotice, openedWith, token, type Notice } from "./api";
 import { mountSnapshots } from "./snapshot";
 import { handleAgentNotice, loadApprovals } from "./agentAccess";
 import { handleNotice, mountAiPanel, refreshPanel } from "./aiPanel";
@@ -36,7 +36,7 @@ import { $, clear, h, toast } from "./dom";
 import { renderKeyFinder } from "./keyFinder";
 import { settingsButton } from "./settingsWindow";
 import { openCompareDialog } from "./compareDialog";
-import { activateGrid, activeContext, addGrid, contextOf, contextsOf, dropGrid, mountPanes, onSplitCreated, openGrids } from "./panes";
+import { activateGrid, activeContext, addGrid, contextOf, contextsOf, dropGrid, mountPanes, onSplitCreated, openGrids, resyncGrids } from "./panes";
 import { mountRibbon } from "./ribbon";
 import { backToTable, mountSqlBox, rememberAgentQuery } from "./sqlBox";
 import { openColumnProfile } from "./profileView";
@@ -57,9 +57,18 @@ function title(): void {
   clear($("#grid-title"), info.dataset, h("span", { class: "version", title: `Version ${info.version} of ${info.dataset}` }, `v${info.version}`));
 }
 
+const pasting = new Set<string>();
+
 async function pasteAsDataset(text: string): Promise<void> {
-  const name = `pasted_${new Date().toISOString().slice(11, 19).replace(/:/g, "")}`;
+  // Named for the local time, and never an open dataset's name: a paste stores under its name,
+  // so two pastes within one second replaced the first (and the time read in UTC).
+  const now = new Date();
+  const stamp = [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, "0")).join("");
+  let name = `pasted_${stamp}`;
   try {
+    const taken = new Set((await api<{ datasets: { name: string }[] }>("/datasets")).datasets.map((d) => d.name));
+    for (let n = 2; taken.has(name) || pasting.has(name); n += 1) name = `pasted_${stamp}_${n}`;
+    pasting.add(name); // a second paste before this one lands picks another name
     const response = await fetch(`/datasets/${name}/paste`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: text });
     if (!response.ok) throw new Error(await response.text());
     toast(`Pasted as dataset ${name}; it opens as a tab.`);
@@ -92,18 +101,20 @@ function onLiveNotice(notice: Notice): void {
           toast(`${notice.dataset} updated to version ${notice.version}.`);
           refreshPanel();
         }
-      });
+      }).catch(() => undefined); // closed meanwhile: its grid_closed notice drops the tab
     }
   }
   if (notice.type === "grid_updated" && notice.grid) {
     // Steps changed in another window, by a chart click, or by the agent.
     const ctx = contextOf(notice.grid);
     if (ctx?.state.info) {
+      // The new generation first: load() redraws the panels at once, and the step counts they
+      // ask for with the old one were refused (409), so the row counts went missing.
+      ctx.state.gen = Math.max(ctx.state.gen, (notice as { gen?: number }).gen ?? 0);
       void ctx.state.load().then(() => {
-        ctx.state.gen = Math.max(ctx.state.gen, (notice as { gen?: number }).gen ?? 0);
         ctx.view?.refresh();
         if (notice.by === "agent" && ctx.state === state) toast("The agent changed this grid's view.");
-      });
+      }).catch(() => undefined);
     }
   }
   if (notice.type === "agent_query" && notice.dataset === state.info?.dataset && notice.sql) rememberAgentQuery(notice.sql);
@@ -119,7 +130,10 @@ async function startSingle(): Promise<void> {
   const info = await single.load();
   const stepsHost = $("#steps-panel");
   mountStepsPanel(stepsHost, popout);
-  connect(setLive);
+  connect((live, again) => {
+    setLive(live);
+    if (again) void single.load().catch(() => undefined); // changes made while the socket was down
+  });
   onNotice(onLiveNotice);
   mountSnapshots();
   if (keysWindow) {
@@ -178,7 +192,11 @@ async function start(): Promise<void> {
   // This page shows every grid as a tab, so a push while it is open adds a tab, not a window.
   // Each (re)connect fetches the agent's requests already waiting: one made before the socket was
   // open never reached this page as a notice.
-  connect((live) => { setLive(live); if (live) void loadApprovals(); }, { workspace: "1" });
+  connect((live, again) => {
+    setLive(live);
+    if (live) void loadApprovals();
+    if (again) void resyncGrids().catch(() => undefined);
+  }, { workspace: "1" });
   await openGrids(gridId || openedWith.get("grid"));
   if (!activeContext()) toolbarEmpty();
 
@@ -207,6 +225,16 @@ function toolbarEmpty(): void {
   clear($("#grid-title"), "SwissArmyGrid");
   document.title = "SwissArmyGrid";
 }
+
+// A failed action nothing else caught (a button whose request the server refused, a tab closed
+// mid-request): say so in a toast instead of failing silently with only a console error.
+window.addEventListener("unhandledrejection", (event: PromiseRejectionEvent) => {
+  const reason = event.reason as { name?: string; message?: string } | null | undefined;
+  event.preventDefault();
+  if (reason?.name === "AbortError") return; // cancelled on purpose
+  console.warn(reason);
+  toast(reason?.message || String(reason), "error");
+});
 
 start().catch((e: unknown) => {
   document.body.append(h("p", { class: "status-error", style: { padding: "16px" } }, `Could not open this grid: ${(e as Error).message}`));

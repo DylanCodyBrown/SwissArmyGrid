@@ -169,6 +169,14 @@ body {
   overflow: hidden;
 }
 
+/* AG Grid measures the tallest scroll area the browser allows by growing a bare <div> it appends
+   to the body. In this flex column the div shrank to fit, so it measured 1,000,000px and
+   "stretched" every table over 31,250 rows: each wheel notch then skipped about 100 rows and
+   the row numbers drifted from the scroll position. A bare div keeps its height. */
+body > div:not([class]):not([id]):empty {
+  flex-shrink: 0;
+}
+
 button,
 input,
 select,
@@ -274,10 +282,11 @@ pre,
   cursor: not-allowed;
 }
 
+/* Icons grow with the zoom like the text beside them (at 200% they stayed 15px). */
 .btn svg,
 .icon-svg {
-  width: 15px;
-  height: 15px;
+  width: calc(15px * var(--ui-zoom, 1));
+  height: calc(15px * var(--ui-zoom, 1));
   flex: none;
   fill: none;
   stroke: currentColor;
@@ -407,7 +416,8 @@ textarea {
 /* ===== workspace and split panels ===== */
 
 .workspace {
-  --steps-width: 320px;
+  /* Narrow windows keep most of the width for the grid (at 420px it was 100px wide). */
+  --steps-width: min(320px, 40vw);
   --panel-size: 380px;
   position: relative;
   display: grid;
@@ -594,6 +604,19 @@ textarea {
 .workspace[data-steps="open"] .steps-panel,
 .workspace[data-steps="collapsed"] .steps-panel {
   display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* A narrow panel shortens its buttons' labels rather than spilling past the window. */
+.steps-panel .btn {
+  max-width: 100%;
+}
+
+.steps-panel .btn-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Collapsed: only the toggle and the rail label show, the way the analysis panel collapses. */
@@ -1149,7 +1172,6 @@ table.small td.num {
 
 .cell-number,
 .header-number .sag-header-name {
-  justify-content: flex-end;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -1202,8 +1224,10 @@ table.small td.num {
   min-width: 0;
 }
 
+/* A block, not a flex box: text-overflow works only on a block's own text, so a long name was
+   cut mid-letter (and a right-aligned number column's name lost its start, not its end). */
 .sag-header-name {
-  display: flex;
+  display: block;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1949,9 +1973,12 @@ body.popout .ribbon {
 }
 
 .credit {
+  min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: max(0.85em, 11px);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .panel-actions {
@@ -2055,6 +2082,13 @@ body.sag-selecting * {
 .ag-body-horizontal-scroll,
 .ag-body-horizontal-scroll-viewport {
   min-height: 14px !important;
+}
+
+/* With overlay scrollbars that strip lies over the bottom of the rows (AG Grid marks it
+   ag-scrollbar-invisible and places it absolutely), so the last row ended half under it with
+   no way to scroll it clear. Room for the strip below the rows: */
+.ag-grid-viewport:has(~ .ag-body-horizontal-scroll.ag-scrollbar-invisible) {
+  padding-bottom: 16px;
 }
 
 .ag-body-horizontal-scroll-viewport,
@@ -2690,8 +2724,8 @@ body.agent-view .titlebar {
 }
 
 .sag-header-key .icon-svg {
-  width: 13px;
-  height: 13px;
+  width: calc(13px * var(--ui-zoom, 1));
+  height: calc(13px * var(--ui-zoom, 1));
 }
 
 .known-pair {

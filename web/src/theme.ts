@@ -41,13 +41,20 @@ export function setTheme(next: ThemeChoice): void {
   apply();
 }
 
-export function onThemeChange(listener: () => void): void {
+/** Subscribe to theme and zoom changes; returns the unsubscribe (a grid view calls it when it closes). */
+export function onThemeChange(listener: () => void): () => void {
   listeners.push(listener);
+  return () => removeListener(listeners, listener);
+}
+
+function removeListener(list: (() => void)[], listener: () => void): void {
+  const at = list.indexOf(listener);
+  if (at >= 0) list.splice(at, 1);
 }
 
 function apply(): void {
   document.documentElement.dataset.theme = effectiveTheme();
-  for (const listener of listeners) listener();
+  for (const listener of [...listeners]) listener();
 }
 
 darkQuery.addEventListener("change", apply);
@@ -77,8 +84,9 @@ export function setHeaderProfiles(on: boolean): void {
   for (const listener of profileListeners) listener();
 }
 
-export function onHeaderProfilesChange(listener: () => void): void {
+export function onHeaderProfilesChange(listener: () => void): () => void {
   profileListeners.push(listener);
+  return () => removeListener(profileListeners, listener);
 }
 
 window.addEventListener("storage", (event) => {

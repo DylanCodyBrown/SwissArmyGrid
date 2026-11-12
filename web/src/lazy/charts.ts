@@ -170,6 +170,9 @@ export async function drawChart(
 ): Promise<Drawn> {
   installPatterns();
   let copy: Record<string, unknown> = withPatterns(structuredClone(spec));
+  // The server names the Vega-Lite 5 schema (Altair's, for the code it exports); the page draws
+  // with its own Vega-Lite, which warned in the console for every chart about the version.
+  delete copy.$schema;
   if (options.height) copy.height = options.height;
   const mark = (copy.mark as { type?: string } | undefined)?.type;
   if (options.zoomable && (mark === "point" || mark === "line" || mark === "area")) {
