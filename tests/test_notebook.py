@@ -171,3 +171,48 @@ def test_the_websocket_is_refused_without_the_cookie(live: Live, cookie: str) ->
 
     with pytest.raises(websockets.exceptions.InvalidStatus):
         asyncio.run(attempt())
+
+
+def test_a_drop_fills_an_empty_cell_or_follows_the_cell_it_landed_on(live: Live, cookie: str) -> None:
+    async def scenario() -> tuple[list[str], list[str], Any, Any, Any]:
+        query = "session_id=s-drop-owner&file=workspace.py"
+        async with websockets.connect(
+            f"ws://127.0.0.1:{live.port}/marimo/ws?{query}",
+            additional_headers={"Cookie": cookie, "Origin": f"http://127.0.0.1:{live.port}"},
+            max_size=None,
+        ) as owner:
+            ids, codes = await _cells(owner)
+            empty = ids[codes.index("")] if "" in codes else None
+            first = await asyncio.to_thread(
+                live.call,
+                "POST",
+                "/notebook/drop",
+                {
+                    "code": 'conn = sag.blade("Bakery")',
+                    "imports": ["import swissarmygrid as sag"],
+                    "cell": empty,
+                },
+                AUTH,
+            )
+            second = await asyncio.to_thread(
+                live.call,
+                "POST",
+                "/notebook/drop",
+                {
+                    "code": "rows = 1",
+                    "imports": ["import csv"],
+                    "cell": ids[codes.index("import marimo as mo\nimport swissarmygrid as sag")],
+                },
+                AUTH,
+            )
+            bad = await asyncio.to_thread(live.call, "POST", "/notebook/drop", {"code": ""}, AUTH)
+            after = await _open_notebook(live.port, cookie, "s-drop-check", kiosk=True)
+            return after[0], after[1], json.loads(first[1]), json.loads(second[1]), bad[0]
+
+    ids, codes, first, second, bad = asyncio.run(scenario())
+    assert first["added"] == [] and 'conn = sag.blade("Bakery")' in codes  # sag was imported already
+    assert second["added"] == ["import csv"] and codes[0] == "import csv"  # the import goes to the top
+    # "rows = 1" was dropped on the imports cell, which is not empty: it follows that cell.
+    assert codes[codes.index("import marimo as mo\nimport swissarmygrid as sag") + 1] == "rows = 1"
+    assert bad == 400
+    assert ids[codes.index("rows = 1")] == second["cell"]

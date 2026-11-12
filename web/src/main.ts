@@ -181,7 +181,7 @@ async function start(): Promise<void> {
     // The browser tab always reads SwissArmyGrid; the tab bar names the grids.
     document.title = "SwissArmyGrid";
   });
-  $(".tabbar-start").append(settingsButton(), bladesButton());
+  $(".tabbar-start").append(settingsButton(), bladesButton(), notebookButton());
   mountRibbon($(".ribbon"), openColumnProfile);
   mountPanes($(".tabs-row"), $(".panes"), () => refreshPanel());
   // A new split opens the key picker with the Key Finder already run; Close keeps it key-less.
@@ -247,5 +247,15 @@ function bladesButton(): HTMLButtonElement {
     "Blades and catalog",
     () => window.open(`/catalog#token=${encodeURIComponent(token)}`, "swissarmygrid-catalog")?.focus(),
     { icon: "key", iconOnly: true, class: "ghost prefs-btn", title: "Blades and the catalog (opens in its own tab)" },
+  );
+}
+
+/** The notebook (marimo, with the blades and catalog beside it), always in a tab of its own (plan
+ * decision 12): opened, or brought forward by the window's name. */
+function notebookButton(): HTMLButtonElement {
+  return button(
+    "Notebook",
+    () => window.open(`/notebook#token=${encodeURIComponent(token)}`, "swissarmygrid-notebook")?.focus(),
+    { icon: "code", iconOnly: true, class: "ghost prefs-btn", title: "The notebook (opens in its own tab)" },
   );
 }

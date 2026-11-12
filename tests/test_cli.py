@@ -145,6 +145,7 @@ NOT_COMMANDS = {
     "/notebook": "page shell",
     "/notebook/session": "the notebook runs code: the user's, refused to the agent (decision 4)",
     "/notebook/imports": "as /notebook/session",
+    "/notebook/drop": "as /notebook/session",
     "/marimo": "the notebook's frame (marimo), reached with the notebook page's cookie",
     "/marimo/{}": "as /marimo",
     "/catalogs/{}": "PUT loads a catalog (sag.load) and DELETE removes one: the user's, refused to the agent",

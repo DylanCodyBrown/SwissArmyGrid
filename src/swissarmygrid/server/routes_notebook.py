@@ -3,6 +3,7 @@
   GET  /notebook                 the notebook page: blades and catalog left of marimo (its own tab)
   POST /notebook/session         start marimo if needed; give this page the cookie the frame uses
   POST /notebook/imports         add missing imports to the open notebook, in a new cell at the top
+  POST /notebook/drop            code dragged from the rail: into the cell it was dropped on, or after it
   *    /marimo/...               marimo itself (HTTP and websockets), with marimo's token added here
 
 A frame cannot put SAG's token in its requests' headers, so /marimo/ is reached with a cookie instead:
@@ -47,6 +48,23 @@ _HOP: frozenset[str] = frozenset(
 _IMPORT_LINE_MAX: int = 300
 
 
+def _check_imports(lines: Any, allow_empty: bool = False) -> list[str]:
+    """The import statements, checked and trimmed."""
+    if (
+        not isinstance(lines, list)
+        or not (0 if allow_empty else 1) <= len(lines) <= 20
+        or not all(isinstance(line, str) and 0 < len(line) <= _IMPORT_LINE_MAX for line in lines)
+        or not all(line.lstrip().startswith(("import ", "from ")) for line in lines)
+    ):
+        raise ValueError("Send 1 to 20 import statements, such as import swissarmygrid as sag.")
+    return [line.strip() for line in lines]
+
+
+def _check_file(file: Any) -> None:
+    if not isinstance(file, str) or "/" in file or "\\" in file or not file.endswith(".py"):
+        raise ValueError("Name a notebook in the notebooks folder, such as workspace.py.")
+
+
 def _agent_refused() -> Response:
     return Response(
         "The notebook runs code, so it is the user's alone: an agent cannot reach it.", status_code=403
@@ -80,17 +98,29 @@ def routes(ctx: Context) -> list[BaseRoute]:
             body = await read_json_object(request, '{"lines": ["import swissarmygrid as sag"]}')
             lines = body.get("lines")
             file = body.get("file") or DEFAULT_NOTEBOOK
-            if (
-                not isinstance(lines, list)
-                or not 0 < len(lines) <= 20
-                or not all(isinstance(line, str) and 0 < len(line) <= _IMPORT_LINE_MAX for line in lines)
-                or not all(line.lstrip().startswith(("import ", "from ")) for line in lines)
-            ):
-                raise ValueError("Send 1 to 20 import statements, such as import swissarmygrid as sag.")
-            if not isinstance(file, str) or "/" in file or "\\" in file or not file.endswith(".py"):
-                raise ValueError("Name a notebook in the notebooks folder, such as workspace.py.")
-            added = await control.ensure_imports(file, [line.strip() for line in lines])
+            checked = _check_imports(lines)
+            _check_file(file)
+            added = await control.ensure_imports(file, checked)
             return json_response({"added": added})
+        except NotebookError as error:
+            return Response(str(error), status_code=409)
+        except Exception as error:
+            return error_response(error)
+
+    async def drop(request: Request) -> Response:
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            body = await read_json_object(request, '{"code": "...", "imports": [...], "cell": "<id>"}')
+            code, lines, cell = body.get("code"), body.get("imports", []), body.get("cell")
+            file = body.get("file") or DEFAULT_NOTEBOOK
+            if not isinstance(code, str) or not code.strip() or len(code) > 100_000:
+                raise ValueError("Send the dropped code (1 to 100,000 characters).")
+            checked = _check_imports(lines, allow_empty=True)
+            if cell is not None and (not isinstance(cell, str) or len(cell) > 64):
+                raise ValueError("cell is a cell id.")
+            _check_file(file)
+            return json_response(await control.drop(file, code, checked, cell))
         except NotebookError as error:
             return Response(str(error), status_code=409)
         except Exception as error:
@@ -200,6 +230,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
         Route("/notebook", page),
         Route("/notebook/session", session, methods=["POST"]),
         Route("/notebook/imports", imports, methods=["POST"]),
+        Route("/notebook/drop", drop, methods=["POST"]),
         Route(BASE_URL, bare, methods=methods),
         Route(BASE_URL + "/{path:path}", proxy, methods=methods),
         WebSocketRoute(BASE_URL + "/{path:path}", websocket_proxy),

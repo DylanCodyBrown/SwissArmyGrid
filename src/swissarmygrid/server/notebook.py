@@ -25,6 +25,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 BASE_URL: str = "/marimo"
@@ -242,12 +243,10 @@ class NotebookControl:
                 return str(entry["sessionId"])
         return None
 
-    async def ensure_imports(self, file: str, lines: list[str]) -> list[str]:
-        """Add the import lines the notebook does not make yet, in a new cell at the top, and run it.
-        Returns the lines added (none when the notebook already has them all)."""
+    @contextlib.asynccontextmanager
+    async def _joined(self, file: str) -> AsyncIterator[tuple[str, list[str], list[str]]]:
+        """Join the open notebook as a kiosk: (this connection's session id, cell ids, cell codes)."""
         import websockets
-
-        from swissarmygrid.blade_core.code import missing_imports
 
         await self.server.ensure_started()
         session = "sag-" + secrets.token_hex(6)
@@ -259,30 +258,67 @@ class NotebookControl:
                 url, additional_headers={"Authorization": f"Bearer {self.server.token}"}, max_size=None
             ) as websocket:
                 ids, codes = await _cells(websocket)
-                needed = missing_imports("\n\n".join(codes), lines)
-                if not needed:
-                    return []
-                cell = "sag" + secrets.token_hex(3)
-                code = "\n".join(needed)
-                change = {
-                    "type": "create-cell",
-                    "cellId": cell,
-                    "code": code,
-                    "name": "_",
-                    "config": {"column": None, "disabled": False, "hideCode": False, "expandOutput": False},
-                    "before": ids[0] if ids else None,
-                }
-                await asyncio.to_thread(
-                    self._post, "/api/document/transaction", {"changes": [change]}, session
-                )
-                # A kiosk may not run cells; the notebook's own connection may, so run it as that one.
-                owner = await asyncio.to_thread(self._owner, file, session)
-                if owner is not None:
-                    await asyncio.to_thread(
-                        self._post, "/api/kernel/run", {"cellIds": [cell], "codes": [code]}, owner
-                    )
-                return needed
+                yield session, ids, codes
         except (OSError, TimeoutError, websockets.exceptions.WebSocketException) as error:
             raise NotebookError(
                 f"Could not reach the open notebook {file} ({error}). Open it in its tab and try again."
             ) from None
+
+    async def _change(self, session: str, changes: list[dict[str, object]]) -> None:
+        await asyncio.to_thread(self._post, "/api/document/transaction", {"changes": changes}, session)
+
+    async def _imports(
+        self, file: str, session: str, ids: list[str], codes: list[str], lines: list[str]
+    ) -> list[str]:
+        """Put the lines the notebook does not make yet in a new cell above the first, and run it."""
+        from swissarmygrid.blade_core.code import missing_imports
+
+        needed = missing_imports("\n\n".join(codes), lines)
+        if not needed:
+            return []
+        cell = "sag" + secrets.token_hex(3)
+        code = "\n".join(needed)
+        await self._change(session, [_create(cell, code, before=ids[0] if ids else None)])
+        # A kiosk may not run cells; the notebook's own connection may, so run it as that one.
+        owner = await asyncio.to_thread(self._owner, file, session)
+        if owner is not None:
+            await asyncio.to_thread(
+                self._post, "/api/kernel/run", {"cellIds": [cell], "codes": [code]}, owner
+            )
+        return needed
+
+    async def ensure_imports(self, file: str, lines: list[str]) -> list[str]:
+        """Add the import lines the notebook does not make yet, in a new cell at the top, and run it.
+        Returns the lines added (none when the notebook already has them all)."""
+        async with self._joined(file) as (session, ids, codes):
+            return await self._imports(file, session, ids, codes, lines)
+
+    async def drop(self, file: str, code: str, imports: list[str], target: str | None) -> dict[str, object]:
+        """What was dragged from the rail and dropped on cell `target`: into that cell when it is empty,
+        else into a new cell right after it (at the end when there is no target). Then the imports it
+        needs, at the top. The dropped code is not run: the person runs it when ready."""
+        async with self._joined(file) as (session, ids, codes):
+            if target in ids and not codes[ids.index(target)].strip():
+                cell = target
+                await self._change(session, [{"type": "set-code", "cellId": cell, "code": code}])
+            else:
+                cell = "sag" + secrets.token_hex(3)
+                after = target if target in ids else (ids[-1] if ids else None)
+                await self._change(session, [_create(cell, code, after=after)])
+            added = await self._imports(file, session, ids, codes, imports) if imports else []
+            return {"cell": cell, "added": added}
+
+
+def _create(cell: str, code: str, before: str | None = None, after: str | None = None) -> dict[str, object]:
+    change: dict[str, object] = {
+        "type": "create-cell",
+        "cellId": cell,
+        "code": code,
+        "name": "_",
+        "config": {"column": None, "disabled": False, "hideCode": False, "expandOutput": False},
+    }
+    if before is not None:
+        change["before"] = before
+    elif after is not None:
+        change["after"] = after
+    return change
