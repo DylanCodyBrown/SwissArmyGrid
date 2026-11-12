@@ -1671,3 +1671,53 @@ def test_the_pop_out_windows_start_without_errors(browser: Browser, orders_url: 
         page.goto(f"{path}?panel={panel}#{fragment}")
         page.wait_for_timeout(2500)
         assert errors == [], f"{panel}: {errors}"
+
+
+CAPTURE_CLIPBOARD = """() => {
+  window.__copied = undefined;
+  navigator.clipboard.write = async (items) => {
+    window.__copied = await (await items[0].getType('text/plain')).text();
+  };
+  navigator.clipboard.writeText = async (text) => { window.__copied = text; };
+}"""
+
+
+def test_ctrl_c_copies_a_column_picked_by_its_header_or_used_from_the_ribbon(
+    browser: Browser, orders_url: str
+) -> None:
+    page = open_grid(browser, orders_url)
+    page.evaluate(CAPTURE_CLIPBOARD)
+    page.locator(".ag-header-cell[col-id='product'] .sag-header-name").click()
+    expect(page.locator(".statusbar")).to_contain_text("5,000 cells selected")
+    page.keyboard.press("Control+c")
+    page.wait_for_function("window.__copied !== undefined", timeout=10000)
+    lines = page.evaluate("window.__copied").strip().split("\r\n")
+    assert lines[:3] == ["product", "Widget", "Gadget"] and len(lines) == ROWS + 1
+    # The focus on a ribbon button just used: Ctrl+C still copies the grid's selection.
+    page.evaluate(CAPTURE_CLIPBOARD)
+    page.locator(".ribbon").get_by_role("button", name="Auto width", exact=True).nth(1).click()
+    page.keyboard.press("Control+c")
+    page.wait_for_function("window.__copied !== undefined", timeout=10000)
+    assert page.evaluate("window.__copied").startswith("product\r\nWidget")
+
+
+def test_ctrl_click_on_the_only_selected_header_selects_nothing(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url)
+    refused: list[str] = []
+    page.on("response", lambda r: refused.append(r.url) if r.status >= 400 else None)
+    name = page.locator(".ag-header-cell[col-id='product'] .sag-header-name")
+    name.click()
+    expect(page.locator(".statusbar")).to_contain_text("5,000 cells selected")
+    name.click(modifiers=["Control"])
+    expect(page.locator(".statusbar")).not_to_contain_text("selected")
+    expect(page.locator(".ribbon-caption").nth(1)).to_contain_text("select a column")
+    page.wait_for_timeout(500)
+    assert refused == []
+
+
+def test_a_narrow_window_has_no_sideways_page_scroll(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url, width=420, height=760)
+    expect(page.locator(".steps-panel .step.source")).to_be_visible(timeout=15000)
+    assert page.evaluate("document.documentElement.scrollWidth") <= 420
+    grid = page.locator(".pane.active .grid-host").bounding_box()
+    assert grid is not None and grid["width"] > 200  # most of the width stays with the grid

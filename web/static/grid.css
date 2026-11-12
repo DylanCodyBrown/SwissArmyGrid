@@ -415,7 +415,8 @@ textarea {
 /* ===== workspace and split panels ===== */
 
 .workspace {
-  --steps-width: 320px;
+  /* Narrow windows keep most of the width for the grid (at 420px it was 100px wide). */
+  --steps-width: min(320px, 40vw);
   --panel-size: 380px;
   position: relative;
   display: grid;
@@ -602,6 +603,19 @@ textarea {
 .workspace[data-steps="open"] .steps-panel,
 .workspace[data-steps="collapsed"] .steps-panel {
   display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* A narrow panel shortens its buttons' labels rather than spilling past the window. */
+.steps-panel .btn {
+  max-width: 100%;
+}
+
+.steps-panel .btn-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Collapsed: only the toggle and the rail label show, the way the analysis panel collapses. */
@@ -1957,9 +1971,12 @@ body.popout .ribbon {
 }
 
 .credit {
+  min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: max(0.85em, 11px);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .panel-actions {

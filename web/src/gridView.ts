@@ -157,6 +157,9 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
           onmousedown: (event: MouseEvent) => {
             if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
             event.preventDefault();
+            // preventDefault also kept the focus where it was (often the page itself), so Ctrl+C,
+            // Ctrl+A and Escape never reached the grid after a header click. Focus the header.
+            this.gui.closest<HTMLElement>(".ag-header-cell")?.focus({ preventScroll: true });
             selection.selectColumns(name, event.shiftKey ? "extend" : event.ctrlKey || event.metaKey ? "add" : "replace");
             dragging = "columns";
           },
@@ -963,3 +966,17 @@ export const viewColumns = (): ColumnInfo[] => active?.viewColumns() ?? [];
 export const displayedRange = (): [number, number] => active?.displayedRange() ?? [0, 0];
 export const shownTotal = (): number => active?.shownTotal() ?? 0;
 export const autoSizeColumns = (names?: string[]): void => active?.autoSizeColumns(names);
+
+// Ctrl+C with the focus outside the grid (on a ribbon button just used, or on the page itself)
+// still copies the active grid's selection, unless something else is being copied: text in a
+// field or an editor, a dialog, or text selected on the page.
+document.addEventListener("keydown", (event) => {
+  if (!active || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c" || event.altKey) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target && (active.host.contains(target) || target.closest("input, textarea, select, [contenteditable], .monaco-editor, dialog, .popover"))) return;
+  if (String(getSelection() ?? "") || active.selection.kind === "none") return;
+  // Only while the grid is on screen (not behind the Agent, ERD or a query tab).
+  if (!active.host.isConnected || active.host.closest("[hidden]") || document.body.classList.contains("agent-view")) return;
+  event.preventDefault();
+  void active.copySelection();
+});

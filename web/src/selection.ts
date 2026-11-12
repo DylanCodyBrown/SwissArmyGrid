@@ -84,6 +84,12 @@ export class GridSelection {
     } else if (mode === "add" && this.kind === "columns") {
       this.columns = this.columns.includes(name) ? this.columns.filter((c) => c !== name) : [...this.columns, name];
       this.columns = this.order.filter((c) => this.columns.includes(c));
+      if (!this.columns.length) {
+        // Ctrl+click took away the last one: nothing is selected (not "no columns", which the
+        // server refused and which left the status bar showing the old numbers).
+        this.clear();
+        return;
+      }
       this.anchor = { row: 0, col: at };
     } else {
       this.columns = [name];
