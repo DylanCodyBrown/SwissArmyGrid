@@ -282,10 +282,11 @@ pre,
   cursor: not-allowed;
 }
 
+/* Icons grow with the zoom like the text beside them (at 200% they stayed 15px). */
 .btn svg,
 .icon-svg {
-  width: 15px;
-  height: 15px;
+  width: calc(15px * var(--ui-zoom, 1));
+  height: calc(15px * var(--ui-zoom, 1));
   flex: none;
   fill: none;
   stroke: currentColor;
@@ -2723,8 +2724,8 @@ body.agent-view .titlebar {
 }
 
 .sag-header-key .icon-svg {
-  width: 13px;
-  height: 13px;
+  width: calc(13px * var(--ui-zoom, 1));
+  height: calc(13px * var(--ui-zoom, 1));
 }
 
 .known-pair {

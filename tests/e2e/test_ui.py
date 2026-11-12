@@ -641,6 +641,36 @@ def test_paste_tab_separated_text_makes_a_dataset(
     assert any(d["name"].startswith("pasted_") for d in call(server, "GET", "/datasets")["datasets"])
 
 
+def test_two_quick_pastes_make_two_datasets(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    def pasted() -> set[str]:
+        return {
+            d["name"] for d in call(server, "GET", "/datasets")["datasets"] if d["name"].startswith("pasted_")
+        }
+
+    before = pasted()
+    page = open_grid(browser, orders_url)
+    page.evaluate(
+        """() => {
+            for (const text of ['a\\tb\\n1\\tx\\n', 'c\\td\\n2\\ty\\n']) {
+              const data = new DataTransfer();
+              data.setData('text/plain', text);
+              document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+            }
+        }"""
+    )
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and len(pasted() - before) < 2:
+        time.sleep(0.2)
+    made = pasted() - before
+    try:
+        assert len(made) == 2, made  # the second paste did not replace the first
+    finally:
+        for name in made:
+            call(server, "DELETE", f"/datasets/{name}")
+
+
 # ===== themes =====
 
 

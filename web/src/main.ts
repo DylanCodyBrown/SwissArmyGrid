@@ -26,7 +26,7 @@
  * ?panel=steps opens only the steps panel (the pop-out window), and ?panel=keys only the Key
  * Finder; both follow the same server state through the WebSocket, so edits show in every window.
  */
-import { connect, gridId, onNotice, openedWith, token, type Notice } from "./api";
+import { api, connect, gridId, onNotice, openedWith, token, type Notice } from "./api";
 import { mountSnapshots } from "./snapshot";
 import { handleAgentNotice, loadApprovals } from "./agentAccess";
 import { handleNotice, mountAiPanel, refreshPanel } from "./aiPanel";
@@ -57,9 +57,18 @@ function title(): void {
   clear($("#grid-title"), info.dataset, h("span", { class: "version", title: `Version ${info.version} of ${info.dataset}` }, `v${info.version}`));
 }
 
+const pasting = new Set<string>();
+
 async function pasteAsDataset(text: string): Promise<void> {
-  const name = `pasted_${new Date().toISOString().slice(11, 19).replace(/:/g, "")}`;
+  // Named for the local time, and never an open dataset's name: a paste stores under its name,
+  // so two pastes within one second replaced the first (and the time read in UTC).
+  const now = new Date();
+  const stamp = [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, "0")).join("");
+  let name = `pasted_${stamp}`;
   try {
+    const taken = new Set((await api<{ datasets: { name: string }[] }>("/datasets")).datasets.map((d) => d.name));
+    for (let n = 2; taken.has(name) || pasting.has(name); n += 1) name = `pasted_${stamp}_${n}`;
+    pasting.add(name); // a second paste before this one lands picks another name
     const response = await fetch(`/datasets/${name}/paste`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: text });
     if (!response.ok) throw new Error(await response.text());
     toast(`Pasted as dataset ${name}; it opens as a tab.`);
