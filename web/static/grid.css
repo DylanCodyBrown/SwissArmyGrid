@@ -169,6 +169,14 @@ body {
   overflow: hidden;
 }
 
+/* AG Grid measures the tallest scroll area the browser allows by growing a bare <div> it appends
+   to the body. In this flex column the div shrank to fit, so it measured 1,000,000px and
+   "stretched" every table over 31,250 rows: each wheel notch then skipped about 100 rows and
+   the row numbers drifted from the scroll position. A bare div keeps its height. */
+body > div:not([class]):not([id]):empty {
+  flex-shrink: 0;
+}
+
 button,
 input,
 select,
@@ -2055,6 +2063,13 @@ body.sag-selecting * {
 .ag-body-horizontal-scroll,
 .ag-body-horizontal-scroll-viewport {
   min-height: 14px !important;
+}
+
+/* With overlay scrollbars that strip lies over the bottom of the rows (AG Grid marks it
+   ag-scrollbar-invisible and places it absolutely), so the last row ended half under it with
+   no way to scroll it clear. Room for the strip below the rows: */
+.ag-grid-viewport:has(~ .ag-body-horizontal-scroll.ag-scrollbar-invisible) {
+  padding-bottom: 16px;
 }
 
 .ag-body-horizontal-scroll-viewport,

@@ -1510,3 +1510,94 @@ def test_an_agent_snapshot_follows_what_the_user_has_done(
     wait_for_cell(page, 0, "region", "North")
     after, _ = snapshot_while_page_runs(page, server, {"area": "grid"})
     assert before != after, "the picture did not change when the grid did"
+
+
+# ===== hardening: leaks and big tables =====
+
+LISTENER_COUNTER = """
+(() => {
+  const live = new Map();
+  const key = (type, options) =>
+    `${type}|${typeof options === "boolean" ? options : Boolean(options && options.capture)}`;
+  const add = document.addEventListener.bind(document);
+  const remove = document.removeEventListener.bind(document);
+  document.addEventListener = (type, listener, options) => {
+    const k = key(type, options);
+    if (!live.has(k)) live.set(k, new Set());
+    live.get(k).add(listener);
+    add(type, listener, options);
+  };
+  document.removeEventListener = (type, listener, options) => {
+    live.get(key(type, options))?.delete(listener);
+    remove(type, listener, options);
+  };
+  window.__documentListeners = (type) =>
+    [...live].filter(([k]) => k.startsWith(`${type}|`)).reduce((n, [, s]) => n + s.size, 0);
+})();
+"""
+
+
+def test_a_closed_grid_leaves_no_document_listeners_behind(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    context = browser.new_context(viewport={"width": 1600, "height": 900})
+    context.add_init_script(LISTENER_COUNTER)
+    page = context.new_page()
+    page.goto(orders_url)
+    expect(page.locator(".ag-row[row-index='0']").first).to_be_visible(timeout=20000)
+    for _ in range(4):
+        grid = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+        expect(page.locator(f".pane[data-grid='{grid}'] .ag-row[row-index='0']").first).to_be_visible(
+            timeout=20000
+        )
+        call(server, "DELETE", f"/grids/{grid}")
+        expect(page.locator(f".pane[data-grid='{grid}']")).to_have_count(0, timeout=10000)
+    # Each grid view listens for keyup and mousemove on the document: one per open pane, no more.
+    panes = page.locator(".pane").count()
+    assert page.evaluate("window.__documentListeners('keyup')") == panes
+    assert page.evaluate("window.__documentListeners('mousemove')") == panes
+
+
+def test_a_table_over_a_million_pixels_scrolls_row_for_row(browser: Browser, server: dict[str, Any]) -> None:
+    rows = 40_000  # 40,000 rows of 32px: past the 1,000,000px AG Grid measured in the page's flex body
+    url = push_client.push(pd.DataFrame({"n": range(rows)}), name="tall", new_grid=True)
+    try:
+        page = open_grid(browser, url)
+        expect(page.locator("#status")).to_contain_text("of 40,000", timeout=15000)
+        viewport = page.locator(".pane.active .ag-grid-viewport")
+        assert viewport.evaluate("v => v.scrollHeight") > rows * 32  # not "stretched" scrolling
+        viewport.evaluate("v => { v.scrollTop = 20000 * 32; }")
+        wait_for_cell(page, 20000, "n", "20000")
+        expect(page.locator("#status")).to_contain_text("Rows 20,001", timeout=10000)
+        # The row numbers fit, at 100% and at 200% zoom.
+        fits = (
+            "() => { const c = document.querySelector("
+            "\".pane.active .ag-row[row-index='39999'] .ag-cell[col-id='__sag_rownum']\");"
+            " return Boolean(c) && c.textContent === '40,000' && c.scrollWidth <= c.clientWidth; }"
+        )
+        viewport.evaluate("v => { v.scrollTop = v.scrollHeight; }")
+        page.wait_for_function(fits, timeout=10000)
+        for _ in range(8):
+            page.keyboard.press("Control+Equal")
+        expect(page.locator(".zoom-control output").first).to_have_text("200%")
+        page.wait_for_timeout(500)
+        viewport.evaluate("v => { v.scrollTop = v.scrollHeight; }")
+        page.wait_for_function(fits, timeout=10000)
+        page.keyboard.press("Control+0")
+    finally:
+        call(server, "DELETE", "/datasets/tall")
+
+
+def test_the_last_row_scrolls_clear_of_the_sideways_scrollbar(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url)
+    expect(page.locator("#status")).to_contain_text("of 5,000", timeout=15000)
+    viewport = page.locator(".pane.active .ag-grid-viewport")
+    viewport.evaluate("v => { v.scrollTop = v.scrollHeight; }")
+    last = page.locator(f".pane.active .ag-row[row-index='{ROWS - 1}']").last
+    expect(last).to_be_visible(timeout=10000)
+    page.wait_for_timeout(300)
+    row = last.bounding_box()
+    strip = page.locator(".pane.active .ag-body-horizontal-scroll").bounding_box()
+    bottom = viewport.evaluate("v => v.getBoundingClientRect().top + v.clientHeight")
+    assert row is not None and strip is not None
+    assert row["y"] + row["height"] <= min(bottom, strip["y"]) + 1
