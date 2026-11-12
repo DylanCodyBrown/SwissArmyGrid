@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import decimal
 import io
+import zipfile
 from collections.abc import Iterator
 
 import openpyxl
@@ -11,8 +13,15 @@ import pyarrow as pa
 import pytest
 
 from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import DatasetInfo, DatasetStore
-from swissarmygrid.engine.export import ExportOptions, batches, delimited, excel
+from swissarmygrid.engine.datasets import Column, DatasetInfo, DatasetStore
+from swissarmygrid.engine.export import (
+    ExportError,
+    ExportOptions,
+    Provenance,
+    batches,
+    delimited,
+    excel,
+)
 
 
 @pytest.fixture
@@ -130,3 +139,129 @@ def test_the_column_wise_excel_writer_keeps_every_cell_kind(store: DatasetStore)
     assert sheet.cell(row=8, column=4).value == "inf"
     # Column widths still follow the longest text, between 8 and 62.
     assert sheet.column_dimensions["B"].width >= len(str(2**62))
+
+
+def test_more_columns_than_an_excel_sheet_holds_is_refused() -> None:
+    # 16,390 columns went out as 16,384: xlsxwriter drops a cell past column XFD without a word.
+    wide = pa.table({f"c{i}": [i] for i in range(16_385)})
+    columns = tuple(Column(name, "BIGINT") for name in wide.column_names)
+    with pytest.raises(ExportError, match="16,385 columns"):
+        excel(_reader(wide, [1]), columns, ExportOptions(format="xlsx"), None, 1)
+
+
+def _parts(data: bytes) -> dict[str, bytes]:
+    """Every part of an xlsx except docProps/core.xml, which carries the time it was written."""
+    with zipfile.ZipFile(io.BytesIO(data)) as book:
+        return {name: book.read(name) for name in book.namelist() if name != "docProps/core.xml"}
+
+
+def _reader(table: pa.Table, sizes: list[int]) -> pa.RecordBatchReader:
+    """The table in batches of the given sizes, so 16-row blocks straddle batch boundaries."""
+    out: list[pa.RecordBatch] = []
+    start = 0
+    for size in sizes:
+        part = table.slice(start, size)
+        out.append(
+            pa.record_batch(
+                [part.column(i).combine_chunks() for i in range(part.num_columns)], schema=table.schema
+            )
+        )
+        start += size
+    return pa.RecordBatchReader.from_batches(table.schema, out)
+
+
+def _duck_type(kind: pa.DataType) -> str:
+    """Enough of DuckDB's type names for the writers (they only ask for its family)."""
+    if pa.types.is_string(kind) or pa.types.is_null(kind):
+        return "VARCHAR"
+    if pa.types.is_date(kind):
+        return "DATE"
+    if pa.types.is_timestamp(kind):
+        return "TIMESTAMP WITH TIME ZONE" if kind.tz else "TIMESTAMP"
+    if pa.types.is_integer(kind) or pa.types.is_floating(kind) or pa.types.is_decimal(kind):
+        return "BIGINT"
+    return str(kind).upper()
+
+
+ROWS = 100
+HOSTILE = pa.table(
+    {
+        # The first rows start blank, so their 16-row block's span starts past column A.
+        "gap": pa.array([None] * 20 + list(range(1, 81)), pa.int64()),
+        "text": pa.array(
+            (["=1+1", "", None, "a\x01b", "_x0041_", "名前 😀", "<&>\"'", " lead", "x" * 70] * 12)[:ROWS]
+        ),
+        # A timestamp is the first formatted cell (row 3) though its column is right of the date's.
+        "day": pa.array([None] * 4 + [dt.date(1899, 12, 31)] + [dt.date(2024, 2, 29)] * 95),
+        "at": pa.array(
+            [dt.datetime(1850, 1, 1), dt.datetime(2026, 3, 29, 1, 30, 0, 123456)]
+            + [None, dt.datetime(1900, 3, 1, 0, 0, 1)] * 49
+        ),
+        "zoned": pa.array(
+            [dt.datetime(2026, 1, 1, 9, tzinfo=dt.UTC), None] * 50, pa.timestamp("us", tz="Asia/Kolkata")
+        ),
+        "nano": pa.array([10**18 + 1, None, -(10**18)] * 33 + [5], pa.timestamp("ns")),
+        "milli": pa.array([10**12, -(10**12), None, 0] * 25, pa.timestamp("ms")),
+        "day64": pa.array([10**12, None, -(10**13)] * 33 + [0], pa.date64()),
+        "int": pa.array([-(2**63), 2**63 - 1, 10**15 - 1, -(10**15) + 1, 0, None] * 16 + [7] * 4, pa.int64()),
+        "uint": pa.array([2**64 - 1, 0, None, 5] * 25, pa.uint64()),
+        "small": pa.array([1, None, -3, 127] * 25, pa.int8()),
+        "float": pa.array(
+            [0.1 + 0.2, float("nan"), float("inf"), -0.0, 5e-324, 1e300, None, -1.5] * 12 + [1.0] * 4
+        ),
+        "single": pa.array([1.1, None, 2.5, 3.0] * 25, pa.float32()),
+        "flag": pa.array([True, None, False] * 33 + [True]),
+        "dec": pa.array(
+            [decimal.Decimal("12345678901234567890.1234567890"), decimal.Decimal("-1.5"), None] * 33
+            + [decimal.Decimal(0)],
+            pa.decimal128(30, 10),
+        ),
+        "time": pa.array([dt.time(23, 59, 59, 999999), None] * 50),
+        "list": pa.array([[1, 2], None, []] * 33 + [[3]]),
+        "blob": pa.array([b"\x00\x01", None] * 50),
+        "nothing": pa.array([None] * ROWS, pa.null()),
+    }
+)
+# Blank in every column at the start and the end (no <row> for those) and in the middle.
+SPARSE = pa.table(
+    {
+        "a": pa.array([None, None, 1, None, None, None, 2] + [None] * 30, pa.int64()),
+        "b": pa.array([None] * 17 + ["x"] + [None] * 19),
+    }
+)
+
+
+@pytest.mark.parametrize(
+    ("table", "sizes"),
+    [
+        (HOSTILE, [ROWS]),
+        (HOSTILE, [7, 33, 1, 0, 59]),
+        (HOSTILE, [16, 16, 68]),
+        (SPARSE, [37]),
+        (SPARSE, [3, 15, 19]),
+    ],
+)
+@pytest.mark.parametrize("provenance", [True, False])
+def test_the_fast_excel_writer_writes_what_xlsxwriter_writes(
+    table: pa.Table, sizes: list[int], provenance: bool
+) -> None:
+    """The data sheet's cells are written as XML directly; every part of the file must be the
+    same, byte for byte, as when each cell goes through xlsxwriter's own write calls."""
+    columns = tuple(Column(f.name, _duck_type(f.type)) for f in table.schema)
+    made = Provenance("t (version 1, arrow)", ["Keep rows where gap is 1"], "defaults", "now", 100)
+    shown = made if provenance else None
+    options = ExportOptions(format="xlsx")
+    fast = excel(_reader(table, sizes), columns, options, shown, table.num_rows)
+    slow = excel(_reader(table, sizes), columns, options, shown, table.num_rows, fast=False)
+    assert _parts(fast) == _parts(slow)
+
+
+def test_the_fast_excel_writer_refuses_and_truncates_long_text_the_same_way() -> None:
+    table = pa.table({"a": [1, 2], "long": ["ok", "y" * 40_000]})
+    columns = (Column("a", "BIGINT"), Column("long", "VARCHAR"))
+    for fast in (True, False):
+        with pytest.raises(ExportError, match="Row 2, column long holds 40,000 characters"):
+            excel(_reader(table, [2]), columns, ExportOptions(format="xlsx"), None, 2, fast=fast)
+    cut = ExportOptions(format="xlsx", allow_cell_truncation=True)
+    fast_cut = excel(_reader(table, [2]), columns, cut, None, 2)
+    assert _parts(fast_cut) == _parts(excel(_reader(table, [2]), columns, cut, None, 2, fast=False))

@@ -115,3 +115,17 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   LIMIT 100` 94 -> 6 ms; CSV export 6.2 -> 2.1 s (byte for byte the same); Excel export 50 ->
   45.6 s (xlsxwriter's own writes and close are the rest). `tests/test_performance.py` after:
   first window 13 ms, sort 247 ms, filter 51 ms, profile 39 ms.
+- (2026-11-12) Excel export, xlsxwriter 3.3.0, 1,000,000 rows x 10 columns (ints, floats,
+  text, a date, a timestamp, a boolean), at the engine: 59.0 -> 21.9 s. Half the time was
+  xlsxwriter's per-cell write calls and half its row-by-row XML loop at close(); the data sheet's
+  cells are now written as XML directly (`export._SheetData`) and xlsxwriter writes every other
+  part. Every part of the file but docProps/core.xml (its creation time) is byte for byte the same
+  as with the per-cell calls (`tests/test_export_hostile.py`, and the 1,000,000-row file compared
+  part by part). Of the 21.9 s, zip's deflate of the 389 MB sheet XML takes 9 s; level 1 would
+  take 2 s but make the file 30% larger (56 -> 73 MB), so the default level stays. Format indexes
+  depend on the order xlsxwriter first writes each format (row by row), and shared strings on
+  the order of write calls (header, then each batch column by column); both are kept. A sheet
+  with 16,385+ columns used to lose the extra columns silently (xlsxwriter returns -1 past XFD);
+  it is refused now. DuckDB 2.0.0's ORDER BY over a very wide result is slow whatever the row
+  count: `SELECT <4,000 columns> FROM t ORDER BY rowid` takes 2.4 s on 3 rows (SELECT * without
+  the ORDER BY 0.09 s), and 16,390 columns took 47 s for every view request (rows and exports).
