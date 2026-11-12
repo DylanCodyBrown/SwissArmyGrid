@@ -225,6 +225,7 @@ script's inline metadata, that holds what the app needs (TOML):
 # secrets = ["password"]
 # ///
 import psycopg
+
 conn = psycopg.connect(host="db.example", user="reader", password=secret("password"))
 ```
 

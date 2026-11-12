@@ -173,3 +173,15 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   `Marimo-Session-Id` = its own id) appears in the person's open notebook and is saved. A kiosk may
   not run cells ("This connection is read-only for this action"); `/api/home/running_notebooks`
   gives the notebook's own session id, which may.
+- (2026-11-12) Portable blades, release 1.4.0 (blade_core/portable.py, server/blade_store.py,
+  routes_catalog.py, web/src/bladeLibrary.ts): every one of the 35 starters writes to a `.blade.py`
+  file and reads back to the same blade, through `tomllib` on Python 3.12; names, descriptions and
+  commands with quotes, backslashes, `'''` and newlines survive (a multi-line literal string when it
+  is safe, a JSON-escaped basic string otherwise). A header that does not open the file is not a blade,
+  so a module that mentions the marker in a docstring is left alone. Import of a file whose code writes
+  a marker file never ran it, neither in review nor on Import. A blade folder skips `.venv`, `venv`,
+  `node_modules`, `site-packages`, `__pycache__`, hidden folders, build and dist, and stops four levels
+  down. Saving a folder blade rewrites its own file. In Chrome for Testing 153 through Playwright: the search
+  matches a tag and a description, tag chips narrow and widen the list, a pinned blade comes first and
+  stays first after a reload, a dropped name clash offers "keep both" first and saves "Bakery DB 2",
+  and Export downloads `orders_app_db.blade.py`. Full suite: 1,356 passed.
