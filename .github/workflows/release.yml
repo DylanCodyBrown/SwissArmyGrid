@@ -1,4 +1,6 @@
-# Build and publish a SwissArmyGrid release when a version tag (v0.10.0, ...) is pushed.
+# Build and publish a SwissArmyGrid release: on a push to main whose version (pyproject.toml) has no
+# release yet, or on a pushed version tag (v0.10.0, ...). On main, GitHub creates the tag with the release.
+# Every push still runs the checks, the build and the installer tests.
 #
 # 1. build:   the checks, then python build.py --vsix (the page, the one wheel, the installers, the
 #             VS Code extension), on Linux.
@@ -9,6 +11,7 @@ name: release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -18,17 +21,34 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - uses: astral-sh/setup-uv@v6
-      - name: The tag names the project's version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: The version, and whether it is released yet
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          test "${GITHUB_REF_NAME}" = "v${version}" || { echo "Tag ${GITHUB_REF_NAME} but pyproject.toml says ${version}"; exit 1; }
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            test "${GITHUB_REF_NAME}" = "v${version}" || { echo "Tag ${GITHUB_REF_NAME} but pyproject.toml says ${version}"; exit 1; }
+          fi
+          if gh release view "v${version}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "v${version} is already released."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ] || [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "v${version} will be released."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Python environment
         run: uv sync
       - name: Page dependencies
@@ -94,7 +114,7 @@ jobs:
 
   release:
     needs: [build, install]
-    if: startsWith(github.ref, 'refs/tags/')
+    if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,11 +124,12 @@ jobs:
         with:
           name: dist
           path: dist
-      - name: Publish the release
+      - name: Publish the release (creates the tag on this commit when it does not exist)
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          notes=".github/release-notes/${GITHUB_REF_NAME}.md"
+          notes=".github/release-notes/v${VERSION}.md"
           test -f "$notes" || notes=/dev/null
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --title "SwissArmyGrid ${GITHUB_REF_NAME#v}" --notes-file "$notes"
+          gh release create "v${VERSION}" dist/* --target "${GITHUB_SHA}" \
+            --title "SwissArmyGrid ${VERSION}" --notes-file "$notes"
