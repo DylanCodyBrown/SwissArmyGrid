@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from datetime import date, timedelta
@@ -643,6 +644,40 @@ def test_agent_approval_banner_allow(browser: Browser, orders_url: str, server: 
     worker.join(timeout=30)
     assert len(result["rows"]) == 3
     expect(page.locator(".approval")).to_have_count(0)
+    call(server, "POST", "/agent/policy", {"level": 3})  # leave the default for later tests
+
+
+def test_closing_the_approval_window_declines_the_request(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # Escape (or the window's X) hid a request that was still waiting: nothing in the page
+    # showed it again until a reload, and the agent waited out the 3 minutes.
+    import threading
+
+    call(server, "POST", "/agent/policy", {"level": 2, "auto_rows": False, "masks": {}})
+    page = open_grid(browser, orders_url)
+    answers: list[int] = []
+
+    def ask() -> None:
+        try:
+            call(server, "POST", "/agent/query", {"dataset": "orders", "sql": "SELECT 1"}, agent=True)
+            answers.append(200)
+        except urllib.error.HTTPError as error:
+            answers.append(error.code)
+
+    for close in ("Escape", "X"):
+        worker = threading.Thread(target=ask)
+        worker.start()
+        expect(page.locator(".approval")).to_be_visible(timeout=15000)
+        expect(page.locator("dialog")).to_contain_text("Closing this window declines")
+        if close == "Escape":
+            page.keyboard.press("Escape")
+        else:
+            page.locator("dialog").get_by_role("button", name="Close").first.click()
+        worker.join(timeout=20)
+        assert not worker.is_alive()
+        assert call(server, "GET", "/agent/approvals")["pending"] == []
+    assert answers == [403, 403]
     call(server, "POST", "/agent/policy", {"level": 3})  # leave the default for later tests
 
 

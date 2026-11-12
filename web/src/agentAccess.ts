@@ -184,8 +184,13 @@ function showApprovals(): void {
     return;
   }
   if (!popup || !popup.body.isConnected) {
-    const { body, foot, close } = openDialog("The agent is asking");
-    foot.append(h("span", { class: "hint" }, "Unanswered requests are declined after 3 minutes."));
+    const { dialog, body, foot, close } = openDialog("The agent is asking");
+    foot.append(h("span", { class: "hint" }, "Closing this window declines the requests in it. Unanswered requests are declined after 3 minutes."));
+    // Escape or the X used to hide a request that was still waiting, with nothing in the page to
+    // bring it back: the agent waited out its 3 minutes. Closing now answers No.
+    dialog.addEventListener("close", () => {
+      for (const approval of [...pending]) void resolveApproval(approval.id, false);
+    });
     popup = { body, close };
   }
   clear(
