@@ -493,7 +493,7 @@ def filter_condition(stage: Stage, params: dict[str, Any], settings: ViewSetting
     return f"{raw} = {'TRUE' if op == 'true' else 'FALSE'}"
 
 
-def _sort_keys(stage: Stage, keys: Any) -> list[str]:
+def sort_keys(stage: Stage, keys: Any) -> list[str]:
     if not isinstance(keys, list) or not keys:
         raise StepError(None, "Sort needs at least one [column, asc|desc] key.")
     out: list[str] = []
@@ -559,49 +559,21 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
         return f"SELECT * FROM {src} WHERE {filter_condition(stage, p, settings)}"
 
     if step.kind == "sort":
-        keys = _sort_keys(stage, p.get("keys"))
+        keys = sort_keys(stage, p.get("keys"))
         return f"SELECT * REPLACE (row_number() OVER (ORDER BY {', '.join(keys)}, {ORD}) AS {ORD}) FROM {src}"
 
     if step.kind == "columns":
-        keep = p.get("keep")
-        if not isinstance(keep, list) or not keep or len(set(keep)) != len(keep):
-            raise StepError(None, "keep must be a non-empty list of distinct column names.")
-        names = [quote(_column(stage, name).name) for name in keep]
-        return f"SELECT {', '.join(names)}, {ORD} FROM {src}"
+        return f"SELECT {', '.join(column_list(stage, p))}, {ORD} FROM {src}"
 
     if step.kind == "rename":
-        mapping = p.get("mapping")
-        if not isinstance(mapping, dict) or not mapping:
-            raise StepError(None, "mapping must be an object of old name to new name.")
-        for old in mapping:
-            _column(stage, old)
-        final = [mapping.get(c.name, c.name) for c in stage.columns]
-        if len(set(final)) != len(final):
-            raise StepError(None, "Renaming would leave two columns with the same name.")
-        for new in mapping.values():
-            _new_name(stage, new, replacing=set(mapping) | {new} & {c.name for c in stage.columns})
-        parts = [
-            f"{quote(c.name)} AS {quote(mapping[c.name])}" if c.name in mapping else quote(c.name)
-            for c in stage.columns
-        ]
-        return f"SELECT {', '.join(parts)}, {ORD} FROM {src}"
+        return f"SELECT {', '.join(rename_list(stage, p))}, {ORD} FROM {src}"
 
     if step.kind == "group_by":
-        keys = p.get("keys", [])
-        aggregates = p.get("aggregates")
-        if not isinstance(keys, list) or len(set(keys)) != len(keys):
-            raise StepError(None, "keys must be a list of distinct column names.")
-        key_sql = [quote(_column(stage, k).name) for k in keys]
-        if not isinstance(aggregates, list) or not aggregates:
-            raise StepError(None, "Group by needs at least one aggregate.")
-        used_names: set[str] = set(keys)
-        agg_sql: list[str] = []
-        for agg in aggregates:
-            agg_sql.append(_aggregate(stage, agg, used_names))
+        key_sql, agg_sql = group_parts(stage, p)
         select = ", ".join([*key_sql, *agg_sql])
         if not key_sql:
             return f"SELECT {select}, 1 AS {ORD} FROM {src}"
-        order = ", ".join(f"{k} ASC NULLS LAST" for k in key_sql)
+        order = ", ".join(group_order(key_sql))
         return (
             f"SELECT {select}, row_number() OVER (ORDER BY {order}) AS {ORD} "
             f"FROM {src} GROUP BY {', '.join(key_sql)}"
@@ -612,63 +584,16 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
         return f"SELECT {names_sql}, min({ORD}) AS {ORD} FROM {src} GROUP BY {names_sql}"
 
     if step.kind == "limit":
-        n = p.get("n")
-        if not isinstance(n, int) or isinstance(n, bool) or n < 0:
-            raise StepError(None, "n must be a whole number, 0 or more.")
-        return f"SELECT * FROM {src} ORDER BY {ORD} LIMIT {n}"
+        return f"SELECT * FROM {src} ORDER BY {ORD} LIMIT {limit_count(p)}"
 
     if step.kind == "transform":
-        fn = p.get("fn")
-        if fn not in TRANSFORMS:
-            raise StepError(None, f"fn must be one of {', '.join(TRANSFORMS)}.")
-        targets = transform_targets(stage, p.get("columns"))
-        if not targets:
+        replaced = transform_list(stage, p)
+        if not replaced:
             return f"SELECT * FROM {src}"
-        sql_fn = {
-            "trim_left": f"ltrim({{}}, {_TRIM_SQL})",
-            "trim_right": f"rtrim({{}}, {_TRIM_SQL})",
-            "trim_both": f"trim({{}}, {_TRIM_SQL})",
-            "upper": "upper({})",
-            "lower": "lower({})",
-        }[fn]
-        replaced = ", ".join(f"{sql_fn.format(quote(c))} AS {quote(c)}" for c in targets)
-        return f"SELECT * REPLACE ({replaced}) FROM {src}"
+        return f"SELECT * REPLACE ({', '.join(replaced)}) FROM {src}"
 
     if step.kind == "bucket":
-        column = _column(stage, p.get("column"))
-        name = _new_name(stage, p.get("as"))
-        source = quote(column.name)
-        family = type_family(column.type)
-        if p.get("mode") == "date":
-            if family not in ("date", "timestamp"):
-                raise StepError(None, "A date bucket needs a date column.")
-            unit = p.get("unit")
-            if unit not in DATE_UNITS:
-                raise StepError(None, f"unit must be one of {', '.join(DATE_UNITS)}.")
-            expression = f"CAST(date_trunc('{unit}', {source}) AS DATE)"
-        else:
-            if family != "number":
-                raise StepError(None, "A number bucket needs a number column.")
-            try:
-                edges = bucket_edges(p)
-            except ValueError as error:
-                raise StepError(None, str(error)) from error
-            right_closed = p.get("right_closed", False)
-            if not isinstance(right_closed, bool):
-                raise StepError(None, "right_closed must be true or false.")
-            other = p.get("other_label", "Other")
-            if not isinstance(other, str):
-                raise StepError(None, "other_label must be text.")
-            whens: list[str] = []
-            for (a, b), label in zip(
-                itertools.pairwise(edges), bucket_labels(edges, right_closed), strict=True
-            ):
-                low_op, high_op = (">", "<=") if right_closed else (">=", "<")
-                whens.append(
-                    f"WHEN {source} {low_op} {literal(a)} AND {source} {high_op} {literal(b)} "
-                    f"THEN {literal(label)}"
-                )
-            expression = f"CASE WHEN {source} IS NULL THEN NULL {' '.join(whens)} ELSE {literal(other)} END"
+        name, expression = bucket_expression(stage, p)
         return f"SELECT *, {expression} AS {quote(name)} FROM {src}"
 
     if step.kind == "sql":
@@ -683,16 +608,127 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
         return f"SELECT *, row_number() OVER () AS {ORD} FROM ({query})"
 
     # categorize
+    name, expression = categorize_expression(stage, p, settings)
+    return f"SELECT *, {expression} AS {quote(name)} FROM {src}"
+
+
+# ----- One step's SQL pieces. The engine wraps them in a CTE that carries the order column;
+# codegen/duckdb_code.py puts the same pieces into the one query the user copies. -----
+
+
+def column_list(stage: Stage, p: dict[str, Any]) -> list[str]:
+    """A columns step: the kept columns, quoted, in the chosen order."""
+    keep = p.get("keep")
+    if not isinstance(keep, list) or not keep or len(set(keep)) != len(keep):
+        raise StepError(None, "keep must be a non-empty list of distinct column names.")
+    return [quote(_column(stage, name).name) for name in keep]
+
+
+def rename_list(stage: Stage, p: dict[str, Any]) -> list[str]:
+    """A rename step: every column in place, the renamed ones as `"old" AS "new"`."""
+    mapping = p.get("mapping")
+    if not isinstance(mapping, dict) or not mapping:
+        raise StepError(None, "mapping must be an object of old name to new name.")
+    for old in mapping:
+        _column(stage, old)
+    final = [mapping.get(c.name, c.name) for c in stage.columns]
+    if len(set(final)) != len(final):
+        raise StepError(None, "Renaming would leave two columns with the same name.")
+    for new in mapping.values():
+        _new_name(stage, new, replacing=set(mapping) | {new} & {c.name for c in stage.columns})
+    return [
+        f"{quote(c.name)} AS {quote(mapping[c.name])}" if c.name in mapping else quote(c.name)
+        for c in stage.columns
+    ]
+
+
+def group_parts(stage: Stage, p: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """A group-by step: (the quoted key columns, the `aggregate AS "name"` items)."""
+    keys = p.get("keys", [])
+    aggregates = p.get("aggregates")
+    if not isinstance(keys, list) or len(set(keys)) != len(keys):
+        raise StepError(None, "keys must be a list of distinct column names.")
+    key_sql = [quote(_column(stage, k).name) for k in keys]
+    if not isinstance(aggregates, list) or not aggregates:
+        raise StepError(None, "Group by needs at least one aggregate.")
+    used_names: set[str] = set(keys)
+    agg_sql = [_aggregate(stage, agg, used_names) for agg in aggregates]
+    return key_sql, agg_sql
+
+
+def group_order(key_sql: list[str]) -> list[str]:
+    """Groups come out sorted by their keys, blanks last."""
+    return [f"{k} ASC NULLS LAST" for k in key_sql]
+
+
+def limit_count(p: dict[str, Any]) -> int:
+    n = p.get("n")
+    if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+        raise StepError(None, "n must be a whole number, 0 or more.")
+    return n
+
+
+def transform_list(stage: Stage, p: dict[str, Any]) -> list[str]:
+    """A transform step: `fn("col") AS "col"` for each target column (none: nothing changes)."""
+    fn = p.get("fn")
+    if fn not in TRANSFORMS:
+        raise StepError(None, f"fn must be one of {', '.join(TRANSFORMS)}.")
+    sql_fn = {
+        "trim_left": f"ltrim({{}}, {_TRIM_SQL})",
+        "trim_right": f"rtrim({{}}, {_TRIM_SQL})",
+        "trim_both": f"trim({{}}, {_TRIM_SQL})",
+        "upper": "upper({})",
+        "lower": "lower({})",
+    }[fn]
+    return [f"{sql_fn.format(quote(c))} AS {quote(c)}" for c in transform_targets(stage, p.get("columns"))]
+
+
+def bucket_expression(stage: Stage, p: dict[str, Any]) -> tuple[str, str]:
+    """A bucket step: (the new column's name, its expression)."""
+    column = _column(stage, p.get("column"))
+    name = _new_name(stage, p.get("as"))
+    source = quote(column.name)
+    family = type_family(column.type)
+    if p.get("mode") == "date":
+        if family not in ("date", "timestamp"):
+            raise StepError(None, "A date bucket needs a date column.")
+        unit = p.get("unit")
+        if unit not in DATE_UNITS:
+            raise StepError(None, f"unit must be one of {', '.join(DATE_UNITS)}.")
+        return name, f"CAST(date_trunc('{unit}', {source}) AS DATE)"
+    if family != "number":
+        raise StepError(None, "A number bucket needs a number column.")
+    try:
+        edges = bucket_edges(p)
+    except ValueError as error:
+        raise StepError(None, str(error)) from error
+    right_closed = p.get("right_closed", False)
+    if not isinstance(right_closed, bool):
+        raise StepError(None, "right_closed must be true or false.")
+    other = p.get("other_label", "Other")
+    if not isinstance(other, str):
+        raise StepError(None, "other_label must be text.")
+    whens: list[str] = []
+    for (a, b), label in zip(itertools.pairwise(edges), bucket_labels(edges, right_closed), strict=True):
+        low_op, high_op = (">", "<=") if right_closed else (">=", "<")
+        whens.append(
+            f"WHEN {source} {low_op} {literal(a)} AND {source} {high_op} {literal(b)} THEN {literal(label)}"
+        )
+    return name, f"CASE WHEN {source} IS NULL THEN NULL {' '.join(whens)} ELSE {literal(other)} END"
+
+
+def categorize_expression(stage: Stage, p: dict[str, Any], settings: ViewSettings) -> tuple[str, str]:
+    """A categorize step: (the new column's name, its CASE expression; the first matching rule wins)."""
     name = _new_name(stage, p.get("as"))
     column, conditions = categorize_conditions(stage, p, settings)
     unmatched = p.get("unmatched", "Other")
     if not isinstance(unmatched, str):
         raise StepError(None, "unmatched must be text.")
     rule_whens = " ".join(f"WHEN {c} THEN {literal(label)}" for c, label in conditions)
-    expression = (
-        f"CASE WHEN {quote(column.name)} IS NULL THEN NULL {rule_whens} ELSE {literal(unmatched)} END"
+    return (
+        name,
+        f"CASE WHEN {quote(column.name)} IS NULL THEN NULL {rule_whens} ELSE {literal(unmatched)} END",
     )
-    return f"SELECT *, {expression} AS {quote(name)} FROM {src}"
 
 
 def transform_targets(stage: Stage, columns: Any) -> list[str]:
