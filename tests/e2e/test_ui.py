@@ -26,7 +26,7 @@ from typing import Any
 import duckdb
 import pandas as pd
 import pytest
-from playwright.sync_api import Browser, Locator, Page, expect, sync_playwright
+from playwright.sync_api import Browser, Error, Locator, Page, expect, sync_playwright
 
 from swissarmygrid.client import push_client
 
@@ -1735,7 +1735,11 @@ def test_the_pop_out_windows_start_without_errors(browser: Browser, orders_url: 
     for panel in ("steps", "keys"):
         page = browser.new_page()
         errors: list[str] = []
-        page.on("pageerror", lambda error, errors=errors: errors.append(str(error)))
+
+        def record(error: Error, errors: list[str] = errors) -> None:
+            errors.append(str(error))
+
+        page.on("pageerror", record)
         page.goto(f"{path}?panel={panel}#{fragment}")
         page.wait_for_timeout(2500)
         assert errors == [], f"{panel}: {errors}"

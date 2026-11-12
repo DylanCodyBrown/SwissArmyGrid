@@ -60,8 +60,8 @@ is no command that tries.
 |---|---|
 | 3 (default) | everything: up to 1,048,576 rows per read (one Excel sheet), no masks, no waiting |
 | 2 | rows, up to 200 per read, after column masks; each read waits for the user's click unless they allowed automatic reads |
-| 1 | at most 20 rows, text columns masked unless the user marked them shown |
-| 0 | schema, counts and profile numbers only; `agent_query` accepts only whole-table aggregates |
+| 1 | at most 20 rows, text masked (also inside lists and JSON) unless the user marked its columns shown |
+| 0 | schema, counts and profile numbers only; `agent_query` accepts only whole-table aggregates that return numbers |
 
 At levels 0 to 2, the commands that return cells straight from the page (`row_read`, `cell_view`,
 `table_profile`, `column_profile`, `table_header_stats`, `cell_selection_stats`, `compare_rows`,
@@ -69,6 +69,11 @@ At levels 0 to 2, the commands that return cells straight from the page (`row_re
 Use `agent_read_grid` and `agent_query`, which mask, cap and ask. Commands that return no cells work
 at every level: counts, steps, `tabs_new_query`, `CREATE TABLE ... AS` in `steps_run_sql`, the Key
 Finder, relationships.
+
+A column mask follows the data: a column computed from a hidden or hashed column (renamed, in an
+expression, an aggregate, or a table made by a query) is hidden or hashed too, and a column the server
+cannot trace back to its source gets the strictest mask the user set. Below level 2, DuckDB error text
+is hidden, since it can quote a value.
 
 Every result tells you the level it was computed at (`privacy_level`) and the cap (`row_cap`). When a
 call is refused for privacy, tell the user what you need and that they can raise the level in

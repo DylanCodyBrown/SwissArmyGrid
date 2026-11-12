@@ -113,7 +113,14 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             cmp.signature = sig
         return left, right
 
-    def describe(cmp: Compare) -> dict[str, Any]:
+    def describe(cmp: Compare, request: Request) -> dict[str, Any]:
+        focus: dict[str, Any] | None = None
+        if cmp.focus is not None:
+            focus = {"side": cmp.focus[0], "rows": len(cmp.focus[1])}
+            # The picked row's key is its cell values: for the page, and for an agent at level 3 only
+            # (below it, picking row after row would read the key column one value at a time).
+            if agent_may_see_raw_values(request, policy):
+                focus["key"] = cmp.focus[2]
         return {
             "compare": cmp.id,
             "left": cmp.left,
@@ -121,9 +128,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             **cmp.spec.to_json(),
             "row_count": cmp.row_count,
             "counts": cmp.tallies,
-            "focus": None
-            if cmp.focus is None
-            else {"side": cmp.focus[0], "rows": len(cmp.focus[1]), "key": cmp.focus[2]},
+            "focus": focus,
         }
 
     def get(request: Request) -> Compare:
@@ -149,7 +154,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             ctx.audit.write(
                 actor(request), "compare", f"{cmp.left}:{cmp.right}", keys=len(spec.keys), mode=spec.mode
             )
-            return json_response(describe(cmp))
+            return json_response(describe(cmp, request))
         except Exception as error:
             return error_response(error)
 
@@ -157,7 +162,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         try:
             cmp = get(request)
             await run(lambda cur: ensure(cur, cmp))
-            return json_response(describe(cmp))
+            return json_response(describe(cmp, request))
         except Exception as error:
             return error_response(error)
 
@@ -174,7 +179,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             cmp.focus = None
             cmp.signature = ""
             await run(lambda cur: ensure(cur, cmp))
-            return json_response(describe(cmp))
+            return json_response(describe(cmp, request))
         except Exception as error:
             return error_response(error)
 
@@ -296,7 +301,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 cmp.focus = ("right" if picked == "left" else "left", hits, key)
 
             await run(compute)
-            return json_response(describe(cmp))
+            return json_response(describe(cmp, request))
         except Exception as error:
             return error_response(error)
 
@@ -304,7 +309,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         try:
             cmp = get(request)
             cmp.focus = None
-            return json_response(describe(cmp))
+            return json_response(describe(cmp, request))
         except Exception as error:
             return error_response(error)
 

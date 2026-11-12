@@ -138,6 +138,10 @@ def table_only_functions() -> frozenset[str]:
         return _table_functions
 
 
+# What DuckDB says when asked to serialize a query holding a PIVOT.
+_PIVOT_UNPARSED: str = "Only SELECT statements can be serialized"
+
+
 def check_duckdb_parse(sql: str, tables: set[str]) -> None:
     """Refuse `sql` unless DuckDB's own parse of it reads only `tables` (plain names) and the
     allowed table functions: the second opinion behind the sqlglot rewrite."""
@@ -252,7 +256,14 @@ def _guard(
         query, datasets, grid_names if grid_sql is not None else set(), as_views=dataset_sql is not None
     )
     # DuckDB's own parse of the user's part, before the server's CTEs are added.
-    check_duckdb_parse(query.sql(dialect="duckdb"), targets)
+    try:
+        check_duckdb_parse(query.sql(dialect="duckdb"), targets)
+    except SqlRefused as refused:
+        # DuckDB cannot serialize a PIVOT (it expands one into several statements), so its parse
+        # fails for every query holding one. Such a query keeps the first opinion only: the rewrite
+        # above already checked every table and function in it, including inside the PIVOT.
+        if not (_PIVOT_UNPARSED in str(refused) and query.find(exp.Pivot) is not None):
+            raise
     if dataset_sql is not None:
         for name in read:
             query = _prepend_cte(query, _DATASET_VIEW_CTE + name, dataset_sql(name))

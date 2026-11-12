@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -46,9 +47,14 @@ from swissarmygrid.server.context import (
     actor,
     error_response,
     json_response,
+    query_int,
+    read_body,
     read_json,
 )
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.info_file import info_file_path
+from swissarmygrid.server.masking import Origins
+from swissarmygrid.server.routes_agent import Policy, pivot_refused
 
 ARROW_STREAM: str = "application/vnd.apache.arrow.stream"
 
@@ -90,13 +96,21 @@ async def store_table(
     who: str,
     query: str | None = None,
     follow: bool = False,
+    origins: dict[str, Origins] | None = None,
 ) -> dict[str, Any]:
     """The common end of every way data arrives: store, pick a grid, notify, audit.
 
     `follow` is a Python session keeping an open table current after its variable was assigned
     again. It refreshes the grid where it is: no jump to the front, and no new tab if the user
-    closed the old one (the data stays fresh for when they open it again)."""
+    closed the old one (the data stays fresh for when they open it again).
+
+    `origins`: for a table made by a query, where each column came from (masking.py); any other
+    arrival replaces the data, so whatever the name was derived from no longer applies."""
     info: DatasetInfo = await ctx.workers.run(BACKGROUND, ctx.store.replace, name, table, source_kind, query)
+    if origins is None:
+        ctx.derived_columns.pop(name, None)
+    else:
+        ctx.derived_columns[name] = origins
     ctx.views.forget_dataset(name)
     existing = ctx.grids.first_for(name)
     if follow and existing is None:
@@ -112,7 +126,7 @@ async def store_table(
         )
         return {
             "grid_url": None,
-            "workspace_url": ctx.workspace_url(),
+            "workspace_url": ctx.workspace_url(with_token=who != "agent"),
             "grid": None,
             "dataset": name,
             "version": info.version,
@@ -145,8 +159,8 @@ async def store_table(
         # Nothing shows it yet: VS Code opens the workspace (its window the user was last in).
         watched = ctx.live.shown_or_opening(grid.id) or await ctx.live.ask_opener(ctx.workspace_url(grid))
     return {
-        "grid_url": ctx.grid_url(grid),
-        "workspace_url": ctx.workspace_url(grid),
+        "grid_url": ctx.grid_url(grid, with_token=who != "agent"),
+        "workspace_url": ctx.workspace_url(grid, with_token=who != "agent"),
         "grid": grid.id,
         "dataset": name,
         "version": info.version,
@@ -156,13 +170,32 @@ async def store_table(
     }
 
 
-def routes(ctx: Context) -> list[BaseRoute]:
+def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
+    """`policy`: the agent privacy policy (routes_agent), for the SQL an agent may send."""
     settings = ctx.settings
+
+    def own_file_refused(path: str) -> Response | None:
+        """A 403 for a file of SwissArmyGrid's own: the connection file (one line of JSON, so it
+        loaded as a table, token and all), the audit log, recipes: the state folder, except the
+        export folder inside it (an export loaded back is a table)."""
+        try:
+            target = Path(path).expanduser().resolve()
+            connection = info_file_path().expanduser().resolve()
+            state = settings.state_dir.expanduser().resolve()
+            exports = settings.export_dir.expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            return None  # an unusable path: the loader says why
+        inside_state = target.is_relative_to(state) and not target.is_relative_to(exports)
+        if target == connection or inside_state:
+            return Response("That is one of SwissArmyGrid's own files, not a table.", status_code=403)
+        return None
 
     async def health(request: Request) -> Response:
         return JSONResponse({"status": "ok", "version": __version__, "pid": os.getpid()})
 
     async def shutdown(request: Request) -> Response:
+        if actor(request) == "agent":
+            return Response("Stopping the server is for the user.", status_code=403)
         ctx.audit.write(actor(request), "shutdown")
         ctx.on_shutdown()
         return JSONResponse({"status": "stopping"})
@@ -171,7 +204,10 @@ def routes(ctx: Context) -> list[BaseRoute]:
         """The audit log's last entries, for the page's activity list (never cell values)."""
         if actor(request) == "agent":
             return Response("The audit log is for the user.", status_code=403)
-        limit = min(500, int(request.query_params.get("limit", "100") or 100))
+        try:
+            limit = max(1, min(500, query_int(request, "limit", 100) or 100))
+        except ValueError as error:
+            return error_response(error)
         return json_response({"entries": ctx.audit.tail(limit)})
 
     async def list_datasets(request: Request) -> Response:
@@ -240,6 +276,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
         if not await ctx.workers.run(INTERACTIVE, ctx.store.close, name):
             return Response("No such dataset.", status_code=404)
         ctx.views.forget_dataset(name)
+        ctx.derived_columns.pop(name, None)
         for grid in ctx.grids.for_dataset(name):
             ctx.grids.close(grid.id)
         await ctx.live.broadcast({"type": "dataset_closed", "dataset": name})
@@ -253,6 +290,8 @@ def routes(ctx: Context) -> list[BaseRoute]:
             path = body.get("path") if isinstance(body, dict) else None
             if not isinstance(path, str):
                 return Response('Send {"path": "<full path to the file>"}.', status_code=400)
+            if (refused := own_file_refused(path)) is not None:
+                return refused
             sheet = body.get("sheet") if isinstance(body.get("sheet"), str) else None
             table, kind = await ctx.workers.run(
                 BACKGROUND, load_file, path, settings.max_dataset_bytes, sheet
@@ -270,6 +309,8 @@ def routes(ctx: Context) -> list[BaseRoute]:
             path = body.get("path") if isinstance(body, dict) else None
             if not isinstance(path, str):
                 return Response('Send {"path": "<full path to the .xlsx file>"}.', status_code=400)
+            if (refused := own_file_refused(path)) is not None:
+                return refused
             return json_response({"sheets": await ctx.workers.run(BACKGROUND, excel_sheets, path)})
         except Exception as error:
             return error_response(error)
@@ -277,7 +318,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
     async def paste(request: Request) -> Response:
         try:
             name = validate_name(request.path_params["name"])
-            text = (await request.body()).decode("utf-8", "replace")
+            text = (await read_body(request, settings.max_push_body_bytes)).decode("utf-8", "replace")
             table = await ctx.workers.run(INTERACTIVE, parse_pasted, text, settings.max_dataset_bytes)
             return json_response(await store_table(ctx, name, table, "clipboard", True, actor(request)))
         except Exception as error:
@@ -293,6 +334,8 @@ def routes(ctx: Context) -> list[BaseRoute]:
             text = body.get("sql") if isinstance(body, dict) else None
             if not isinstance(text, str) or not text.strip():
                 raise ValueError('Send {"sql": "SELECT ... FROM <table>"}.')
+            if (refused := pivot_refused(request, policy, text)) is not None:
+                return refused
             existing = ctx.store.get(name)
             if existing is not None and not (body.get("replace") is True and existing.query is not None):
                 raise DatasetError(f"A dataset named {name!r} already exists; pick a new name.")
@@ -306,7 +349,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
                     return f"SELECT * FROM {quote('ds_' + dataset)}"  # noqa: S608 (a quoted dataset name)
                 return ctx.compiled(cursor, grid, info).sql()
 
-            def execute(cursor: duckdb.DuckDBPyConnection) -> pa.Table:
+            def execute(cursor: duckdb.DuckDBPyConnection) -> tuple[pa.Table, dict[str, Origins]]:
                 datasets = {i.name for i in ctx.store.all()}
                 guarded = guard(text, datasets, None, lambda dataset: tab_view(cursor, dataset))
                 if guarded.kind != "select":
@@ -314,19 +357,22 @@ def routes(ctx: Context) -> list[BaseRoute]:
                 timer = threading.Timer(settings.query_timeout_seconds, cursor.interrupt)
                 timer.start()
                 try:
-                    return cursor.sql(guarded.sql).to_arrow_table()
+                    result = cursor.sql(guarded.sql).to_arrow_table()
                 finally:
                     timer.cancel()
+                return result, ctx.origins_of_result(guarded.sql, result.column_names)
 
             try:
-                table = await ctx.workers.run(BACKGROUND, lambda: execute(ctx.store.cursor()))
+                table, origins = await ctx.workers.run(BACKGROUND, lambda: execute(ctx.store.cursor()))
             except duckdb.InterruptException:
                 return Response(
                     f"The query was stopped: it ran past {settings.query_timeout_seconds:.0f} seconds.",
                     status_code=408,
                 )
             who = actor(request)
-            result = await store_table(ctx, name, table, "sql_result", False, who, query=text)
+            result = await store_table(
+                ctx, name, table, "sql_result", False, who, query=text, origins=origins
+            )
             ctx.audit.write(who, "sql_query", name, query=text, rows=table.num_rows)
             return json_response(result | {"rows": table.num_rows})
         except Exception as error:

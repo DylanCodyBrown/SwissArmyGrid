@@ -185,3 +185,37 @@ def test_deeply_nested_queries_are_refused_plainly(store: DatasetStore, text: st
 def test_recursive_self_reference_reads_nothing(store: DatasetStore, text: str) -> None:
     with pytest.raises((SqlRefused, duckdb.Error)):
         run(store, text)
+
+
+# ===== PIVOT: DuckDB cannot serialize it, so the first opinion alone decides =====
+
+PIVOT = "SELECT * FROM (PIVOT clients ON client USING count(*))"
+
+
+def test_a_pivot_over_an_open_table_is_allowed() -> None:
+    assert "PIVOT" in guard(PIVOT, {"clients"}, lambda: "SELECT 1").sql.upper()
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "(WITH ds_x AS (SELECT 1) SELECT 1) t, ds_x",
+        "(WITH vc_x AS (SELECT 1) SELECT 1) t, vc_abc",
+        "grid, LATERAL json_execute_serialized_sql(json_serialize_sql('SELECT * FROM ds_other'))",
+        "duckdb_tables()",
+        "read_csv('/etc/passwd')",
+        "ds_clients",
+    ],
+)
+def test_a_pivot_does_not_open_the_known_escapes(tail: str) -> None:
+    with pytest.raises(SqlRefused):
+        guard(
+            f"SELECT * FROM (PIVOT clients ON client USING count(*)) p, {tail}",  # noqa: S608 (the attack under test)
+            {"clients"},
+            lambda: "SELECT 1",
+        )
+
+
+def test_a_pivot_reading_a_table_that_is_not_open_is_refused() -> None:
+    with pytest.raises(SqlRefused):
+        guard("SELECT * FROM (PIVOT ds_secret ON client USING count(*))", {"clients"}, lambda: "SELECT 1")

@@ -67,7 +67,12 @@ from swissarmygrid.server.context import (
     read_json,
 )
 from swissarmygrid.server.grids import Grid
-from swissarmygrid.server.routes_agent import Policy, agent_may_see_raw_values, raw_values_refused
+from swissarmygrid.server.routes_agent import (
+    Policy,
+    agent_may_see_raw_values,
+    pivot_refused,
+    raw_values_refused,
+)
 from swissarmygrid.server.routes_datasets import budget, store_table
 from swissarmygrid.server.selection import combine_stats, selection_scope, stats_sql
 
@@ -141,7 +146,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                         "grid": g.id,
                         "dataset": g.dataset,
                         "steps": len(g.steps),
-                        "url": ctx.grid_url(g),
+                        "url": ctx.grid_url(g, with_token=actor(request) != "agent"),
                     }
                     for g in ctx.grids.all()
                 ],
@@ -163,8 +168,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             return json_response(
                 {
                     "grid": grid.id,
-                    "grid_url": ctx.grid_url(grid),
-                    "workspace_url": ctx.workspace_url(grid),
+                    "grid_url": ctx.grid_url(grid, with_token=actor(request) != "agent"),
+                    "workspace_url": ctx.workspace_url(grid, with_token=actor(request) != "agent"),
                     "shown": shown,
                 }
             )
@@ -378,6 +383,9 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             if not isinstance(body, dict):
                 raise ValueError('Send {"steps": [...], "settings": {...}}.')
             new_steps = steps_from_json(body.get("steps", [s.to_json() for s in grid.steps]))
+            sql_steps = [s.params.get("sql") for s in new_steps if s.kind == "sql"]
+            if (refused := pivot_refused(request, policy, *sql_steps)) is not None:
+                return refused
             new_settings = ViewSettings.from_json(body["settings"]) if "settings" in body else grid.settings
             gen = body.get("gen")
             client = str(body.get("client", ""))[:40]
@@ -428,6 +436,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             text = body.get("sql") if isinstance(body, dict) else None
             if not isinstance(text, str) or not text.strip():
                 raise ValueError('Send {"sql": "SELECT ... FROM grid"}.')
+            if (refused := pivot_refused(request, policy, text)) is not None:
+                return refused
             who = actor(request)
             row_cap = settings.max_sql_rows
 
@@ -438,14 +448,21 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 upto = body.get("upto") if isinstance(body.get("upto"), int) else None
                 # `grid` reads the view cache in view order: the rows of compiled.sql(upto), without
                 # running every step again (engine/views.reading).
+                names_known = {i.name for i in ctx.store.all()}
                 with ctx.views.reading(cur, info, grid.steps, grid.settings, upto, ordered=True) as view:
-                    guarded = guard(text, {i.name for i in ctx.store.all()}, lambda: view)
+                    guarded = guard(text, names_known, lambda: view)
                     timer = threading.Timer(settings.query_timeout_seconds, cur.interrupt)
                     started = time.perf_counter()
                     timer.start()
                     try:
                         if guarded.kind == "create":
-                            return guarded, cur.sql(guarded.sql).to_arrow_table(), None, 0.0
+                            made = cur.sql(guarded.sql).to_arrow_table()
+                            # Masks follow each new column back to its source columns. The query
+                            # ran over the view cache, which hides them, so trace the same query
+                            # written over the steps' own SQL instead.
+                            compiled = ctx.compiled(cur, grid, info)
+                            traced = guard(text, names_known, lambda: compiled.sql(upto)).sql
+                            return guarded, made, ctx.origins_of_result(traced, made.column_names), 0.0
                         result = cur.execute(guarded.sql)
                         names = [d[0] for d in result.description or []]
                         fetched = result.fetchmany(row_cap + 1)
@@ -467,7 +484,9 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             except duckdb.Error as error:
                 return Response(f"DuckDB: {error}", status_code=400)
             if guarded.kind == "create" and guarded.new_table:
-                result = await store_table(ctx, guarded.new_table, names, "sql_result", True, who)
+                result = await store_table(
+                    ctx, guarded.new_table, names, "sql_result", True, who, origins=fetched
+                )
                 ctx.audit.write(who, "sql_pin", guarded.new_table, query=text, rows=names.num_rows)
                 return json_response({"pinned": guarded.new_table} | result)
             # A CREATE TABLE pins a dataset and returns no cells, so it is open to the agent at every
@@ -532,6 +551,15 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         try:
             grid, info = ctx.grid_and_info(request.path_params["grid_id"])
             params = dict(request.query_params)
+            # An agent's export writes the whole view, unmasked, to disk: only after the user's
+            # click (POST /agent/export-approval), whose one-time ticket this spends.
+            if actor(request) == "agent" and not policy.redeem_export_ticket(
+                params.pop("ticket", None), grid.id
+            ):
+                return Response(
+                    "An agent export needs the user's approval first; table_export asks for it.",
+                    status_code=403,
+                )
             options = exporting.ExportOptions.from_query(params)
             scope = params.get("scope", "view")
             if scope not in ("view", "rows", "columns", "selection", "source", "profile"):

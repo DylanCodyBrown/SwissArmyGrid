@@ -76,6 +76,36 @@ def test_data_routes_need_the_token(client: TestClient) -> None:
     assert client.put("/datasets/x", content=b"{}").status_code == 401
 
 
+@pytest.mark.parametrize(
+    ("headers", "status"),
+    [
+        ({"Authorization": f"bearer {TOKEN}"}, 401),  # the scheme is matched exactly
+        ({"Authorization": TOKEN}, 401),
+        ({"Authorization": f"Bearer  {TOKEN}"}, 401),
+        (AUTH | {"Host": f"LOCALHOST:{PORT}"}, 403),
+        (AUTH | {"Host": f"[::1]:{PORT}"}, 403),
+        (AUTH | {"Host": "127.0.0.1"}, 403),
+        (AUTH | {"Host": f"localhost.:{PORT}"}, 403),
+        (AUTH | {"Origin": "null"}, 403),  # a sandboxed frame or a file:// page
+        (AUTH | {"Origin": f"https://127.0.0.1:{PORT}"}, 403),
+        (AUTH | {"Origin": ""}, 403),
+    ],
+)
+def test_odd_headers_are_refused(client: TestClient, headers: dict[str, str], status: int) -> None:
+    assert client.get("/health", headers=headers).status_code == status
+
+
+def test_a_token_in_the_query_string_is_not_accepted(client: TestClient) -> None:
+    assert client.get(f"/health?token={TOKEN}").status_code == 401
+
+
+def test_only_the_exact_workspace_path_skips_the_token(client: TestClient) -> None:
+    assert client.get("/workspace").status_code == 200
+    # A prefix match let any GET under /workspace... through the token check.
+    assert client.get("/workspaceanything").status_code == 401
+    assert client.get("/workspace/active").status_code == 401
+
+
 # The guard on its own, around a tiny echo socket, to test the WebSocket paths.
 async def _echo(websocket: WebSocket) -> None:
     await websocket.accept(subprotocol=WEBSOCKET_SUBPROTOCOL)

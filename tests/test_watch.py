@@ -80,6 +80,31 @@ def test_an_object_with_a_magic_getattr_is_never_touched() -> None:
     assert find_tables({"hostile": Hostile()}) == []
 
 
+class _RaisingMeta(type):
+    def __getattr__(cls, name: str) -> Any:
+        raise RuntimeError("a class that answers every lookup with an error")
+
+
+class _Hostile(metaclass=_RaisingMeta):
+    pass
+
+
+class _NoModule:
+    pass
+
+
+_NoModule.__module__ = None  # type: ignore[assignment]
+
+
+@pytest.mark.parametrize("odd", [_Hostile(), _NoModule()])
+def test_one_odd_variable_never_hides_the_other_tables(odd: object) -> None:
+    """hasattr only swallows AttributeError, and a class may have no module name: either made every
+    scan raise, so the Open list stayed empty for the whole session."""
+    namespace = {"orders": pa.table({"x": [1]}), "odd": odd}
+    assert [t.name for t in find_tables(namespace)] == ["orders"]
+    assert resolve(namespace, "odd") is None
+
+
 def test_the_entry_sent_to_the_server_has_a_name_a_kind_and_sizes_only() -> None:
     [table] = find_tables({"df": pd.DataFrame({"a": [1, 2]})})
     assert table.entry() == {"name": "df", "kind": "dataframe", "rows": 2, "columns": 1}

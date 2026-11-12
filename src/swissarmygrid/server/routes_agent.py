@@ -27,8 +27,9 @@ only has these MCP tools, not code already running with the user's rights.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import secrets
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -40,19 +41,58 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.engine.datasets import DatasetInfo
+from swissarmygrid.engine.datasets import DatasetInfo, quote
+from swissarmygrid.engine.export import FORMATS
 from swissarmygrid.engine.profile import profile_column, profile_table
 from swissarmygrid.engine.sql_guard import guard
 from swissarmygrid.engine.steps import filter_condition, type_family
 from swissarmygrid.engine.workers import AGENT
-from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
+from swissarmygrid.server.context import (
+    Context,
+    actor,
+    error_response,
+    json_response,
+    read_json,
+    read_json_object,
+)
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.masking import (
+    Origins,
+    column_rules,
+    has_strings,
+    hash_value,
+    is_plain_number,
+    mask_strings,
+    pivots,
+)
+from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
 from swissarmygrid.settings import EXCEL_MAX_ROWS
 
 # Level 3 reads as much as one Excel worksheet holds; the agent still picks its own limit.
 LEVEL_ROW_CAPS: dict[int, int] = {0: 0, 1: 20, 2: 200, 3: EXCEL_MAX_ROWS}
 DEFAULT_LEVEL: int = 3
 APPROVAL_TIMEOUT_SECONDS: float = 180.0
+# Type families whose values are not text: level 1 masks every other one (text, lists, JSON...).
+_NOT_TEXT: frozenset[str] = frozenset({"number", "date", "timestamp", "boolean"})
+# What a column profile says about the values themselves, which a hidden column leaves out.
+_PROFILE_VALUE_KEYS: tuple[str, ...] = (
+    "top_values",
+    "case_groups",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "q1",
+    "q3",
+    "sum",
+    "stddev",
+    "histogram",
+    "earliest",
+    "latest",
+    "by_month",
+)
+# How long the user's click on an export stays good for the export it approved.
+EXPORT_TICKET_SECONDS: float = 120.0
 
 
 @dataclass
@@ -60,9 +100,23 @@ class Policy:
     level: int = DEFAULT_LEVEL
     auto_rows: bool = False
     masks: dict[str, str] = field(default_factory=dict)  # column -> hide | hash | show
+    # Approved agent exports not yet written: ticket -> (grid id, when it lapses). One click, one file.
+    export_tickets: dict[str, tuple[str, float]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         return {"level": self.level, "auto_rows": self.auto_rows, "masks": self.masks}
+
+    def issue_export_ticket(self, grid_id: str) -> str:
+        now = time.monotonic()
+        self.export_tickets = {k: v for k, v in self.export_tickets.items() if v[1] > now}
+        ticket = secrets.token_urlsafe(16)
+        self.export_tickets[ticket] = (grid_id, now + EXPORT_TICKET_SECONDS)
+        return ticket
+
+    def redeem_export_ticket(self, ticket: str | None, grid_id: str) -> bool:
+        """True once for a ticket the user approved for this grid; it is used up either way."""
+        held = self.export_tickets.pop(ticket, None) if ticket else None
+        return held is not None and held[0] == grid_id and held[1] > time.monotonic()
 
 
 def agent_may_see_raw_values(request: Request, policy: Policy) -> bool:
@@ -73,6 +127,20 @@ def agent_may_see_raw_values(request: Request, policy: Policy) -> bool:
     mask, cap and ask. Think of it as an `[Authorize(Policy = "RawValues")]` attribute: the user
     always passes, the agent passes only at level 3, where it sees everything anyway."""
     return actor(request) != "agent" or policy.level == 3
+
+
+def pivot_refused(request: Request, policy: Policy, *texts: Any) -> Response | None:
+    """A 403 when an agent below level 3 sends SQL with a PIVOT, else None. PIVOT makes cell values
+    into column names, and column names reach the agent at every level (schemas, tabs_get)."""
+    if actor(request) != "agent" or policy.level >= 3:
+        return None
+    if not any(isinstance(text, str) and pivots(text) for text in texts):
+        return None
+    return Response(
+        f"PIVOT turns cell values into column names, which an agent sees at every privacy level, so "
+        f"at level {policy.level} it is refused. Group by the column instead, or ask the user.",
+        status_code=403,
+    )
 
 
 def raw_values_refused() -> Response:
@@ -108,6 +176,9 @@ def is_whole_table_aggregate(sql: str) -> bool:
         return False
     if not isinstance(root, exp.Select) or root.args.get("group"):
         return False
+    # A window (max(x) OVER (...)) or an unnest of an aggregate returns one row per input row.
+    if any(root.find(kind) for kind in (exp.Window, exp.Unnest, exp.Explode)):
+        return False
     for projection in root.expressions:
         target = projection.this if isinstance(projection, exp.Alias) else projection
         if not isinstance(target, exp.AggFunc) and not target.find(exp.AggFunc):
@@ -120,52 +191,46 @@ def is_whole_table_aggregate(sql: str) -> bool:
 
 
 def mask_value(value: Any, how: str) -> Any:
+    """One value under a column rule: hash it, mask every string in it, or leave it."""
     if value is None:
         return None
     if how == "hash":
-        return hashlib.sha256(str(value).encode()).hexdigest()[:10]
-    text = str(value)
-    return (text[:1] + "•" * min(len(text) - 1, 6)) if text else ""
+        return hash_value(value)
+    if how == "mask":
+        return mask_strings(value)
+    return value
 
 
 def hidden_error(error: duckdb.Error, level: int) -> Response:
     """A DuckDB error for the agent. Its text can quote a cell value ("Could not convert string
     'Acme Corp' to INT32"), so below level 2 the agent gets only that something failed."""
-    if level >= 2:
+    if level >= ENGINE_ERRORS_SHOWN_FROM_LEVEL:
         return Response(f"DuckDB: {error}", status_code=400)
-    return Response(
-        f"DuckDB could not compute this. The message is hidden at privacy level {level} because "
-        "it can quote cell values; check the query or the grid's steps.",
-        status_code=400,
-    )
+    return Response(ENGINE_ERROR_HIDDEN, status_code=400)
 
 
 def apply_masks(
-    rules: Policy, names: list[str], types: list[str], rows: list[list[Any]]
+    rules: Policy,
+    names: list[str],
+    types: list[str],
+    rows: list[list[Any]],
+    origins: list[Origins] | None = None,
 ) -> tuple[list[str], list[list[Any]], list[str]]:
     """(shown column names, masked rows, the masked column names) under the policy: "hide"
-    drops a column, "hash" hashes it, and level 1 masks every text column not marked "show".
-    Level 3 sees everything, so no mask applies there."""
+    drops a column, "hash" hashes it, and level 1 masks every string not marked "show". Each
+    column's rule comes from the columns it was computed from (`origins`, see masking.py), so a
+    rename does not lift it. Level 3 sees everything, so no mask applies there."""
     if rules.level >= 3:
         return names, rows, []
-    keep: list[int] = []
-    how: list[str] = []
-    for i, (name, type_name) in enumerate(zip(names, types, strict=True)):
-        rule = rules.masks.get(name)
-        if rule == "hide":
-            continue
-        keep.append(i)
-        if rule == "hash":
-            how.append("hash")
-        elif rules.level == 1 and rule != "show" and "VARCHAR" in type_name.upper():
-            how.append("mask")
-        else:
-            how.append("show")
-    shown = [
-        [row[i] if h == "show" else mask_value(row[i], h) for i, h in zip(keep, how, strict=True)]
-        for row in rows
+    decided = column_rules(rules.level, rules.masks, names, origins)
+    keep = [i for i, how in enumerate(decided) if how != "hide"]
+    shown = [[mask_value(row[i], decided[i]) for i in keep] for row in rows]
+    masked = [
+        names[i]
+        for i in keep
+        if decided[i] == "hash"
+        or (decided[i] == "mask" and ("VARCHAR" in types[i].upper() or any(has_strings(r[i]) for r in rows)))
     ]
-    masked = [names[i] for i, h in zip(keep, how, strict=True) if h != "show"]
     return [names[i] for i in keep], shown, masked
 
 
@@ -173,6 +238,14 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
     """`rules`: the one policy for every table; the level the user picks in Settings applies
     to all of them. app.py makes it and shares it with routes_context."""
     approvals: dict[str, Approval] = {}
+
+    def rule_for(dataset: str, column: str) -> str:
+        """The mask rule for one column of a dataset, following a query-made table to its sources."""
+        return column_rules(rules.level, rules.masks, [column], [ctx.column_origins(dataset, column)])[0]
+
+    def traced(sql: str) -> list[Origins] | None:
+        """Where each column of `sql` came from, when a rule could depend on it (levels 1-2 with masks)."""
+        return ctx.trace(sql) if rules.level in (1, 2) and rules.masks else None
 
     def dataset_for(body: dict[str, Any]) -> tuple[DatasetInfo, Grid | None]:
         grid_id = body.get("grid")
@@ -207,15 +280,19 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
         if actor(request) == "agent":
             return Response("Only the user can change what an agent may see.", status_code=403)
         try:
-            body = await read_json(request)
+            body = await read_json_object(request, '{"level": 0-3, "auto_rows": bool, "masks": {...}}')
             level = body.get("level", rules.level)
-            if level not in LEVEL_ROW_CAPS:
+            # Exactly an int: True == 1 and 1.0 == 1 would otherwise pass and be stored as given.
+            if type(level) is not int or level not in LEVEL_ROW_CAPS:
                 raise ValueError("level must be 0, 1, 2 or 3.")
             masks = body.get("masks", rules.masks)
             if not isinstance(masks, dict) or not all(v in ("hide", "hash", "show") for v in masks.values()):
                 raise ValueError("masks maps column names to hide, hash or show.")
+            auto_rows = body.get("auto_rows", rules.auto_rows)
+            if not isinstance(auto_rows, bool):  # bool("false") is True
+                raise ValueError("auto_rows must be true or false.")
             rules.level = level
-            rules.auto_rows = bool(body.get("auto_rows", rules.auto_rows))
+            rules.auto_rows = auto_rows
             rules.masks = dict(masks)
             ctx.audit.write("user", "agent_policy", None, level=level)
             return json_response(rules.to_json())
@@ -231,7 +308,10 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
         approval = approvals.get(request.path_params["approval_id"])
         if approval is None:
             return Response("No such pending request (it may have timed out).", status_code=404)
-        body = await read_json(request)
+        try:
+            body = await read_json(request)
+        except ValueError as error:
+            return error_response(error)
         approved = bool(isinstance(body, dict) and body.get("approve"))
         if not approval.future.done():
             approval.future.set_result(approved)
@@ -249,15 +329,20 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             level = rules.level
 
             def compute(cur: duckdb.DuckDBPyConnection) -> Any:
-                names = ", ".join(f'"{c.name}"' for c in info.columns)
+                names = ", ".join(quote(c.name) for c in info.columns)
                 sql = f"SELECT {names} FROM {info.table}"
                 return profile_table(cur, sql, info.columns)
 
             profiled = await ctx.workers.run(AGENT, lambda: compute(ctx.store.cursor()))
             for row in profiled["columns"]:
-                if level == 0 and type_family(row["type"]) not in ("number",):
+                how = rule_for(info.name, row["column"])
+                if (level == 0 and type_family(row["type"]) != "number") or how == "hide":
                     row.pop("min", None)
                     row.pop("max", None)
+                elif how != "show" and (how == "hash" or type_family(row["type"]) not in _NOT_TEXT):
+                    for key in ("min", "max"):
+                        if key in row:
+                            row[key] = mask_value(row[key], how)
             ctx.audit.write("agent", "describe", info.name)
             return json_response(
                 {
@@ -285,14 +370,22 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             level = rules.level
             sql = f"SELECT * FROM {info.table}"
             result = await ctx.workers.run(AGENT, lambda: profile_column(ctx.store.cursor(), sql, column))
+            how = rule_for(info.name, column.name)
             if level == 0 and result["family"] != "number":
                 for key in ("top_values", "case_groups", "by_month", "earliest", "latest"):
                     result.pop(key, None)
-            elif level == 1 and rules.masks.get(column.name) != "show":
-                result["top_values"] = [
-                    {"value": mask_value(v["value"], "mask"), "count": v["count"]}
-                    for v in result.get("top_values", [])
-                ]
+            if how == "hide":
+                for key in _PROFILE_VALUE_KEYS:
+                    result.pop(key, None)
+            elif how == "hash" or (how == "mask" and result["family"] not in _NOT_TEXT):
+                if "top_values" in result:
+                    result["top_values"] = [
+                        {"value": mask_value(v["value"], how), "count": v["count"]}
+                        for v in result["top_values"]
+                    ]
+                for key in ("min", "max", "earliest", "latest"):
+                    if key in result:
+                        result[key] = mask_value(result[key], how)
                 result.pop("case_groups", None)
             ctx.audit.write("agent", "profile", info.name, column=column.name)
             return json_response(result | {"privacy_level": level})
@@ -301,11 +394,13 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
 
     async def query(request: Request) -> Response:
         try:
-            body = await read_json(request)
+            body = await read_json_object(request, '{"dataset": name, "sql": "SELECT ... FROM grid"}')
             info, grid = dataset_for(body)
             text = body.get("sql")
             if not isinstance(text, str):
                 raise ValueError('Send {"dataset": name, "sql": "SELECT ... FROM grid"}.')
+            if (refused := pivot_refused(request, rules, text)) is not None:
+                return refused
             aggregate = is_whole_table_aggregate(text)
             if rules.level == 0 and not aggregate:
                 return Response(
@@ -314,10 +409,12 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                     "the level in the grid's Settings.",
                     status_code=403,
                 )
+            asked = False
             if not aggregate and not rules.auto_rows and rules.level < 3:
                 if not await ask_user(info.name, "query", text):
                     ctx.audit.write("agent", "query_declined", info.name, query=text)
                     return Response("The user declined (or did not answer) this query.", status_code=403)
+                asked = True
             cap = 1 if aggregate and rules.level == 0 else LEVEL_ROW_CAPS[rules.level]
 
             def execute(cur: duckdb.DuckDBPyConnection) -> Any:
@@ -330,17 +427,49 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                 guarded = guard(text, {i.name for i in ctx.store.all()}, grid_sql)
                 if guarded.kind != "select":
                     raise ValueError("Agents may only run SELECT queries; use steps_save_result to pin.")
-                result = cur.execute(guarded.sql)
-                names = [d[0] for d in result.description or []]
-                types = [str(d[1]) for d in result.description or []]
-                return names, types, [list(r) for r in result.fetchmany(cap + 1)]
+                timer = threading.Timer(ctx.settings.query_timeout_seconds, cur.interrupt)
+                timer.start()
+                try:
+                    result = cur.execute(guarded.sql)
+                    names = [d[0] for d in result.description or []]
+                    types = [str(d[1]) for d in result.description or []]
+                    fetched = [list(r) for r in result.fetchmany(max(cap, 1) + 1)]
+                finally:
+                    timer.cancel()
+                return names, types, fetched, traced(guarded.sql)
 
             try:
-                names, types, rows = await ctx.workers.run(AGENT, lambda: execute(ctx.store.cursor()))
+                names, types, rows, origins = await ctx.workers.run(
+                    AGENT, lambda: execute(ctx.store.cursor())
+                )
+            except duckdb.InterruptException:
+                return Response(
+                    f"The query was stopped: it ran past {ctx.settings.query_timeout_seconds:.0f} seconds.",
+                    status_code=408,
+                )
             except duckdb.Error as error:
                 return hidden_error(error, rules.level)
+            if aggregate and len(rows) > 1:
+                # It parsed as one aggregate but returned rows (a construct the check above missed):
+                # rows, so they wait for the user's click like any other.
+                if rules.level == 0:
+                    return Response(
+                        "At privacy level 0 a query may return one row of whole-table aggregates.",
+                        status_code=403,
+                    )
+                if not rules.auto_rows and rules.level < 3 and not asked:
+                    if not await ask_user(info.name, "query", text):
+                        ctx.audit.write("agent", "query_declined", info.name, query=text)
+                        return Response("The user declined (or did not answer) this query.", status_code=403)
+            if rules.level == 0 and not all(is_plain_number(v) for row in rows for v in row):
+                return Response(
+                    "At privacy level 0 an aggregate may return numbers only (count, sum, avg, and the "
+                    "min or max of a number), never text, dates or lists of values. The user can raise "
+                    "the level in Settings.",
+                    status_code=403,
+                )
             capped = len(rows) > cap
-            shown_names, shown_rows, masked = apply_masks(rules, names, types, rows[:cap])
+            shown_names, shown_rows, masked = apply_masks(rules, names, types, rows[:cap], origins)
             ctx.audit.write("agent", "query", info.name, query=text, rows=len(shown_rows))
             await ctx.live.broadcast(
                 {"type": "agent_query", "dataset": info.name, "sql": text, "rows": len(shown_rows)}
@@ -353,7 +482,9 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                     "row_cap": cap,
                     "masked": masked,
                     "privacy_level": rules.level,
-                }
+                },
+                # Level 3 allows 1,048,576 rows: the same byte limit as the SQL box's answer.
+                max_bytes=ctx.settings.max_sql_response_bytes,
             )
         except Exception as error:
             return error_response(error)
@@ -371,13 +502,16 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             cap = LEVEL_ROW_CAPS[rules.level]
             take = min(limit, cap)
 
-            def count(cur: duckdb.DuckDBPyConnection) -> tuple[int, list[str], list[str]]:
+            def count(
+                cur: duckdb.DuckDBPyConnection,
+            ) -> tuple[int, list[str], list[str], list[Origins] | None]:
                 n = ctx.views.row_count(cur, info, grid.steps, grid.settings, None)
-                columns = ctx.compiled(cur, grid, info).columns
-                return n, [c.name for c in columns], [c.type for c in columns]
+                compiled = ctx.compiled(cur, grid, info)
+                columns = compiled.columns
+                return n, [c.name for c in columns], [c.type for c in columns], traced(compiled.sql())
 
             try:
-                row_count, names, types = await ctx.grid_query(grid, None, AGENT, count)
+                row_count, names, types, origins = await ctx.grid_query(grid, None, AGENT, count)
             except duckdb.Error as error:
                 return hidden_error(error, rules.level)
             out: dict[str, Any] = {
@@ -411,7 +545,7 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                 rows = await ctx.grid_query(grid, None, AGENT, read)
             except duckdb.Error as error:
                 return hidden_error(error, rules.level)
-            shown_names, shown_rows, masked = apply_masks(rules, names, types, rows)
+            shown_names, shown_rows, masked = apply_masks(rules, names, types, rows, origins)
             ctx.audit.write("agent", "read", info.name, grid=grid.id, rows=len(shown_rows))
             return json_response(
                 out
@@ -420,7 +554,8 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                     "rows": shown_rows,
                     "masked": masked,
                     "capped": limit > cap,
-                }
+                },
+                max_bytes=ctx.settings.max_sql_response_bytes,
             )
         except Exception as error:
             return error_response(error)
@@ -495,13 +630,17 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             return error_response(error)
 
     async def approve_export(request: Request) -> Response:
-        """An agent export: always waits for the user's click (plan section 10a)."""
+        """An agent export: always waits for the user's click (plan section 10a). The click gives a
+        one-time ticket, and the export route writes an agent's file only against one, so skipping
+        this step is refused by the server, not just by the command that normally calls it."""
         try:
-            _grid, info = ctx.grid_and_info(request.path_params["grid_id"])
+            grid, info = ctx.grid_and_info(request.path_params["grid_id"])
             fmt = request.query_params.get("format", "csv")
+            if fmt not in FORMATS:  # the text goes into the user's approval prompt
+                raise ValueError(f"format must be one of {', '.join(FORMATS)}.")
             if not await ask_user(info.name, "export", f"{fmt} export of {info.name} to the export folder"):
                 return Response("The user declined (or did not answer) this export.", status_code=403)
-            return json_response({"approved": True})
+            return json_response({"approved": True, "ticket": rules.issue_export_ticket(grid.id)})
         except Exception as error:
             return error_response(error)
 

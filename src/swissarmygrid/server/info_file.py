@@ -26,10 +26,15 @@ def info_file_path() -> Path:
 
 
 def write_info_file(path: Path, info: dict[str, Any]) -> None:
-    """Write the connection file atomically, so a client never reads a half-written one."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Write the connection file atomically, so a client never reads a half-written one.
+
+    The temp file is always a new one (O_EXCL, never through a symlink): reusing one left behind
+    kept that file's mode, and the rename gave it to the connection file, token and all."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temp: Path = path.with_suffix(".tmp")
-    descriptor: int = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    temp.unlink(missing_ok=True)  # a leftover from a crash, or anything else in the way
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int = os.open(temp, flags, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(info))
     temp.replace(path)

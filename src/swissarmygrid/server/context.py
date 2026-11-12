@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, TypeVar
@@ -28,6 +28,7 @@ from swissarmygrid.engine.datasets import (
     DatasetLimitError,
     DatasetStore,
     DatasetTooLargeError,
+    mib,
 )
 from swissarmygrid.engine.export import ExportError
 from swissarmygrid.engine.sql_guard import SqlRefused
@@ -36,6 +37,7 @@ from swissarmygrid.engine.views import ViewEngine
 from swissarmygrid.engine.workers import PriorityWorkers
 from swissarmygrid.server.grids import Grid, GridLimitError, GridRegistry, StaleRequestError
 from swissarmygrid.server.live_updates import LiveUpdates
+from swissarmygrid.server.masking import Origins, trace
 from swissarmygrid.server.processes import ProcessRegistry
 from swissarmygrid.settings import Settings
 
@@ -43,6 +45,8 @@ T = TypeVar("T")
 
 # JavaScript numbers are exact only up to 2**53; larger integers travel as text.
 _JS_SAFE_INTEGER: int = 2**53 - 1
+# The largest JSON body a control request may send (steps, a query, a selection, a model).
+MAX_JSON_BODY_BYTES: int = 64 * 1024 * 1024
 
 
 @dataclass
@@ -59,15 +63,24 @@ class Context:
     on_shutdown: Callable[[], None]
     # The Python sessions offering tables to the Open list (processes.py).
     processes: ProcessRegistry
+    # For a table made by a query: each column's origins, the dataset columns it was computed
+    # from (masking.py), so a privacy mask on a source column follows the data into it.
+    derived_columns: dict[str, dict[str, Origins]] = field(default_factory=dict)
 
-    def grid_url(self, grid: Grid) -> str:
-        # The fragment carries the token to the page without ever sending it to the server.
-        return f"http://127.0.0.1:{self.port}/g/{grid.id}#token={self.token}"
+    def grid_url(self, grid: Grid, with_token: bool = True) -> str:
+        """The grid's page. The fragment carries the token to the page without ever sending it to
+        the server. `with_token=False` for an agent: the token is the user's credential (a request
+        with it and no X-Actor is the user's, at any level), so an agent gets the address only."""
+        address = f"http://127.0.0.1:{self.port}/g/{grid.id}"
+        return f"{address}#token={self.token}" if with_token else address
 
-    def workspace_url(self, grid: Grid | None = None) -> str:
+    def workspace_url(self, grid: Grid | None = None, with_token: bool = True) -> str:
         """The tabbed workspace (one window, a tab per grid), opened on `grid` when given."""
+        address = f"http://127.0.0.1:{self.port}/workspace"
+        if not with_token:
+            return address + (f"#grid={grid.id}" if grid else "")
         focus = f"&grid={grid.id}" if grid else ""
-        return f"http://127.0.0.1:{self.port}/workspace#token={self.token}{focus}"
+        return f"{address}#token={self.token}{focus}"
 
     def grid_and_info(self, grid_id: str) -> tuple[Grid, DatasetInfo]:
         grid = self.grids.get(grid_id)
@@ -107,6 +120,32 @@ class Context:
     def compiled(self, cursor: duckdb.DuckDBPyConnection, grid: Grid, info: DatasetInfo) -> CompiledView:
         return self.views.compile(cursor, info, grid.steps, grid.settings)
 
+    def lineage_tables(self) -> dict[str, list[str]]:
+        """Every dataset's table (its plain name, ds_<name>) and columns, for masking.trace."""
+        return {"ds_" + info.name: [c.name for c in info.columns] + ["rowid"] for info in self.store.all()}
+
+    def lineage_derived(self) -> dict[str, dict[str, Origins]]:
+        """The origins of the columns of tables made by queries, keyed by their table."""
+        return {"ds_" + name: columns for name, columns in self.derived_columns.items()}
+
+    def column_origins(self, dataset: str, column: str) -> Origins:
+        """Where one column of a dataset came from: itself, or what its query read."""
+        derived = self.derived_columns.get(dataset)
+        if derived is None:
+            return frozenset({column.lower()})
+        return derived.get(column.lower())
+
+    def trace(self, sql: str) -> list[Origins] | None:
+        """The origins of each output column of `sql`, a query over the datasets' tables."""
+        return trace(sql, self.lineage_tables(), self.lineage_derived())
+
+    def origins_of_result(self, sql: str, names: list[str]) -> dict[str, Origins]:
+        """For a table about to be made from `sql`: each of its columns' origins (None: untraced)."""
+        traced = self.trace(sql)
+        if traced is None or len(traced) != len(names):
+            return {name.lower(): None for name in names}
+        return {name.lower(): origin for name, origin in zip(names, traced, strict=True)}
+
 
 def jsonable(value: Any) -> Any:
     """A cell value as JSON the browser can show without losing information."""
@@ -123,10 +162,34 @@ def jsonable(value: Any) -> Any:
     if isinstance(value, bytes | bytearray):
         return f"<{len(value)} bytes>"
     if isinstance(value, list | tuple):
-        return [jsonable(v) for v in value]
+        return _jsonable_list(value)
     if isinstance(value, dict):
         return {str(k): jsonable(v) for k, v in value.items()}
     return str(value)
+
+
+def _jsonable_list(values: list[Any] | tuple[Any, ...]) -> list[Any] | tuple[Any, ...]:
+    """`jsonable` for a list (a window of rows is a list of lists): values that are already plain
+    JSON are passed over inline, without a call each, and the list is copied only when one of its
+    values had to change. json.dumps writes a tuple as an array, so a tuple can stay one. A
+    1,000 x 50 window: 7.6 ms -> 2.3 ms."""
+    changed: list[Any] | None = None
+    isfinite = math.isfinite
+    for i, value in enumerate(values):
+        kind = type(value)
+        if kind is str or value is None or kind is bool:
+            continue
+        if kind is int:
+            if -_JS_SAFE_INTEGER <= value <= _JS_SAFE_INTEGER:
+                continue
+        elif kind is float and isfinite(value):
+            continue
+        shown = jsonable(value)
+        if shown is not value:
+            if changed is None:
+                changed = list(values)
+            changed[i] = shown
+    return values if changed is None else changed
 
 
 def json_response(content: Any, status_code: int = 200, max_bytes: int | None = None) -> Response:
@@ -143,7 +206,7 @@ def json_response(content: Any, status_code: int = 200, max_bytes: int | None = 
 def error_response(error: Exception) -> Response:
     """Map the engine's error types to HTTP status codes with plain-language messages."""
     status = 500
-    if isinstance(error, DatasetTooLargeError):
+    if isinstance(error, DatasetTooLargeError | BodyTooLargeError):
         status = 413
     elif isinstance(error, DatasetLimitError | GridLimitError | StaleRequestError):
         status = 409
@@ -157,11 +220,42 @@ def error_response(error: Exception) -> Response:
     return PlainTextResponse(message or type(error).__name__, status_code=status)
 
 
+class BodyTooLargeError(ValueError):
+    """A request body over its cap. Maps to HTTP 413."""
+
+
+async def read_body(request: Request, cap: int) -> bytes:
+    """The request body, refused past `cap` bytes: on Content-Length first, then while reading,
+    so an oversized body is never held in memory whole."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > cap:
+        raise BodyTooLargeError(f"The request body is over the {mib(cap)} limit.")
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > cap:
+            raise BodyTooLargeError(f"The request body is over the {mib(cap)} limit.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def read_json(request: Request) -> Any:
+    """The JSON body of a control request (steps, a query, a card...), at most MAX_JSON_BODY_BYTES.
+    Data arrives by push or paste, which have their own, larger cap."""
+    body = await read_body(request, MAX_JSON_BODY_BYTES)
     try:
-        return json.loads(await request.body())
+        return json.loads(body)
     except ValueError as error:
         raise ValueError("The request body is not valid JSON.") from error
+
+
+async def read_json_object(request: Request, shape: str) -> dict[str, Any]:
+    """`read_json`, refusing anything but an object with `shape` (the message names what to send)."""
+    body = await read_json(request)
+    if not isinstance(body, dict):
+        raise ValueError(f"Send a JSON object: {shape}.")
+    return body
 
 
 def query_int(request: Request, name: str, default: int | None = None) -> int | None:

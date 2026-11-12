@@ -49,7 +49,7 @@ from swissarmygrid.server.context import Context
 from swissarmygrid.server.grids import GridRegistry
 from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.processes import ProcessRegistry
-from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, LocalOnlyGuard
+from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, EngineErrorRedaction, LocalOnlyGuard
 from swissarmygrid.settings import Settings
 
 # How often the server looks for Python sessions that stopped reporting.
@@ -134,7 +134,7 @@ def create_app(
 
     app = Starlette(
         routes=[
-            *routes_datasets.routes(ctx),
+            *routes_datasets.routes(ctx, policy),
             *routes_grids.routes(ctx, policy),
             *routes_agent.routes(ctx, policy),
             *routes_context.routes(ctx, policy),
@@ -149,7 +149,11 @@ def create_app(
             Route("/workspace", workspace_page),
             Mount("/static", StaticFiles(directory=settings.web_root, check_dir=False)),
         ],
-        middleware=[Middleware(LocalOnlyGuard, port=port, token=token)],
+        middleware=[
+            Middleware(LocalOnlyGuard, port=port, token=token),
+            # Inside the guard: only requests that passed it reach a route and get an error back.
+            Middleware(EngineErrorRedaction, level=lambda: policy.level),
+        ],
         lifespan=lifespan,
     )
     app.state.ctx = ctx
