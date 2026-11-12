@@ -296,6 +296,30 @@ def test_show_follows_a_rename_at_level_1(client: TestClient) -> None:
     assert read_view(client, gid)["rows"][0][0] == SECRET
 
 
+# ===== a cross compare's picked row carries its key values =====
+
+
+@pytest.mark.parametrize("level", [0, 1, 2])
+def test_a_compare_focus_does_not_hand_an_agent_the_key_values(client: TestClient, level: int) -> None:
+    left = grid_id(push(client, "clients", TABLE))
+    right = grid_id(push(client, "others", TABLE))
+    made = client.post(
+        "/compares",
+        json={"left": left, "right": right, "keys": [["client", "client"]], "mode": "cross"},
+        headers=AUTH,
+    )
+    assert made.status_code == 200, made.text
+    cid = made.json()["compare"]
+    set_policy(client, level)
+    focused = client.post(f"/compares/{cid}/focus", json={"side": "left", "position": 0}, headers=AGENT)
+    assert focused.status_code == 200, focused.text
+    assert focused.json()["focus"]["rows"] == 1  # the count stays: it is not a value
+    for answer in (focused, client.get(f"/compares/{cid}", headers=AGENT)):
+        assert SECRET not in answer.text
+    # The user's page still gets the key it shows.
+    assert SECRET in client.get(f"/compares/{cid}", headers=AUTH).text
+
+
 # ===== PIVOT turns values into column names, which every level shows =====
 
 PIVOT_SQL = "SELECT * FROM (PIVOT clients ON client USING count(*))"
