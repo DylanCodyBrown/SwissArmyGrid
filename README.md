@@ -228,6 +228,8 @@ Python, and serves it through its own address and token. The notebook file is
   any form, is never repeated.
 - **Save as blade:** highlight code in a cell and press the button. The save screen opens with it, its
   kind and SQL dialect guessed from the driver it imports.
+- **Its tables are grids.** A table a cell makes (`orders = pd.read_csv(...)`) shows in the grid page's
+  Open list; open it and it's a grid, and running the cell again refreshes the grid in place.
 
 The agent never reaches the notebook: it runs code, so it is yours alone.
 

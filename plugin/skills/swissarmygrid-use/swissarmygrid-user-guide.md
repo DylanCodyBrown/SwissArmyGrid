@@ -233,6 +233,7 @@ The code button beside Settings opens the notebook (marimo) in a tab of its own,
 - **Drag a blade** onto a cell to get its `sag.blade(...)` line. An empty cell takes it; otherwise it goes in a new cell just after.
 - **Drag a table** from the catalog to get a SQL cell over that blade's connection, ready to run. **Drag a column** for its name.
 - If a drop needs an import the notebook doesn't have yet, it's added in a new cell at the top and run.
+- **Its tables are grids:** a table a cell makes shows in the grid page's Open list. Open it, and running the cell again refreshes the grid.
 - **Save as blade:** highlight code in a cell and press **Save as blade**. The save screen opens with that code; a database driver in it makes it a SQL connection with the right dialect.
 
 ![The notebook: blades and the catalog on the left, the marimo notebook on the right with a blade's line dropped into a cell.](images/22-notebook.png)

@@ -186,7 +186,11 @@ One command per platform, from a release:
   workspace's kernel can be interrupted and restarted from the panel; the page reconnects after a
   reload (marimo already reattaches to a running session, as checked).
 - Done when: with no VS Code anywhere, `df = pd.read_csv(...)` in the workspace's notebook shows `df`
-  in the grid list, opening it shows the grid, and editing the cell refreshes it.
+  in the grid list, opening it shows the grid, and editing the cell refreshes it. **Done 2026-11-12
+  (1.2.1):** the watcher starts in a marimo kernel and reads marimo's own variables
+  (tests/test_notebook_grids.py runs it against a real kernel). Still to come in this phase: the
+  code-behind (grid actions write SQL cells) and, with it, removing the grid page's SQL box and
+  Table Transformations panel.
 
 ### Code-behind: every grid transformation is a DuckDB SQL cell
 

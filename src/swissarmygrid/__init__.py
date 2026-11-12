@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from swissarmygrid.client.watcher import start as watch
     from swissarmygrid.client.watcher import stop as unwatch
 
-__version__: str = "1.2.0"
+__version__: str = "1.2.1"
 __all__ = [
     "DatasetTooLargeError",
     "ServerNotRunningError",
@@ -75,9 +75,9 @@ def __dir__() -> list[str]:
 
 # Start the watcher on import in a notebook or the interactive window, where importing the package is
 # already the decision to use the grid. The watcher's own autostart makes the final call (and honors
-# SWISSARMYGRID_WATCH=0); this only avoids loading it when it cannot start: IPython has to be loaded
-# already for it to be running, so a plain script, the server and the MCP never pay for the import.
-if os.environ.get("SWISSARMYGRID_WATCH", "") == "1" or "IPython" in sys.modules:
+# SWISSARMYGRID_WATCH=0); this only avoids loading it when it cannot start: IPython (or marimo) has to be
+# loaded already for it to be running, so a plain script, the server and the MCP never pay for the import.
+if os.environ.get("SWISSARMYGRID_WATCH", "") == "1" or "IPython" in sys.modules or "marimo" in sys.modules:
     from swissarmygrid.client.watcher import autostart
 
     autostart()
