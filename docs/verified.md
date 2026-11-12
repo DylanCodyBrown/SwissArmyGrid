@@ -161,3 +161,15 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   blade store says plainly that secrets need a vault and suggests a secret or vault blade instead. A
   module attribute and a subpackage of the same name collide (`sag.blades` was the `blades` package
   once it was imported), so the package is `blade_core`.
+- (2026-11-12) The notebook behind SAG, marimo 0.25.2 (server/notebook.py, routes_notebook.py):
+  `marimo edit <folder> --headless --base-url /marimo --token-password-file - --no-skew-protection`
+  starts in about 2 s and is served through SAG's own address (HTTP with `http.client` on worker
+  threads, `read1` so server-sent events flow; websockets relayed with `websockets`). marimo accepts
+  `Authorization: Bearer <token>`, so the proxy adds it and the browser never sees marimo's token. Skew
+  protection needs a `Marimo-Server-Token` header the proxy cannot know, and SAG serves marimo's own
+  page anyway, so it is off. A second viewer may join a running notebook as a kiosk
+  (`/marimo/ws?session_id=<new>&file=<nb>&kiosk=true`): it is sent `kernel-ready` with the cell ids
+  and codes, and a `create-cell` document change it posts to `/api/document/transaction` (with
+  `Marimo-Session-Id` = its own id) appears in the person's open notebook and is saved. A kiosk may
+  not run cells ("This connection is read-only for this action"); `/api/home/running_notebooks`
+  gives the notebook's own session id, which may.

@@ -136,7 +136,7 @@ async def _open_notebook(
 
 
 def test_the_websocket_goes_through_and_imports_land_at_the_top(live: Live, cookie: str) -> None:
-    async def scenario() -> tuple[list[str], list[str], int, Any, list[str]]:
+    async def scenario() -> tuple[list[str], list[str], int, Any, tuple[str, Any]]:
         query = "session_id=s-owner&file=workspace.py"
         async with websockets.connect(
             f"ws://127.0.0.1:{live.port}/marimo/ws?{query}",
@@ -155,9 +155,9 @@ def test_the_websocket_goes_through_and_imports_land_at_the_top(live: Live, cook
             again = await asyncio.to_thread(
                 live.call, "POST", "/notebook/imports", {"lines": ["import json as js"]}, AUTH
             )
-            return ids, codes, status, json.loads(body), [after[1][0], json.loads(again[1])]
+            return ids, codes, status, json.loads(body), (after[1][0], json.loads(again[1]))
 
-    ids, codes, status, added, (first_cell, again) = asyncio.run(scenario())
+    _ids, codes, status, added, (first_cell, again) = asyncio.run(scenario())
     assert codes[0] == "import marimo as mo\nimport swissarmygrid as sag"
     assert status == 200 and added == {"added": ["import json as js"]}  # sag was there already
     assert first_cell == "import json as js"
