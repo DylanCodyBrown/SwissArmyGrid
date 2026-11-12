@@ -210,6 +210,21 @@ def _projection_origins(
     return frozenset(found)
 
 
+def pivots(sql: str) -> bool:
+    """True when `sql` has a PIVOT, which makes cell values into column names (UNPIVOT, the other
+    way round, is fine). Column names reach an agent at every level, so this matters below 3."""
+    try:
+        statements = sqlglot.parse(sql, read="duckdb")
+    except Exception:  # unparseable: the SQL guard refuses it with its own message
+        return False
+    return any(
+        isinstance(node, exp.Pivot) and not node.args.get("unpivot")
+        for statement in statements
+        if statement is not None
+        for node in statement.walk()
+    )
+
+
 # ===== the rule for each column =====
 
 

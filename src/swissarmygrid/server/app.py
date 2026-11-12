@@ -134,7 +134,7 @@ def create_app(
 
     app = Starlette(
         routes=[
-            *routes_datasets.routes(ctx),
+            *routes_datasets.routes(ctx, policy),
             *routes_grids.routes(ctx, policy),
             *routes_agent.routes(ctx, policy),
             *routes_context.routes(ctx, policy),

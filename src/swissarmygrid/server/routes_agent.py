@@ -56,6 +56,7 @@ from swissarmygrid.server.masking import (
     hash_value,
     is_plain_number,
     mask_strings,
+    pivots,
 )
 from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
 from swissarmygrid.settings import EXCEL_MAX_ROWS
@@ -119,6 +120,20 @@ def agent_may_see_raw_values(request: Request, policy: Policy) -> bool:
     mask, cap and ask. Think of it as an `[Authorize(Policy = "RawValues")]` attribute: the user
     always passes, the agent passes only at level 3, where it sees everything anyway."""
     return actor(request) != "agent" or policy.level == 3
+
+
+def pivot_refused(request: Request, policy: Policy, *texts: Any) -> Response | None:
+    """A 403 when an agent below level 3 sends SQL with a PIVOT, else None. PIVOT makes cell values
+    into column names, and column names reach the agent at every level (schemas, tabs_get)."""
+    if actor(request) != "agent" or policy.level >= 3:
+        return None
+    if not any(isinstance(text, str) and pivots(text) for text in texts):
+        return None
+    return Response(
+        f"PIVOT turns cell values into column names, which an agent sees at every privacy level, so "
+        f"at level {policy.level} it is refused. Group by the column instead, or ask the user.",
+        status_code=403,
+    )
 
 
 def raw_values_refused() -> Response:
@@ -370,6 +385,8 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             text = body.get("sql")
             if not isinstance(text, str):
                 raise ValueError('Send {"dataset": name, "sql": "SELECT ... FROM grid"}.')
+            if (refused := pivot_refused(request, rules, text)) is not None:
+                return refused
             aggregate = is_whole_table_aggregate(text)
             if rules.level == 0 and not aggregate:
                 return Response(

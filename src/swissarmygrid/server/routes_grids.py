@@ -67,7 +67,12 @@ from swissarmygrid.server.context import (
     read_json,
 )
 from swissarmygrid.server.grids import Grid
-from swissarmygrid.server.routes_agent import Policy, agent_may_see_raw_values, raw_values_refused
+from swissarmygrid.server.routes_agent import (
+    Policy,
+    agent_may_see_raw_values,
+    pivot_refused,
+    raw_values_refused,
+)
 from swissarmygrid.server.routes_datasets import budget, store_table
 from swissarmygrid.server.selection import combine_stats, selection_scope, stats_sql
 
@@ -368,6 +373,9 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             if not isinstance(body, dict):
                 raise ValueError('Send {"steps": [...], "settings": {...}}.')
             new_steps = steps_from_json(body.get("steps", [s.to_json() for s in grid.steps]))
+            sql_steps = [s.params.get("sql") for s in new_steps if s.kind == "sql"]
+            if (refused := pivot_refused(request, policy, *sql_steps)) is not None:
+                return refused
             new_settings = ViewSettings.from_json(body["settings"]) if "settings" in body else grid.settings
             gen = body.get("gen")
             client = str(body.get("client", ""))[:40]
@@ -418,6 +426,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             text = body.get("sql") if isinstance(body, dict) else None
             if not isinstance(text, str) or not text.strip():
                 raise ValueError('Send {"sql": "SELECT ... FROM grid"}.')
+            if (refused := pivot_refused(request, policy, text)) is not None:
+                return refused
             who = actor(request)
             row_cap = settings.max_sql_rows
 

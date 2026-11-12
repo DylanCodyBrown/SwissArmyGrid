@@ -50,6 +50,7 @@ from swissarmygrid.server.context import (
 )
 from swissarmygrid.server.grids import Grid
 from swissarmygrid.server.masking import Origins
+from swissarmygrid.server.routes_agent import Policy, pivot_refused
 
 ARROW_STREAM: str = "application/vnd.apache.arrow.stream"
 
@@ -165,7 +166,8 @@ async def store_table(
     }
 
 
-def routes(ctx: Context) -> list[BaseRoute]:
+def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
+    """`policy`: the agent privacy policy (routes_agent), for the SQL an agent may send."""
     settings = ctx.settings
 
     async def health(request: Request) -> Response:
@@ -303,6 +305,8 @@ def routes(ctx: Context) -> list[BaseRoute]:
             text = body.get("sql") if isinstance(body, dict) else None
             if not isinstance(text, str) or not text.strip():
                 raise ValueError('Send {"sql": "SELECT ... FROM <table>"}.')
+            if (refused := pivot_refused(request, policy, text)) is not None:
+                return refused
             existing = ctx.store.get(name)
             if existing is not None and not (body.get("replace") is True and existing.query is not None):
                 raise DatasetError(f"A dataset named {name!r} already exists; pick a new name.")

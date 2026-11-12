@@ -296,6 +296,45 @@ def test_show_follows_a_rename_at_level_1(client: TestClient) -> None:
     assert read_view(client, gid)["rows"][0][0] == SECRET
 
 
+# ===== PIVOT turns values into column names, which every level shows =====
+
+PIVOT_SQL = "SELECT * FROM (PIVOT clients ON client USING count(*))"
+
+
+@pytest.mark.parametrize("level", [0, 1, 2])
+def test_an_agent_below_level_3_cannot_pivot_values_into_column_names(client: TestClient, level: int) -> None:
+    gid = open_grid(client)
+    set_policy(client, level, auto_rows=True)
+    attempts = [
+        client.post("/datasets/pq/query", json={"sql": PIVOT_SQL}, headers=AGENT),
+        client.post(f"/grids/{gid}/sql", json={"sql": f"CREATE TABLE pz AS {PIVOT_SQL}"}, headers=AGENT),
+        client.post(
+            f"/grids/{gid}/steps",
+            json={
+                "steps": [
+                    {"kind": "sql", "params": {"sql": "SELECT * FROM (PIVOT grid ON client USING count(*))"}}
+                ]
+            },
+            headers=AGENT,
+        ),
+        client.post("/agent/query", json={"dataset": "clients", "sql": PIVOT_SQL}, headers=AGENT),
+    ]
+    for attempt in attempts:
+        assert attempt.status_code == 403, attempt.text
+        assert "PIVOT" in attempt.text and SECRET not in attempt.text
+    assert all(d["name"] == "clients" for d in client.get("/datasets", headers=AUTH).json()["datasets"])
+
+
+def test_the_user_and_a_level_3_agent_may_pivot(client: TestClient) -> None:
+    open_grid(client)
+    assert client.post("/datasets/pq/query", json={"sql": PIVOT_SQL}, headers=AUTH).status_code == 200
+    unpivot = "SELECT * FROM (UNPIVOT clients ON client INTO NAME k VALUE v)"  # names into values: fine
+    set_policy(client, 0)
+    assert client.post("/datasets/up/query", json={"sql": unpivot}, headers=AGENT).status_code == 200
+    set_policy(client, 3)
+    assert client.post("/datasets/pq2/query", json={"sql": PIVOT_SQL}, headers=AGENT).status_code == 200
+
+
 # ===== the column tracer: traced where it can be, untraced (fail closed) where it cannot =====
 
 TRACE_TABLES = {"ds_clients": ["client", "balance", "Mixed Case", "rowid"]}
