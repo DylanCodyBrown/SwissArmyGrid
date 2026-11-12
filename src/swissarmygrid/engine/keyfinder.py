@@ -98,10 +98,14 @@ def normalized(column: Column, options: KeyOptions) -> str | None:
     c = quote(column.name)
     if family == "number":
         if column.type.upper().startswith(("FLOAT", "DOUBLE", "REAL", "DECIMAL")):
-            # 42.0 and 42.00 read as 42, like an integer column's 42.
+            # 42.0 and 42.00 read as 42, like an integer column's 42; a DECIMAL's 1.50 reads as
+            # 1.5, as a DOUBLE's 1.5 does (its text keeps every decimal place).
+            other = f"CAST({c} AS VARCHAR)"
+            if column.type.upper().startswith("DECIMAL"):
+                other = f"rtrim({other}, '0')"
             return (
                 f"CASE WHEN {c} = trunc({c}) AND abs({c}) < 1e18 "
-                f"THEN CAST(CAST({c} AS HUGEINT) AS VARCHAR) ELSE CAST({c} AS VARCHAR) END"
+                f"THEN CAST(CAST({c} AS HUGEINT) AS VARCHAR) ELSE {other} END"
             )
         return f"CAST({c} AS VARCHAR)"
     if family == "timestamp":
