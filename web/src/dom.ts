@@ -150,9 +150,13 @@ export function toast(message: string, kind: "info" | "error" = "info"): void {
     host = h("div", { class: "toasts", role: "status", "aria-live": "polite" });
     document.body.append(host);
   }
-  const item = h("div", { class: `toast ${kind === "error" ? "error" : ""}` }, message);
-  host.append(item);
-  setTimeout(() => item.remove(), kind === "error" ? 9000 : 5000);
+  // The same message already showing (a stopped server fails every action alike): keep that
+  // one up for longer rather than stack copies up the screen.
+  const shown = [...host.children].find((t) => t.textContent === message && t.classList.contains("error") === (kind === "error"));
+  const item = (shown as HTMLElement | undefined) ?? h("div", { class: `toast ${kind === "error" ? "error" : ""}` }, message);
+  if (!shown) host.append(item);
+  window.clearTimeout(Number(item.dataset.timer));
+  item.dataset.timer = String(window.setTimeout(() => item.remove(), kind === "error" ? 9000 : 5000));
 }
 
 // ===== dialogs =====

@@ -435,12 +435,14 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
     if (!empty) return;
     const upto = state.previewUpto;
     const where = upto === null ? "after the steps" : upto === 0 ? "in the source" : `after step ${upto}`;
+    // A table pushed with no rows has nothing for a step to have filtered away.
+    const sourceEmpty = state.info?.row_count === 0 && !compare;
     host.append(
       h(
         "div",
         { class: "grid-empty", role: "status" },
-        h("strong", {}, `No rows ${where}.`),
-        h("span", {}, "A filter may be too strict: turn a step off or edit it in the steps panel."),
+        h("strong", {}, sourceEmpty ? `${state.info?.dataset ?? "This table"} has no rows.` : `No rows ${where}.`),
+        h("span", {}, sourceEmpty ? "Push it again with rows and this grid refreshes in place." : "A filter may be too strict: turn a step off or edit it in the steps panel."),
       ),
     );
   }
@@ -522,7 +524,8 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
       onDisplayedColumnsChanged: () => setTimeout(fitFiller, 0),
       onFirstDataRendered: () => fitFiller(),
       onBodyScrollEnd: () => state.emit("selection"),
-      overlayNoRowsTemplate: "<span>No rows in this view.</span>",
+      // showEmpty() says why there are no rows; AG Grid's own "no rows" line repeated it below.
+      suppressNoRowsOverlay: true,
     });
     // Capture phase: AG Grid handles Ctrl+A and Ctrl+C itself and stops them reaching us.
     host.addEventListener("keydown", onGridKey, true);

@@ -145,8 +145,19 @@ function headers(json: boolean): Record<string, string> {
 
 /** GET/POST/PATCH/DELETE returning JSON; a non-2xx status throws ApiError with the server's
  * plain-language message. */
+/** fetch, with the browser's bare "Failed to fetch" (the server stopped, or never answered)
+ * turned into a message a person can act on. A deliberate abort stays an AbortError. */
+async function send(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (error) {
+    if ((error as Error).name === "AbortError") throw error;
+    throw new ApiError(0, "The SwissArmyGrid server is not answering: it may have stopped. Start it again (and push the data again) to go on.");
+  }
+}
+
 export async function api<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, {
+  const response = await send(path, {
     method,
     headers: headers(body !== undefined),
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -158,7 +169,7 @@ export async function api<T>(path: string, method = "GET", body?: unknown, signa
 
 /** A download (export): returns the bytes, the file name and the server's summary message. */
 export async function download(path: string): Promise<{ blob: Blob; name: string; message: string }> {
-  const response = await fetch(path, { headers: headers(false) });
+  const response = await send(path, { headers: headers(false) });
   if (!response.ok) throw new ApiError(response.status, await response.text());
   const disposition = response.headers.get("Content-Disposition") ?? "";
   const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "export";

@@ -1171,7 +1171,6 @@ table.small td.num {
 
 .cell-number,
 .header-number .sag-header-name {
-  justify-content: flex-end;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -1224,8 +1223,10 @@ table.small td.num {
   min-width: 0;
 }
 
+/* A block, not a flex box: text-overflow works only on a block's own text, so a long name was
+   cut mid-letter (and a right-aligned number column's name lost its start, not its end). */
 .sag-header-name {
-  display: flex;
+  display: block;
   flex: 1;
   min-width: 0;
   overflow: hidden;

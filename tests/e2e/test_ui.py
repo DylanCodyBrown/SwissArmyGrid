@@ -1838,3 +1838,51 @@ def test_a_query_that_answers_after_a_tab_switch_stays_off_the_new_tab(
         expect(page.locator("#status")).to_contain_text("of 5,000")
     finally:
         call(server, "DELETE", f"/grids/{other}")
+
+
+def test_a_server_that_stops_answering_gets_one_plain_message(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url)
+    page.route(re.compile("/steps$"), lambda route: route.abort("connectionrefused"))
+    page.locator(".ag-header-cell[col-id='product'] .sag-header-name").click()
+    sort = page.locator(".ribbon").get_by_role("button", name="Sort A→Z", exact=True)
+    sort.click()
+    sort.click()
+    expect(page.locator(".toast.error")).to_have_text(re.compile("server is not answering"), timeout=10000)
+    page.wait_for_timeout(500)
+    expect(page.locator(".toast.error")).to_have_count(1)  # the same message once, not stacked
+    expect(page.locator(".toast")).not_to_contain_text("Failed to fetch")
+
+
+def test_long_names_and_empty_tables_read_well(browser: Browser, server: dict[str, Any]) -> None:
+    long = "amount_" + "very_long_name_" * 8
+    frame = pd.DataFrame({long: pd.Series([], dtype="int64"), "label": pd.Series([], dtype="object")})
+    page = open_grid_without_rows(browser, push_client.push(frame, name="nothing_here", new_grid=True))
+    try:
+        # One message that says what is going on, not a filter hint plus AG Grid's own line.
+        expect(page.locator(".grid-empty")).to_contain_text("nothing_here has no rows.", timeout=15000)
+        expect(page.locator(".grid-empty")).not_to_contain_text("filter")
+        expect(page.get_by_text("No rows in this view.")).to_have_count(0)
+        # A long name is cut at its end with an ellipsis, also in a right-aligned number column.
+        name = page.locator(f".ag-header-cell[col-id='{long}'] .sag-header-name")
+        expect(name).to_be_visible()
+        first_letter_shown = name.evaluate(
+            """el => {
+              const r = document.createRange();
+              r.setStart(el.firstChild, 0);
+              r.setEnd(el.firstChild, 1);
+              return r.getBoundingClientRect().left >= el.getBoundingClientRect().left - 1;
+            }"""
+        )
+        assert first_letter_shown
+        assert name.evaluate(
+            "el => getComputedStyle(el).textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth"
+        )
+    finally:
+        call(server, "DELETE", "/datasets/nothing_here")
+
+
+def open_grid_without_rows(browser: Browser, url: str) -> Page:
+    page = browser.new_context(viewport={"width": 1600, "height": 900}).new_page()
+    page.goto(url)
+    expect(page.locator(".pane.active .ag-header-cell").first).to_be_visible(timeout=20000)
+    return page
