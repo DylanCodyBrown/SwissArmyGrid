@@ -93,7 +93,7 @@ async def run(job: dict[str, Any], timeout: float) -> dict[str, Any]:
 
 
 def _child(job: dict[str, Any]) -> dict[str, Any]:
-    from swissarmygrid.blades.run import BladeRunError, close_quietly, run_catalog, run_code, run_vault
+    from swissarmygrid.blade_core.run import BladeRunError, close_quietly, run_catalog, run_code, run_vault
 
     os.environ.update({k: str(v) for k, v in job.get("env", {}).items()})
     secrets: dict[str, str] = dict(job.get("secrets", {}))

@@ -16,9 +16,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from swissarmygrid.blades import code as blade_code
-from swissarmygrid.blades.packages import install_command, missing_module_hint, needed
-from swissarmygrid.blades.run import BladeRunError, run_catalog, run_code, run_vault, table_rows
+from swissarmygrid.blade_core import code as blade_code
+from swissarmygrid.blade_core.packages import install_command, missing_module_hint, needed
+from swissarmygrid.blade_core.run import BladeRunError, run_catalog, run_code, run_vault, table_rows
 from swissarmygrid.engine.catalog import CatalogStore
 from swissarmygrid.engine.database import open_database
 from swissarmygrid.server.blade_templates import BY_ID, TEMPLATES

@@ -23,7 +23,7 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-from swissarmygrid.blades.code import parse, read
+from swissarmygrid.blade_core.code import parse, read
 
 
 class BladeRunError(RuntimeError):

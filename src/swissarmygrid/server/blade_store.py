@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from swissarmygrid.blades import code as blade_code
+from swissarmygrid.blade_core import code as blade_code
 from swissarmygrid.engine.catalog import CatalogError, check_name, normalize_dialect
 
 KINDS: tuple[str, ...] = ("sql", "other", "vault", "secret")

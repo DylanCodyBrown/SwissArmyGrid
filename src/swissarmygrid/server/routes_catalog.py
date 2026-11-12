@@ -37,8 +37,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.blades import code as blade_code
-from swissarmygrid.blades.packages import install_command, needed, pip_name
+from swissarmygrid.blade_core import code as blade_code
+from swissarmygrid.blade_core.packages import install_command, needed, pip_name
 from swissarmygrid.engine.catalog import CatalogInfo, select_sql
 from swissarmygrid.engine.datasets import arrow_stream_to_table, split_json_to_arrow
 from swissarmygrid.engine.workers import BACKGROUND, INTERACTIVE

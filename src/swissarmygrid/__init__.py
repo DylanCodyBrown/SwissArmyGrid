@@ -29,6 +29,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from swissarmygrid.client.blades_client import blade, blades, load
     from swissarmygrid.client.push_client import DatasetTooLargeError, ServerNotRunningError, push
     from swissarmygrid.client.watcher import start as watch
     from swissarmygrid.client.watcher import stop as unwatch
@@ -38,6 +39,9 @@ __all__ = [
     "DatasetTooLargeError",
     "ServerNotRunningError",
     "__version__",
+    "blade",
+    "blades",
+    "load",
     "push",
     "unwatch",
     "watch",
@@ -46,6 +50,9 @@ __all__ = [
 # Public name -> (module, attribute), imported when first asked for.
 _LAZY: dict[str, tuple[str, str]] = {
     "push": ("swissarmygrid.client.push_client", "push"),
+    "load": ("swissarmygrid.client.blades_client", "load"),
+    "blade": ("swissarmygrid.client.blades_client", "blade"),
+    "blades": ("swissarmygrid.client.blades_client", "blades"),
     "DatasetTooLargeError": ("swissarmygrid.client.push_client", "DatasetTooLargeError"),
     "ServerNotRunningError": ("swissarmygrid.client.push_client", "ServerNotRunningError"),
     "watch": ("swissarmygrid.client.watcher", "start"),

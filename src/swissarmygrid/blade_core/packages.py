@@ -14,7 +14,7 @@ import shlex
 import sys
 from dataclasses import dataclass
 
-from swissarmygrid.blades.code import read
+from swissarmygrid.blade_core.code import read
 
 # Dotted module (the longest that matches wins) -> pip package.
 PIP_NAMES: dict[str, str] = {
