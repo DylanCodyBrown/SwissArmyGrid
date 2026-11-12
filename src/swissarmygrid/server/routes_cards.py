@@ -26,28 +26,18 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.charts.spec import ChartError, aggregate, altair_code, validate, vega_lite
-from swissarmygrid.engine.datasets import DatasetInfo
 from swissarmygrid.engine.sql_guard import guard
 from swissarmygrid.engine.steps import Step, type_family
 from swissarmygrid.engine.workers import BACKGROUND
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
 from swissarmygrid.server.grids import Grid
-from swissarmygrid.server.level_zero import (
-    base_numbers,
-    chart_refusal,
-    query_classes,
-    value_use_refusal,
-    view_classes,
-)
-from swissarmygrid.server.routes_agent import Policy, agent_may_see_raw_values
-from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN
 
 _TABLE_CARD_ROWS: int = 100
 # A diagram is Mermaid text (an ERD from GET /relationships/erd, or any flowchart), drawn by the page.
 _KINDS: tuple[str, ...] = ("chart", "note", "table", "diagram")
 
 
-def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
+def routes(ctx: Context) -> list[BaseRoute]:
     cards: dict[str, dict[str, Any]] = {}
 
     def check_card(body: Any, grid: Grid) -> dict[str, Any]:
@@ -105,54 +95,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             shown["error"] = str(error)
         return shown
 
-    # Cards carry rendered cells (a table card's rows, a chart's data points). The agent below
-    # level 3 gets only what describes the card, so listing cards cannot read the data around the
-    # privacy gate; the card still draws in full for the user.
-    _CARD_META = (
-        "id",
-        "grid",
-        "dataset",
-        "kind",
-        "title",
-        "pinned",
-        "created_by",
-        "created",
-        "error",
-        "note",
-        "points",
-    )
-
-    def for_caller(request: Request, shown: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        if agent_may_see_raw_values(request, policy):
-            return shown
-        described = [{k: v for k, v in c.items() if k in _CARD_META} for c in shown]
-        if not policy.engine_errors_shown():
-            # Why a card could not draw is often DuckDB's message, which can quote a cell value.
-            for card in described:
-                if card.get("error"):
-                    card["error"] = ENGINE_ERROR_HIDDEN
-        return described
-
-    async def level_zero_refusal(
-        request: Request, grid: Grid, info: DatasetInfo, card: dict[str, Any]
-    ) -> str | None:
-        """Why an agent's card breaks level 0 (a table card's SQL, a chart's spec), or None. A card's
-        rows are hidden from the agent below level 3, but whether it draws, and how many points it
-        has, still come back, so what it computes is held to the agent's SQL rule."""
-        if actor(request) != "agent" or policy.level != 0:
-            return None
-
-        def check(cur: duckdb.DuckDBPyConnection) -> str | None:
-            if card["kind"] == "table":
-                return value_use_refusal(card["sql"], query_classes(ctx, cur, grid, info), returns_rows=False)
-            if card["kind"] == "chart":
-                classes = view_classes(ctx, ctx.compiled(cur, grid, info), info, None, base_numbers(ctx))
-                return chart_refusal(card.get("spec"), classes)
-            return None
-
-        refused: str | None = await ctx.grid_query(grid, None, BACKGROUND, check)
-        return refused
-
     async def list_cards(request: Request) -> Response:
         try:
             grid, _ = ctx.grid_and_info(request.path_params["grid_id"])
@@ -162,9 +104,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             def compute(cur: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
                 return [render(c, cur) for c in mine]
 
-            return json_response(
-                {"cards": for_caller(request, await ctx.grid_query(grid, None, BACKGROUND, compute))}
-            )
+            return json_response({"cards": await ctx.grid_query(grid, None, BACKGROUND, compute)})
         except Exception as error:
             return error_response(error)
 
@@ -186,7 +126,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
                 shown += await ctx.grid_query(grid, None, BACKGROUND, compute)
             shown.sort(key=lambda c: (not c["pinned"], c["created"]))
-            return json_response({"cards": for_caller(request, shown)})
+            return json_response({"cards": shown})
         except Exception as error:
             return error_response(error)
 
@@ -200,8 +140,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                     validate(card["spec"], ctx.compiled(cur, grid, info).columns)
 
                 await ctx.grid_query(grid, None, BACKGROUND, check)
-            if (why := await level_zero_refusal(request, grid, info, card)) is not None:
-                return Response(why, status_code=403)
             card |= {
                 "id": secrets.token_hex(4),
                 "grid": grid.id,
@@ -235,8 +173,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                     validate(merged["spec"], ctx.compiled(cur, grid, info).columns)
 
                 await ctx.grid_query(grid, None, BACKGROUND, check)
-            if (why := await level_zero_refusal(request, grid, info, merged)) is not None:
-                return Response(why, status_code=403)
             card.update(merged)
             if "pinned" in body:
                 card["pinned"] = bool(body["pinned"])
@@ -282,10 +218,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 ]
                 if spec["mark"] == "heatmap" and "y" in body:
                     clicked.append((spec["y"]["field"], body["y"], None))
-                for field, value, _ in clicked:
-                    if value is not None and level_zero and families[field] != "number":
-                        # A filter on the value clicked, with the row count, would tell the column's values.
-                        raise _LevelZeroClick(field)
                 picked = [_click_filter(f, families[f], v, unit) for f, v, unit in clicked]
                 steps = [Step(kind="filter", params=p | {"from_chart": card["id"]}) for p in picked]
                 trial = ctx.views.compile(cur, info, [*grid.steps, *steps], grid.settings)
@@ -293,15 +225,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                     raise ValueError(str(trial.error))
                 return steps
 
-            level_zero = actor(request) == "agent" and policy.level == 0
-            try:
-                grid.steps = [*grid.steps, *await ctx.grid_query(grid, None, BACKGROUND, added)]
-            except _LevelZeroClick as refused:
-                return Response(
-                    f"At privacy level 0 a click can filter {refused.field} (not a number column)"
-                    " only on its blank bar (omit value). The user can raise the level in Settings.",
-                    status_code=403,
-                )
+            grid.steps = [*grid.steps, *await ctx.grid_query(grid, None, BACKGROUND, added)]
             await ctx.live.broadcast(
                 {"type": "grid_updated", "grid": grid.id, "by": actor(request), "gen": grid.gen}
             )
@@ -334,14 +258,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         Route("/cards/{card_id}/select", select, methods=["POST"]),
         Route("/cards/{card_id}/code", code),
     ]
-
-
-class _LevelZeroClick(Exception):
-    """An agent at level 0 clicked a value of a column that is not a number."""
-
-    def __init__(self, field: str) -> None:
-        super().__init__(field)
-        self.field = field
 
 
 def _click_filter(field: str, family: str, value: Any, time_unit: str | None) -> dict[str, Any]:

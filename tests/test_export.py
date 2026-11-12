@@ -172,10 +172,10 @@ def test_save_to_export_folder_never_overwrites_and_is_audited(tmp_path: Path) -
 
 
 def test_agent_export_lands_in_the_folder(client: TestClient) -> None:
-    from tests.test_agent_privacy_hardening import _approve_next
+    from tests.test_agent_export_privacy import _answer_next
 
     grid = grid_id(push(client, "t", TRICKY))
-    helper = _approve_next(client)
+    helper = _answer_next(client)
     ticket = client.post(f"/agent/export-approval/{grid}", params={"format": "parquet"}, headers=AGENT)
     helper.join()
     params = {"format": "parquet", "ticket": ticket.json()["ticket"]}

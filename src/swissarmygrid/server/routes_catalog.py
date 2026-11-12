@@ -1,6 +1,6 @@
 """Catalogs and blades (plan decisions 14-18).
 
-Catalogs, readable by the agent at every privacy level (names and types, never values):
+Catalogs, readable by the agent (names and types, never values):
   GET    /catalogs                                  every loaded catalog
   PUT    /catalogs/{name}?dialect=                  load one (sag.load): Arrow or split JSON, like a push
   DELETE /catalogs/{name}

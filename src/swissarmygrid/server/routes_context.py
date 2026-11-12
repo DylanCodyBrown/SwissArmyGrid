@@ -7,8 +7,8 @@ of it (GET /agent/context) through the MCP `current_table` tool, or through the 
 UserPromptSubmit hook (`swissarmygrid-context`), which adds it to every prompt.
 
 The summary is metadata: the dataset, the grid's row count, its columns and types, its steps and
-the selection size, plus the other open tables. No cell values at any privacy level; at level 0
-the steps are named but their values (text the user typed) are left out, as in view-state.
+the selection size, plus the other open tables. No cell values: it is a summary, and the agent
+reads rows through its own tools when it needs them.
 """
 
 from __future__ import annotations
@@ -22,12 +22,9 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.engine.workers import AGENT
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
-from swissarmygrid.server.routes_agent import Policy
-from swissarmygrid.server.step_privacy import redact_step
 
 
-def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
-    """`policy`: the one agent policy (routes_agent changes it; this only reads its level)."""
+def routes(ctx: Context) -> list[BaseRoute]:
     active: dict[str, str | None] = {"grid": None}
 
     async def set_active(request: Request) -> Response:
@@ -43,7 +40,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
     async def current(request: Request) -> Response:
         try:
-            level = policy.level
             grid = ctx.grids.get(active["grid"]) if active["grid"] else None
             others = [
                 {
@@ -53,7 +49,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 }
                 for i in sorted(ctx.store.all(), key=lambda i: i.name)
             ]
-            out: dict[str, Any] = {"privacy_level": level, "active": None, "open_tables": others}
+            out: dict[str, Any] = {"active": None, "open_tables": others}
             info = ctx.store.get(grid.dataset) if grid else None
             if grid is None or info is None:
                 return json_response(out)
@@ -67,7 +63,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 return n, [{"name": c.name, "type": c.type} for c in columns]
 
             row_count, columns = await ctx.grid_query(grid, None, AGENT, describe)
-            steps = [redact_step(s) if level == 0 else s.to_json() for s in grid.steps]
+            steps = [s.to_json() for s in grid.steps]
             out["active"] = {
                 "grid": grid.id,
                 "dataset": info.name,

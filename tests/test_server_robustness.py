@@ -38,7 +38,7 @@ def test_audit_limit_is_checked_and_bounded(lenient: TestClient, limit: str) -> 
 @pytest.mark.parametrize("body", [b"[]", b"null", b"1", b'"x"'])
 @pytest.mark.parametrize(
     ("path", "headers"),
-    [("/agent/policy", AUTH), ("/agent/policy/clients", AUTH), ("/agent/query", AGENT)],
+    [("/agent/query", AGENT)],
 )
 def test_a_body_that_is_not_an_object_is_a_400(
     lenient: TestClient, path: str, headers: dict[str, str], body: bytes
@@ -46,20 +46,6 @@ def test_a_body_that_is_not_an_object_is_a_400(
     push(lenient, "clients", TABLE)
     response = lenient.post(path, content=body, headers=headers | {"Content-Type": "application/json"})
     assert response.status_code == 400, response.text
-
-
-@pytest.mark.parametrize("level", [True, 1.0, "1", None, -1, 4])
-def test_the_privacy_level_must_be_a_whole_number_0_to_3(lenient: TestClient, level: Any) -> None:
-    response = lenient.post("/agent/policy", json={"level": level}, headers=AUTH)
-    assert response.status_code == 400
-    assert lenient.get("/agent/policy", headers=AUTH).json()["level"] == 3
-
-
-def test_auto_rows_must_be_a_boolean(lenient: TestClient) -> None:
-    # bool("false") is True: a string must not switch on reads without a click.
-    response = lenient.post("/agent/policy", json={"level": 2, "auto_rows": "false"}, headers=AUTH)
-    assert response.status_code == 400
-    assert lenient.get("/agent/policy", headers=AUTH).json()["auto_rows"] is False
 
 
 def test_an_agent_cannot_stop_the_server(tmp_path: Path) -> None:

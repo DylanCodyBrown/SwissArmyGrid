@@ -45,7 +45,6 @@ def summary(context: dict[str, Any]) -> str:
     others = [t["dataset"] for t in context.get("open_tables", []) if t["dataset"] != active["dataset"]]
     if others:
         lines.append(f"- other open tables: {', '.join(others[:30])}")
-    lines.append(f"- privacy level {context.get('privacy_level')} (set by the user in Settings)")
     return "\n".join(lines)
 
 

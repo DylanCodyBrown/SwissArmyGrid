@@ -54,9 +54,8 @@ What a grid page does:
   Finder already run, and compare keeps both grids aligned row by row (outer, anti or cross).
 - **The Agent tab** (always first): the **Analysis Sandbox** (charts, notes and result tables;
   charts open large with wheel zoom, and clicking a bar filters the grid). The cards fill the width of the screen.
-- **Agent door (MCP):** one privacy level for every table, set in Settings (3 = everything,
-  the default; 2, 1 and 0 narrow it, with approve-before-rows and column masks), an activity log,
-  and a copyable prompt that installs the MCP in any agent.
+- **Agent door (MCP):** the agent sees what the page shows; its exports wait for the user's
+  Allow. Settings lists its activity and has a copyable prompt that installs the MCP in any agent.
 - **Themes:** light, dark, high contrast light and high contrast dark, following the system by
   default; Windows forced colors are supported. Zoom with Ctrl+= and Ctrl+-.
 
@@ -180,7 +179,7 @@ run it:
   the registry, so the model sees `steps_add(grid, kind, params, index?)` with its real arguments
   rather than composing a generic call. Descriptions are one line each and the schemas are slimmed, so
   the whole tool list is about 4,800 tokens for 88 tools (a test holds it under a budget). `guide` and
-  `commands` (the catalog, with what the user's privacy level allows) carry the detail. A command added
+  `commands` (the catalog) carry the detail. A command added
   to the registry becomes a tool with no change to the MCP server.
 - `sag` is the same commands in a terminal (standard library only, in the plain wheel):
   `sag tabs_new_query top "SELECT ..."`, `sag steps_add g1 filter @step.json`,
@@ -188,30 +187,24 @@ run it:
   prints the catalog.
 
 `agent_events` listens to the server's live broadcasts (a grid changed and who changed it, a table
-opened, an approval asked for), so an agent can work alongside the user instead of polling.
+opened, an export approval asked for), so an agent can work alongside the user instead of polling.
 
 `app_snapshot` returns a PNG of the page as the user sees it (the whole window, or the ribbon, grid,
 steps panel or sandbox). The server draws nothing: it asks the open page, which draws itself with
 html-to-image and uploads the picture, and the server hands it to the agent without writing it to disk.
 The MCP returns it as image content; `sag app_snapshot` saves it and prints the path. It shows real
-cell values at every privacy level, so each one is written to the audit log, and Settings says so.
+cell values, and each one is written to the audit log.
 
 The ribbon's Column and Cell buttons act on the selected columns or cells, which only the browser
 knows, so their commands take the column names or values as arguments.
 
-The commands that return cells straight from the page (`row_read`, `cell_view`, `table_profile`, a
-SELECT in `steps_run_sql`, `compare_rows`, the header and selection statistics) answer an agent only at
-privacy level 3; below it the server refuses them and the catalog marks them unavailable.
-`agent_read_grid` and `agent_query` are the agent's door for values at every level.
+`agent_read_grid` returns the grid's view as CSV. The agent picks `offset` and `limit` (up to
+1,048,576 rows, an Excel sheet, per read), and every read starts with the view's total `row_count`,
+which the step commands report too. An agent export always waits for the user's click: the export
+route writes an agent's file only against the one-time ticket that click gives.
 
-`agent_read_grid` returns the grid's view as CSV. The agent picks `offset` and `limit`, and every read
-starts with the view's total `row_count`, which the step commands report too. The privacy level caps a
-read: level 0 gives the count and the column names only, level 1 gives 20 masked rows, level 2 gives
-200 and level 3 (the default) gives up to 1,048,576 (an Excel sheet) with no masks. Below level 3,
-rows wait for the user's click unless they allowed automatic reads.
-
-Left out on purpose, because the server refuses an agent or they are the user's to do: changing the
-privacy level, resolving an approval, shutting the server down, the audit log,
+Left out on purpose, because the server refuses an agent or they are the user's to do: resolving an
+approval, shutting the server down, the audit log,
 pushing table contents (an agent passes a path to `datasets_load`), and opening a table from
 a Python session. Zoom, column widths and the theme live in the browser, so no command reaches them.
 

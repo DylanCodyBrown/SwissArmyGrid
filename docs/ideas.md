@@ -74,6 +74,7 @@ that haven't been folded back into it yet.
   duckdb, and says so in its header). There is no faithful pure-Python translation of SQL.
 - **`read_grid` keeps the privacy caps** (20 rows at level 1, 200 at level 2) and the approval
   click; the agent's `limit` works inside them. Say if level 2 should allow more per read.
+  (Superseded 2026-11-12: the privacy levels were removed; see below.)
 - **The ribbon names what each tool acts on** (Table, Column, Cell, with the target in the
   caption); a Column or Cell tool is disabled, with the reason in its tooltip, until something
   it can act on is selected.
@@ -156,7 +157,29 @@ relation, not the user's variable, so they were marked verified anyway.
   `SELECT *` shows one column fewer than the grid. A list of dicts, a file or the clipboard has no
   variable DuckDB can read; the copy expects a DataFrame of that name and says so.
 
-## Agent privacy hardening (2026-11-12, confirm or change)
+## Privacy levels removed (2026-11-12, the owner's decision)
+
+"Remove the privacy levels from the app." The agent now always sees everything, as level 3 gave.
+
+- **Removed:** levels 0 to 3 and their picker in Settings ("What the agent may see"); column masks
+  and the column-lineage tracer that existed only for them (server/masking.py, the context's
+  `derived_columns`); the level-0 checks (server/level_zero.py, `ctx.agent_made`,
+  `Grid.agent_steps`); step-value hiding (server/step_privacy.py); row-read approvals ("Run row
+  reads without asking me"); engine error text hidden by level (the EngineErrorRedaction
+  middleware); the PIVOT refusal; `min_level` in the command registry and the catalog's
+  `available` flag; `/agent/policy` and the `agent_policy` command; `privacy_level` and `masked`
+  in agent results.
+- **Kept, since they are security rather than per-level privacy:** an agent export still waits for
+  the user's click and is written only against the one-time ticket that click gives
+  (`routes_agent.ExportTickets`); the approval popup and `/agent/approvals`; the token on every
+  data route and the Host/Origin guard; `X-Actor: agent`; the agent activity list (the audit log);
+  `<untrusted-data>` wrapping of values in MCP results; an agent never gets the token (URLs come
+  back without it); every `/blades` route refuses the agent; the routes that were always the
+  user's alone (approving, `/workspace/active`, the snapshot upload, the Key Finder's value
+  samples, shutdown, the audit log).
+- **Reads are capped at 1,048,576 rows** (one Excel sheet), as level 3 was.
+
+## Agent privacy hardening (2026-11-12, superseded the same day: the levels were removed)
 
 - **Approved agent exports are masked.** The file follows `/agent/read`: masks traced to the source
   columns, level 1 text masking, the level's per-read row cap (20 / 200), and level 0 exports only

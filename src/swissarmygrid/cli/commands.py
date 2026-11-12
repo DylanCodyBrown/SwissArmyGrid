@@ -18,9 +18,8 @@ Think of the registry as an ASP.NET controller table: `Command` is the route att
 arguments, summary), the decorated function is the action method, and `execute` is the one
 dispatcher that validates arguments against the attribute before it calls the action.
 
-Values in a result (cells) are untrusted: they come back inside an `<untrusted-data>` block, and
-the privacy rules are the server's, not this file's. `min_level` only lets the catalog say, ahead
-of time, that a command will be refused at the user's current level.
+Values in a result (cells) are untrusted: they come back inside an `<untrusted-data>` block. The
+rules (approvals, the SQL guard, the audit log) are the server's, not this file's.
 
 Standard library only.
 """
@@ -67,7 +66,6 @@ class Command(NamedTuple):
     args: tuple[Arg, ...]
     run: Callable[[dict[str, Any]], Any]
     values: bool = False  # the result carries cell values: wrap it as untrusted data
-    min_level: int | None = None  # the privacy level the server needs before it answers
     image: bool = False  # the result is an ImageResult
 
 
@@ -87,11 +85,10 @@ def command(
     summary: str,
     *args: Arg,
     values: bool = False,
-    min_level: int | None = None,
     image: bool = False,
 ) -> Callable[[Callable[[dict[str, Any]], Any]], Callable[[dict[str, Any]], Any]]:
     def register(run: Callable[[dict[str, Any]], Any]) -> Callable[[dict[str, Any]], Any]:
-        REGISTRY[name] = Command(name, summary, args, run, values, min_level, image)
+        REGISTRY[name] = Command(name, summary, args, run, values, image)
         return run
 
     return register
@@ -134,7 +131,7 @@ def _row_count(grid: str) -> int | None:
 
 @command(
     "guide",
-    "Start here: how SwissArmyGrid works for an agent, the privacy levels, which command to use when.",
+    "Start here: how SwissArmyGrid works for an agent, what it can see, which command to use when.",
 )
 def guide(a: dict[str, Any]) -> Any:
     from importlib.resources import files  # only the guide needs it
@@ -302,16 +299,8 @@ def current_table(a: dict[str, Any]) -> Any:
 
 
 @command(
-    "agent_policy",
-    "The privacy level the user set, and its masks. Read only: the user changes it in Settings.",
-)
-def get_policy(a: dict[str, Any]) -> Any:
-    return api.call("GET", "/agent/policy")
-
-
-@command(
     "agent_approvals",
-    "Requests waiting for the user's click (row reads, exports). Only the user resolves them.",
+    "Exports waiting for the user's click. Only the user resolves them.",
 )
 def list_approvals(a: dict[str, Any]) -> Any:
     return api.call("GET", "/agent/approvals")
@@ -334,12 +323,12 @@ def events(a: dict[str, Any]) -> Any:
     return {"events": found, "waited_for": sorted(types) if types else "any"}
 
 
-# ===== reading data, always at the user's privacy level =====
+# ===== reading data =====
 
 
 @command(
     "agent_describe",
-    "Schema, row count, duplicate rows and a per-column profile of a dataset, redacted to the privacy level.",
+    "Schema, row count, duplicate rows and a per-column profile of a dataset.",
     req("dataset", "Dataset name."),
     values=True,
 )
@@ -361,7 +350,7 @@ def profile_dataset(a: dict[str, Any]) -> Any:
 @command(
     "agent_query",
     "Run one read-only SQL query (DuckDB). `grid` is the dataset's current grid view; any dataset by name works. "
-    "Rows are capped and may wait for the user's approval by privacy level.",
+    "At most 1,048,576 rows come back.",
     req("dataset", "The dataset `grid` refers to."),
     req("sql", "One SELECT."),
     values=True,
@@ -383,7 +372,7 @@ def view_state(a: dict[str, Any]) -> Any:
 @command(
     "agent_read_grid",
     "Read a grid's view (what the user sees, after its steps) as CSV; always starts with the total row_count. "
-    "The privacy level caps rows per read and may wait for the user's click.",
+    "At most 1,048,576 rows per read.",
     req("grid", "Grid id."),
     opt("limit", "Rows to read (default 100).", "int"),
     opt("offset", "First row (default 0).", "int"),
@@ -398,15 +387,9 @@ def read_grid(a: dict[str, Any]) -> Any:
         "offset": result["offset"],
         "rows_returned": len(result["rows"]),
         "row_cap": result["row_cap"],
-        "privacy_level": result["privacy_level"],
-        "masked_columns": result.get("masked", []),
     }
-    if result.get("note"):
-        summary["note"] = result["note"]
     if result.get("capped"):
-        summary["note"] = (
-            f"limit {limit} is above this privacy level's cap of {result['row_cap']} rows per read."
-        )
+        summary["note"] = f"limit {limit} is above the cap of {result['row_cap']} rows per read."
     header = "\n".join(f"{k}: {v}" for k, v in summary.items())
     return (
         f'{header}\n{DATA_NOTE}\n<untrusted-data source={json.dumps(result["dataset"])} format="csv">\n'
@@ -414,7 +397,7 @@ def read_grid(a: dict[str, Any]) -> Any:
     )
 
 
-# ===== the page's own value routes (level 3 only: the server refuses them below it) =====
+# ===== the page's own value routes =====
 
 
 @command(
@@ -425,7 +408,6 @@ def read_grid(a: dict[str, Any]) -> Any:
     opt("end", "End row, exclusive (default start+100).", "int"),
     opt("upto", "Show the table entering this step index instead of the final view.", "int"),
     values=True,
-    min_level=3,
 )
 def grid_rows(a: dict[str, Any]) -> Any:
     return api.call(
@@ -440,7 +422,6 @@ def grid_rows(a: dict[str, Any]) -> Any:
     req("row", "Row position in the view.", "int"),
     req("column", "Column name."),
     values=True,
-    min_level=3,
 )
 def grid_cell(a: dict[str, Any]) -> Any:
     return api.call("GET", f"/grids/{_q(a['grid'])}/cell", params={"row": a["row"], "column": a["column"]})
@@ -453,7 +434,6 @@ def grid_cell(a: dict[str, Any]) -> Any:
     opt("column", "One column; omit for the whole table."),
     opt("upto", "Profile the table entering this step index.", "int"),
     values=True,
-    min_level=3,
 )
 def grid_profile(a: dict[str, Any]) -> Any:
     return api.call(
@@ -466,7 +446,6 @@ def grid_profile(a: dict[str, Any]) -> Any:
     "The column-header statistics the page shows (min, max, blanks...) for every column.",
     req("grid", "Grid id."),
     values=True,
-    min_level=3,
 )
 def grid_stats(a: dict[str, Any]) -> Any:
     return api.call("GET", f"/grids/{_q(a['grid'])}/header-stats")
@@ -479,7 +458,6 @@ def grid_stats(a: dict[str, Any]) -> Any:
     req("grid", "Grid id."),
     req("selection", "The selection.", "json"),
     values=True,
-    min_level=3,
 )
 def selection_stats(a: dict[str, Any]) -> Any:
     return api.call("POST", f"/grids/{_q(a['grid'])}/selection-stats", {"selection": a["selection"]})
@@ -487,8 +465,8 @@ def selection_stats(a: dict[str, Any]) -> Any:
 
 @command(
     "steps_run_sql",
-    "Run SQL in the grid's SQL box. A SELECT returns rows (level 3 only); CREATE TABLE <name> AS SELECT ... "
-    "pins the result as a new dataset with its own grid (any level). `grid` is the view.",
+    "Run SQL in the grid's SQL box. A SELECT returns rows; CREATE TABLE <name> AS SELECT ... "
+    "pins the result as a new dataset with its own grid. `grid` is the view.",
     req("grid", "Grid id."),
     req("sql", "One SELECT, or CREATE TABLE name AS SELECT ..."),
     opt("upto", "While editing step N, `grid` is the table entering that step.", "int"),
@@ -565,7 +543,7 @@ def cancel(a: dict[str, Any]) -> Any:
     "steps_python",
     "The grid's steps as code for the user's own Python, verified against the grid (Copy as SQL / Copy as "
     "Python). `sql` is one DuckDB query over the user's table by its variable name; with target duckdb, "
-    "`code` is `import duckdb` plus one line running it. Not available at privacy level 0.",
+    "`code` is `import duckdb` plus one line running it.",
     req("grid", "Grid id."),
     opt("target", "duckdb (default), or the longer pandas or plain Python translations."),
 )
@@ -645,8 +623,8 @@ def _post_steps(grid: str, body: dict[str, Any]) -> dict[str, Any]:
 
 
 def _step_op(grid: str, body: dict[str, Any]) -> dict[str, Any]:
-    """One change to one step, applied by the server by its index. The command never reads the step
-    list back, so it works at privacy level 0, where tabs_get hides the steps' values."""
+    """One change to one step, applied by the server by its index or id, so the command never
+    reads the step list back and posts it whole."""
     sent = {k: v for k, v in body.items() if v is not None}
     described = api.call("POST", f"/grids/{_q(grid)}/step-ops", sent)
     return {"index": described.get("index")} | _summary(grid, described)
@@ -810,7 +788,7 @@ def save_result(a: dict[str, Any]) -> Any:
 
 @command(
     "sandbox_all",
-    "Every chart, note, table and diagram card in the sandbox (without data points below level 3).",
+    "Every chart, note, table and diagram card in the sandbox.",
 )
 def all_cards(a: dict[str, Any]) -> Any:
     return api.call("GET", "/cards")
@@ -1108,7 +1086,6 @@ def compare_remove(a: dict[str, Any]) -> Any:
     opt("start", "First row.", "int"),
     opt("end", "End row, exclusive.", "int"),
     values=True,
-    min_level=3,
 )
 def compare_rows(a: dict[str, Any]) -> Any:
     params = {"side": a["side"], "start": a.get("start"), "end": a.get("end")}
@@ -1121,7 +1098,6 @@ def compare_rows(a: dict[str, Any]) -> Any:
     req("compare", "Compare id."),
     req("row", "Compare row position.", "int"),
     values=True,
-    min_level=3,
 )
 def compare_key_group(a: dict[str, Any]) -> Any:
     return api.call("GET", f"/compares/{_q(a['compare'])}/key-group", params={"row": a["row"]})
@@ -1335,7 +1311,6 @@ def column_categorize(a: dict[str, Any]) -> Any:
     req("column", "Column name."),
     opt("upto", "Profile the table entering this step index.", "int"),
     values=True,
-    min_level=3,
 )
 def column_profile(a: dict[str, Any]) -> Any:
     params = {"column": a["column"], "upto": a.get("upto")}
@@ -1385,7 +1360,7 @@ def cell_exclude(a: dict[str, Any]) -> Any:
 @command(
     "app_snapshot",
     "A PNG of the app as the user sees it (your scroll, selection, splits and panels). Shows real cell "
-    "values at every privacy level, and the user's browser tab must be visible.",
+    "values, and the user's browser tab must be visible.",
     opt("area", "app (the whole window, default), ribbon, grid, steps or sandbox."),
     opt("scale", "1 (default) or 2 for a sharper picture.", "int"),
     opt("out", "Also save the PNG to this file path."),
@@ -1428,7 +1403,7 @@ AREAS: tuple[tuple[str, str], ...] = (
     ("compare", "Compare (two grids side by side)"),
     ("sandbox", "Agent tab: Analysis Sandbox"),
     ("app", "The page itself: snapshots"),
-    ("agent", "What the agent sees: privacy, reads, live events"),
+    ("agent", "What the agent sees: reads, approvals, live events"),
 )
 HELP_COMMANDS = frozenset({"guide", "commands", "health"})
 
@@ -1457,17 +1432,8 @@ _arrange()
 # ===== the catalog and the dispatcher =====
 
 
-def _level() -> int | None:
-    try:
-        return int(api.call("GET", "/agent/policy")["level"])
-    except (CommandError, KeyError, TypeError, ValueError):
-        return None  # no server, or an older one: the catalog then lists everything as callable
-
-
-def catalog(match: str | None = None, level: int | None = None) -> dict[str, Any]:
-    """Every command that can be called right now, with its arguments. Built live from the
-    registry, and flagged against the user's current privacy level when a server answers."""
-    level = _level() if level is None else level
+def catalog(match: str | None = None) -> dict[str, Any]:
+    """Every command, with its arguments. Built live from the registry."""
     words = (match or "").lower().split()
     listed: list[dict[str, Any]] = []
     for cmd in REGISTRY.values():
@@ -1485,15 +1451,8 @@ def catalog(match: str | None = None, level: int | None = None) -> dict[str, Any
             entry["returns_cell_values"] = True
         if cmd.image:
             entry["returns_image"] = True
-        if cmd.min_level is not None and level is not None and level < cmd.min_level:
-            entry["available"] = False
-            entry["why"] = (
-                f"needs privacy level {cmd.min_level}; the user set {level}. Use agent_read_grid or agent_query."
-            )
-        else:
-            entry["available"] = True
         listed.append(entry)
-    return {"privacy_level": level, "count": len(listed), "commands": listed}
+    return {"count": len(listed), "commands": listed}
 
 
 _TRUE = {"1", "true", "yes", "y", "on", ""}
@@ -1539,8 +1498,8 @@ def _wrap(source: str, payload: Any) -> str:
 
 def execute_result(name: str, raw: dict[str, Any] | None = None) -> str | ImageResult:
     """Run one command from the registry. The result is text, or an ImageResult for a picture. Anything not in the
-    registry, any unknown or missing argument, and any command the user's privacy level
-    already rules out is refused here with the reason, before the server is touched."""
+    registry, and any unknown or missing argument, is refused here with the reason, before the server
+    is touched."""
     cmd = REGISTRY.get(name)
     if cmd is None:
         import difflib  # only a mistyped name needs it
@@ -1560,13 +1519,6 @@ def execute_result(name: str, raw: dict[str, Any] | None = None) -> str | ImageR
     if missing:
         raise CommandError(f"{name}: missing {', '.join(missing)}.")
     args = {k: _coerce(cmd, known[k], v) for k, v in given.items() if v is not None}
-    if cmd.min_level is not None:
-        level = _level()
-        if level is not None and level < cmd.min_level:
-            raise CommandError(
-                f"{name} needs privacy level {cmd.min_level} and the user set {level}. "
-                "Use agent_read_grid or agent_query, which mask, cap and ask; or ask the user to raise the level in Settings."
-            )
     result = cmd.run(args)
     if isinstance(result, str | ImageResult):
         return result

@@ -2,8 +2,7 @@
 
 The server never renders anything. It relays the agent's request to the page (a `snapshot_request`
 notice on the live socket), waits for that page to upload the PNG it drew, and hands the bytes back.
-The picture is the page as the user sees it, at every privacy level (the user chose that), so the
-audit log records each one. Nothing is written to disk.
+The picture is the page as the user sees it, and the audit log records each one. Nothing is written to disk.
 """
 
 from __future__ import annotations
@@ -73,10 +72,9 @@ def test_the_agent_gets_the_picture_the_page_draws(client: TestClient) -> None:
     assert response.headers["x-snapshot-width"] == "30" and response.headers["x-snapshot-height"] == "20"
 
 
-def test_it_works_at_every_privacy_level_and_is_audited(tmp_path: Path) -> None:
+def test_it_is_audited(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         push(client, "clients", CLIENTS)
-        client.post("/agent/policy", json={"level": 0}, headers=AUTH)
         with client.websocket_connect("/ws?workspace=1", headers=PAGE) as page:
             thread, result = ask_in_a_thread(client, {"area": "app"})
             request = page.receive_json()
@@ -86,9 +84,7 @@ def test_it_works_at_every_privacy_level_and_is_audited(tmp_path: Path) -> None:
                 headers=AUTH | {"Content-Type": "image/png"},
             )
             thread.join(10)
-        assert (
-            result["response"].status_code == 200
-        )  # no redaction: the user chose the real picture at every level
+        assert result["response"].status_code == 200
     entries = [json.loads(line) for line in (tmp_path / "state" / "audit.log").read_text().splitlines()]
     snap = next(e for e in entries if e["action"] == "snapshot")
     assert snap["actor"] == "agent" and snap["area"] == "app" and snap["bytes"] > 0

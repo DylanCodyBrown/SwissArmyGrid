@@ -1,8 +1,8 @@
 """The CLI's one door to the grid server: HTTP calls as the agent, and the live event socket.
 
 Everything the agent does goes through `call`, which finds the running server through the
-connection file and sends `X-Actor: agent`. The server keeps every rule (privacy levels, approvals,
-masks, the SQL guard, the audit log); this module only carries requests. Think of it as the typed
+connection file and sends `X-Actor: agent`. The server keeps every rule (approvals, the SQL guard,
+the audit log); this module only carries requests. Think of it as the typed
 `HttpClient` a console client would use.
 
 It speaks HTTP/1.1 over a plain socket instead of `urllib` or `http.client`: those pull in the email

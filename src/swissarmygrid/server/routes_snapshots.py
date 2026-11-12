@@ -12,8 +12,7 @@ page's upload completes it. Only the page may upload (a token holder that is not
 agent cannot answer its own request with a picture of its choosing. The bytes are held in memory
 for the length of one request and handed straight back: nothing is written to disk.
 
-Privacy: the user chose that a snapshot shows the real page at every level, so unlike the value
-routes it does not check the level. Every snapshot is written to the audit log instead.
+Every snapshot is written to the audit log.
 """
 
 from __future__ import annotations

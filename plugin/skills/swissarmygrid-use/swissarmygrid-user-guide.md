@@ -35,9 +35,9 @@ The page has these parts:
 
 ### Settings
 
-Open Settings with the cog. It holds the settings for this browser (the theme, and whether column headers show their profile), the setup prompt for connecting an agent and the privacy settings described below.
+Open Settings with the cog. It holds the settings for this browser (the theme, and whether column headers show their profile), the setup prompt for connecting an agent and the agent activity list described below.
 
-![The Settings window: the header profile switch, the theme, the setup prompt with its copy button and the privacy levels.](images/02-preferences.png)
+![The Settings window: the header profile switch, the theme, the setup prompt with its copy button and the agent activity list.](images/02-preferences.png)
 
 The "Connect an agent" box holds a prompt you can copy into Claude Code or another agent that has a shell. It tells that agent how to add the SwissArmyGrid MCP server.
 
@@ -178,7 +178,7 @@ Clicking a bar in a chart filters the grid to that value. Each card has a pin, a
 
 ### How an agent sees the grids
 
-An agent works on your tables through the SwissArmyGrid MCP server, which has one tool for each thing the grid can do (anything you can do with a button, the agent can do with a command, named for the part of the app it belongs to (`table_`, `column_`, `cell_`, `steps_`, `compare_`...), except the controls that are yours alone, such as this privacy level). The plugin provides it, the setup prompt in Settings installs it in other agents, and the agent workspace has it already. The agent sees which table you have in front of you without asking: the page tells the grid server which tab is active, and each prompt carries a short summary of that table (its name, row count, columns and steps, never its values). An agent can also ask for it with the `current_table` tool.
+An agent works on your tables through the SwissArmyGrid MCP server, which has one tool for each thing the grid can do (anything you can do with a button, the agent can do with a command, named for the part of the app it belongs to (`table_`, `column_`, `cell_`, `steps_`, `compare_`...), except the controls that are yours alone, such as approving an export). The plugin provides it, the setup prompt in Settings installs it in other agents, and the agent workspace has it already. The agent sees which table you have in front of you without asking: the page tells the grid server which tab is active, and each prompt carries a short summary of that table (its name, row count, columns and steps, never its values). An agent can also ask for it with the `current_table` tool.
 
 ## Relationships
 
@@ -207,16 +207,9 @@ With no relationships for the open tables it says so and offers these ways in:
 
 ## What the agent may see
 
-Settings has one privacy setting that covers every table. It is under "What the agent may see". The default is level 3.
+A connected agent sees everything the page shows: every table, its rows and columns (up to 1,048,576 rows per read, one Excel sheet), its steps and their values. An export by the agent always waits for your click: a window asks you to Allow or Deny it, and closing the window denies it.
 
-- **Level 3: everything.** Every row and column, up to 1,048,576 rows per read (one Excel sheet), with no masks and no waiting.
-- **Level 2: rows.** Up to 200 rows per read, with the column masks applied. Each read waits for your Allow unless you tick "Run row reads without asking me".
-- **Level 1: masked samples.** Up to 20 rows, with text columns masked unless you mark them to show.
-- **Level 0: numbers only.** Schema, counts and profile numbers. No rows and no text values. The agent can still
-  do math on number columns, but it can't make a number out of a text or date value (a length, a comparison, a
-  sort), and the values you typed into your steps show as `<hidden at privacy level 0>`.
-
-Column masks are set by column name, and a rule applies to every table with that column. Each mask has four choices: the default, the value, a hash, or nothing (hidden). Under the masks is the agent activity list, which records what the agent asked for. It never includes cell values. An export always waits for your click, whatever the level, and the file holds only what the agent may read at that level.
+Settings lists the agent's activity: what it asked for, newest first. It never includes cell values.
 
 ## The tray icon
 
