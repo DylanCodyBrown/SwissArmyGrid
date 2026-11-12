@@ -1,0 +1,7 @@
+# Only what the installed extension needs goes into the .vsix: everything else is left out.
+**
+!dist/extension.js
+!media/swissarmygrid.svg
+!server/*.whl
+!package.json
+!LICENSE

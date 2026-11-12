@@ -1,0 +1,293 @@
+/**
+ * stepsPanel.ts: the Table Transformations panel (applied steps) and its Python tab
+ * (plan sections 7, 9, 10). [WIRE]
+ * It sits on the right of the grid and collapses to a slim labelled rail; the choice is remembered.
+ *
+ * ROUTING: [COLLAPSE TOGGLE]                 -> setCollapsed() (workspace data-steps="open" | "collapsed")
+ *          [CREATE SQL TRANSFORMATION]       -> toggleSqlBox() (the SQL box opens above the grid)
+ *          [COPY TRANSFORMATIONS AS PYTHON]  -> showCode() (the Python tab: verified code + Copy)
+ *          [STEP ROW]        click text -> state.setPreview(i + 1); click again -> full view
+ *          [ON/OFF BOX]      -> toggle(i)        [DRAG GRIP] -> drop(from, to)
+ *          [EDIT / DELETE]   -> editStep(kind, i) / remove(i)
+ *          [ROW COUNTS]      -> read-only, from GET /grids/{id}/step-counts
+ *          [STEP ERROR]      -> read-only, from state.info.step_error
+ *          [CATEGORIZE INFO] -> read-only, from GET /grids/{id}/categorize-stats
+ *          [ADD STEP MENU]   -> editStep(kind)
+ *          [CODE TAB]        -> loadCode(target); Copy only when the code verified identical
+ *          [POP OUT]         -> window.open(?panel=steps); both windows follow the server
+ */
+import { api, clientId, grid, gridId, query, token, type StepJson } from "./api";
+import { button, clear, formatCount, h, icon, recall, remember, toast } from "./dom";
+import { KIND_LABELS, editStep } from "./stepForms";
+import { isSqlOpen, toggleSqlBox } from "./sqlBox";
+import { state } from "./state";
+
+let inPopout = false;
+let tab: "steps" | "code" = "steps";
+let codeTarget: string | null = null;
+let counts: number[] = [];
+let dragFrom: number | null = null;
+let host: HTMLElement;
+// The workspace carries data-steps, which the stylesheet turns into the panel's width. Null in the pop-out.
+let workspace: HTMLElement | null = null;
+
+export function mountStepsPanel(element: HTMLElement, popout: boolean): void {
+  host = element;
+  inPopout = popout;
+  state.on("info", () => void render());
+  state.on("preview", () => void render());
+  if (!popout) {
+    workspace = element.closest<HTMLElement>(".workspace");
+    if (workspace) workspace.dataset.steps = recall("steps.mode") === "collapsed" ? "collapsed" : "open";
+    return;
+  }
+  document.body.classList.add("popout");
+}
+
+function isCollapsed(): boolean {
+  return workspace?.dataset.steps === "collapsed";
+}
+
+function setCollapsed(collapsed: boolean): void {
+  if (!workspace) return;
+  workspace.dataset.steps = collapsed ? "collapsed" : "open";
+  remember("steps.mode", collapsed ? "collapsed" : "open");
+  void render();
+}
+
+export function showCode(): void {
+  tab = "code";
+  void render();
+}
+
+async function render(): Promise<void> {
+  const info = state.info;
+  if (!info || !host) return;
+  const collapsed = isCollapsed();
+  const header = h(
+    "div",
+    { class: "panel-header" },
+    h("h2", { id: "steps-title" }, "Table Transformations"),
+    button("Pop out the transformations panel", popOut, { icon: "popout", iconOnly: true, class: "ghost" }),
+    // Last, at the right edge, where the panel collapses to. The pop-out window has no grid beside it to make room for.
+    inPopout
+      ? null
+      : h(
+          "span",
+          { class: "collapse-toggle" },
+          button(collapsed ? "Open the transformations panel" : "Collapse the transformations panel", () => setCollapsed(!collapsed), {
+            icon: collapsed ? "collapse" : "expand",
+            iconOnly: true,
+            class: "ghost",
+          }),
+          collapsed ? h("span", { class: "rail-label" }, "Table Transformations") : null,
+        ),
+  );
+  if (collapsed) {
+    clear(host, header);
+    return;
+  }
+  const body = h("div", { class: "panel-body" });
+  clear(
+    host,
+    header,
+    h(
+      "div",
+      { class: "panel-actions" },
+      // The SQL box lives above the grid, so the pop-out window offers only the Python copy.
+      inPopout
+        ? null
+        : button("Create SQL transformation", () => void toggleSqlBox().then(() => render()), {
+            icon: "sql",
+            pressed: isSqlOpen(),
+            title: "Write SQL against this grid's view; pin the result as a new grid",
+          }),
+      button("Copy transformations as Python", () => showCode(), {
+        icon: "code",
+        pressed: tab === "code",
+        title: "Generated Python for these transformations, verified against the grid",
+      }),
+    ),
+    h(
+      "div",
+      { class: "tabs", role: "tablist", "aria-labelledby": "steps-title" },
+      h("button", { class: "tab", role: "tab", "aria-selected": String(tab === "steps"), onclick: () => { tab = "steps"; void render(); } }, "Steps"),
+      h("button", { class: "tab", role: "tab", "aria-selected": String(tab === "code"), onclick: () => { tab = "code"; void render(); } }, "Python"),
+    ),
+    body,
+  );
+  if (tab === "code") {
+    await renderCode(body);
+    return;
+  }
+  try {
+    counts = (await api<{ counts: number[] }>(`${grid}/step-counts${query({ gen: state.gen, client: clientId })}`)).counts;
+  } catch {
+    counts = [];
+  }
+  const list = h("ol", { class: "step-list", "aria-label": "Steps, in order" });
+  list.append(
+    h(
+      "li",
+      { class: "step source" },
+      h("span", { class: "num", "aria-hidden": "true" }, "0"),
+      h("span", { class: "text", onclick: () => state.setPreview(state.previewUpto === 0 ? null : 0) }, `Source: ${info.dataset} (${formatCount(info.row_count)} rows, version ${info.version})`),
+    ),
+  );
+  info.steps.forEach((step, index) => {
+    list.append(stepRow(step, index));
+  });
+  body.append(list);
+  if (info.steps.length) body.append(countLine(info.steps.length, true));
+  body.append(
+    ...(info.steps.length ? [] : [h("p", { class: "hint" }, "No steps yet. Add one with the Table, Column or Cell tools above the grid.")]),
+    h(
+      "div",
+      { class: "add-step" },
+      button("Save recipe", () => void saveRecipe(), { icon: "save", title: "Save these steps for this dataset name (no data is saved)" }),
+    ),
+  );
+  for (const [index, step] of info.steps.entries()) {
+    if (step.kind === "categorize" && step.enabled !== false) void categorizeStats(index);
+  }
+}
+
+function countLine(index: number, final = false): HTMLElement {
+  const total = counts[index];
+  return h("div", { class: "step-count" }, final && total !== undefined ? `${formatCount(total)} rows in the view` : "");
+}
+
+function stepRow(step: StepJson, index: number): HTMLElement {
+  const info = state.info!;
+  const broken = info.step_error?.index === index;
+  const blocked = info.step_error !== null && index > info.step_error.index;
+  const previewing = state.previewUpto === index + 1;
+  const before = counts[index];
+  const after = counts[index + 1];
+  const row = h(
+    "li",
+    {
+      class: `step ${step.enabled === false ? "off" : ""} ${broken ? "broken" : ""} ${previewing ? "previewing" : ""}`,
+      draggable: "true",
+      ondragstart: (e: DragEvent) => { dragFrom = index; e.dataTransfer?.setData("text/plain", String(index)); },
+      ondragover: (e: DragEvent) => { e.preventDefault(); row.classList.add("drag-over"); },
+      ondragleave: () => row.classList.remove("drag-over"),
+      ondrop: (e: DragEvent) => { e.preventDefault(); row.classList.remove("drag-over"); if (dragFrom !== null) void move(dragFrom, index); },
+    },
+    h("span", { class: "num" }, String(index + 1)),
+    h("input", {
+      type: "checkbox",
+      checked: step.enabled !== false,
+      title: step.enabled === false ? "Turn this step on" : "Turn this step off",
+      "aria-label": `Step ${index + 1} on`,
+      onchange: () => void toggle(index),
+    }),
+    h(
+      "span",
+      {
+        class: "text",
+        role: "button",
+        tabindex: "0",
+        title: "Preview the data after this step",
+        onclick: () => state.setPreview(previewing ? null : index + 1),
+        onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter") state.setPreview(previewing ? null : index + 1); },
+      },
+      step.description ?? step.kind,
+      step.params.header ? h("span", { class: "hint" }, " (from the column header)") : null,
+      step.params.from_chart ? h("span", { class: "hint" }, " (from a chart)") : null,
+      previewing ? h("span", { class: "badge preview-tag" }, "previewing") : null,
+    ),
+    h(
+      "span",
+      { class: "actions" },
+      step.kind in KIND_LABELS && step.kind !== "distinct" ? button(`Edit step ${index + 1}`, () => editStep(step.kind, index), { icon: "edit", iconOnly: true, class: "ghost" }) : null,
+      button(`Delete step ${index + 1}`, () => void remove(index), { icon: "trash", iconOnly: true, class: "ghost" }),
+    ),
+    before !== undefined && after !== undefined && before !== after
+      ? h("span", { class: "meta" }, `${formatCount(before)} → ${formatCount(after)} rows`)
+      : null,
+    h("span", { class: "meta", "data-categorize": String(index) }),
+    broken ? h("span", { class: "error-text" }, info.step_error!.message) : null,
+    blocked ? h("span", { class: "meta" }, "Not applied: an earlier step is broken.") : null,
+  );
+  return row;
+}
+
+async function categorizeStats(index: number): Promise<void> {
+  try {
+    const stats = await api<{ unmatched: number; overlapping: number }>(`${grid}/categorize-stats${query({ step: index })}`);
+    const slot = host.querySelector(`[data-categorize="${index}"]`);
+    if (slot) {
+      slot.textContent = `${formatCount(stats.unmatched)} rows matched no rule`;
+      if (stats.overlapping) slot.append(h("span", { class: "warning-text" }, ` · ⚠ ${formatCount(stats.overlapping)} matched more than one (the first wins)`));
+    }
+  } catch {
+    // Shown only when it can be computed.
+  }
+}
+
+async function toggle(index: number): Promise<void> {
+  const steps = [...state.info!.steps];
+  const step = steps[index]!;
+  steps[index] = { ...step, enabled: step.enabled === false };
+  await state.saveSteps(steps).catch((e: Error) => toast(e.message, "error"));
+}
+
+async function remove(index: number): Promise<void> {
+  const steps = state.info!.steps.filter((_, i) => i !== index);
+  await state.saveSteps(steps).catch((e: Error) => toast(e.message, "error"));
+}
+
+async function move(from: number, to: number): Promise<void> {
+  if (from === to) return;
+  const steps = [...state.info!.steps];
+  const [moved] = steps.splice(from, 1);
+  steps.splice(to, 0, moved!);
+  dragFrom = null;
+  await state.saveSteps(steps).catch((e: Error) => toast(e.message, "error"));
+}
+
+async function saveRecipe(): Promise<void> {
+  try {
+    const result = await api<{ saved: string }>(`${grid}/recipe`, "POST");
+    toast(`Recipe saved (${result.saved}). It is applied when this dataset name is pushed again.`);
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+async function renderCode(body: HTMLElement): Promise<void> {
+  const info = state.info!;
+  const targets: [string, string][] = [["duckdb", "DuckDB"], ["pandas", "pandas"], ["plain", "Plain Python"]];
+  const picker = h("select", { "aria-label": "Language" });
+  const status = h("span", { class: "hint" }, "Generating and verifying…");
+  const pre = h("pre", { class: "mono" });
+  const copy = button("Copy transformations as Python", () => void navigator.clipboard.writeText(pre.textContent ?? "").then(() => toast("Copied verified code.")), { icon: "copy", class: "primary" });
+  copy.hidden = true;
+  body.append(h("div", { class: "code-view" }, h("div", { class: "code-toolbar" }, picker, copy, status), pre));
+  try {
+    const result = await api<{ target: string; code: string; verified: boolean; difference: string | null; rows_checked: number }>(
+      `${grid}/code${query({ target: codeTarget })}`,
+    );
+    for (const [v, label] of targets) picker.append(h("option", { value: v, selected: v === result.target }, label));
+    picker.addEventListener("change", () => { codeTarget = picker.value; void render(); });
+    pre.textContent = result.code;
+    if (result.verified) {
+      copy.hidden = false;
+      clear(status, h("span", { class: "badge ok" }, icon("eye"), `Verified identical on ${formatCount(result.rows_checked)} rows`));
+    } else {
+      clear(status, h("span", { class: "badge error" }, "Not verified"), " ", result.difference ?? "");
+    }
+    body.append(h("p", { class: "hint" }, `Matches what was pushed (${info.source_kind}). The code embeds no data.`));
+  } catch (e) {
+    status.textContent = (e as Error).message;
+    status.className = "status-error";
+  }
+}
+
+function popOut(): void {
+  const page = `/g/${encodeURIComponent(gridId)}`;
+  const url = `${page}?panel=steps#token=${encodeURIComponent(token)}`;
+  const win = window.open(url, `steps-${page}`, "width=440,height=820");
+  if (!win) toast("The browser blocked the pop-out window.", "error");
+}

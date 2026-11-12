@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SwissArmyGrid</title>
+    <!-- The icon inline (a red square with a white cross), so the browser never requests
+         /favicon.ico, which would need the token. -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23D52B1E'/%3E%3Cpath fill='%23fff' d='M42 23h16v19h19v16H58v19H42V58H23V42h19z'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/static/grid.css" />
+  </head>
+  <body>
+    <!-- ===== TAB BAR: Preferences, then the Agent tab and one tab per open grid (panes.ts) ===== -->
+    <nav class="tabbar" aria-label="Open grids">
+      <div class="tabbar-start"></div>
+      <div class="tabs-row" role="tablist" aria-label="Open grids"></div>
+    </nav>
+    <!-- ===== TITLE ===== -->
+    <header class="titlebar"><h1 id="grid-title">&nbsp;</h1></header>
+    <!-- ===== RIBBON: Table / Column / Cell transformations ===== -->
+    <div class="ribbon" role="group" aria-label="Transformations"></div>
+    <!-- ===== WORKSPACE: grid | splitter | analysis panel | steps (the steps panel is on the right, collapsible) ===== -->
+    <div class="workspace" data-layout="right" data-panel="open" data-steps="open">
+      <main class="center">
+        <!-- ===== SQL BOX ===== -->
+        <section id="sql-box" class="sql-box" aria-label="SQL box" hidden></section>
+        <!-- ===== GRID PANES: the active grid, or two side by side (panes.ts) ===== -->
+        <div class="panes" data-split="off"></div>
+      </main>
+      <aside id="steps-panel" class="steps-panel" aria-label="Applied steps"></aside>
+      <div class="splitter"></div>
+      <!-- ===== ANALYSIS SANDBOX (shown in the Agent tab) ===== -->
+      <aside id="ai-panel" class="ai-panel" aria-label="Analysis Sandbox"></aside>
+      <!-- ===== ERD (the ERD tab: the keys and joins of the open tables) ===== -->
+      <section id="erd-view" class="erd-view" aria-label="ERD"></section>
+      <!-- ===== NEW TABLE (the "+" tab's draft: a query tray over a blank grid, queryTab.ts) ===== -->
+      <section id="query-view" class="query-view" aria-label="New table from a query"></section>
+    </div>
+    <!-- ===== STATUS BAR ===== -->
+    <footer class="statusbar"></footer>
+    <script type="module" src="/static/build/main.js"></script>
+  </body>
+</html>

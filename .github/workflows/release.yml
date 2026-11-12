@@ -1,0 +1,157 @@
+# Build and publish a SwissArmyGrid release: on a push to main whose version (pyproject.toml) has no
+# release yet, or on a pushed version tag (v1.0.0, ...). On main, GitHub creates the tag with the release.
+# Every push still runs the checks, the build and the installer tests.
+#
+# 1. build:   the checks, then python build.py --vsix (the page, the one wheel, the installers, the
+#             VS Code extension), on Linux.
+# 2. install: the installer itself, on Linux and Windows, from the built wheel, then the smoke test
+#             (start the installed server, push the made-up store from a client-only environment).
+# 3. release: only when both pass, a GitHub release with the wheel, the .vsix and the two installers.
+# 4. pypi:    the same wheel to PyPI, by trusted publishing (no token: PyPI trusts this workflow file,
+#             release.yml, in the `pypi` environment of DylanCodyBrown/SwissArmyGrid).
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: astral-sh/setup-uv@v6
+      - name: The version, and whether it is released yet
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            test "${GITHUB_REF_NAME}" = "v${version}" || { echo "Tag ${GITHUB_REF_NAME} but pyproject.toml says ${version}"; exit 1; }
+          fi
+          if gh release view "v${version}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "v${version} is already released."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ] || [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "v${version} will be released."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Python environment
+        run: uv sync
+      - name: Page dependencies
+        run: npm ci
+        working-directory: web
+      - name: Extension dependencies
+        run: npm ci
+        working-directory: vscode-extension
+      - name: Lint, format and types
+        run: |
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+          uv run --no-sync mypy
+          npm run typecheck --prefix web
+      - name: Tests (the browser tests need Edge and run on a desktop before tagging)
+        run: uv run --no-sync pytest -q --ignore=tests/e2e
+      - name: Extension tests
+        run: npm test
+        working-directory: vscode-extension
+      - name: Build
+        run: uv run --no-sync python build.py --vsix --skip-npm-install
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/*.whl
+            dist/*.vsix
+            dist/install.sh
+            dist/install.ps1
+          if-no-files-found: error
+
+  install:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Install with install.sh
+        if: runner.os != 'Windows'
+        run: |
+          sh dist/install.sh dist/swissarmygrid-*.whl
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install with install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist/swissarmygrid-*.whl).FullName
+          ./dist/install.ps1 $wheel
+          Add-Content $env:GITHUB_PATH (Join-Path $env:USERPROFILE ".local\bin")
+      - uses: astral-sh/setup-uv@v6
+      - name: Smoke test the installed server
+        shell: bash
+        run: |
+          wheel=$(ls dist/swissarmygrid-*.whl)
+          uv run --no-project --python 3.12 --with "$wheel" --with pandas --with pyarrow python tools/smoke_install.py
+
+  release:
+    needs: [build, install]
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Publish the release (creates the tag on this commit when it does not exist)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          notes=".github/release-notes/v${VERSION}.md"
+          test -f "$notes" || notes=/dev/null
+          gh release create "v${VERSION}" dist/* --target "${GITHUB_SHA}" \
+            --title "SwissArmyGrid ${VERSION}" --notes-file "$notes"
+
+  pypi:
+    needs: [build, release]
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/swissarmygrid/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Only the wheel goes to PyPI
+        run: mkdir pypi && mv dist/*.whl pypi/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi/

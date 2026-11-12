@@ -1,0 +1,108 @@
+[project]
+name = "swissarmygrid"
+version = "1.0.0"
+description = "Local server that shows tabular data in live browser grids."
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+requires-python = ">=3.12"
+# The plain install is the push client only (`import swissarmygrid as sag; sag.push(df)`), and it
+# needs nothing beyond the standard library, so it can go into any project's environment without
+# touching that project's own duckdb or pyarrow. The grid server is the same package with the
+# [server] extra, installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`);
+# the `swissarmygrid` command starts it, and the client only connects. One package, one version.
+dependencies = []
+
+[project.optional-dependencies]
+server = [
+    "duckdb>=1.2",
+    "mcp>=2.3.0",
+    # Excel workbooks (.xlsx), read sheet by sheet in read-only mode.
+    "openpyxl>=3.1.5",
+    "pyarrow>=19",
+    "sqlglot>=30.24.0",
+    "starlette>=0.46",
+    "uvicorn>=0.34",
+    "websockets>=15",
+    "xlsxwriter>=3.3.0",
+]
+# Optional for the client: with pyarrow a push travels as Arrow and keeps its column types.
+client = ["pyarrow>=19"]
+
+[project.scripts]
+swissarmygrid = "swissarmygrid.server.launcher:main"
+swissarmygrid-mcp = "swissarmygrid.mcp.server:main"
+sag = "swissarmygrid.cli.main:main"
+swissarmygrid-context = "swissarmygrid.client.context_hook:main"
+
+[dependency-groups]
+dev = [
+    "swissarmygrid[server]",
+    "httpx2>=2.16.0",
+    "mypy>=1.15",
+    "openpyxl>=3.1.5",
+    "pandas>=2.2",
+    "pandas-stubs>=2.2",
+    "pytest>=8.3",
+    "pytest-playwright>=0.10.0",
+    "ruff>=0.11",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/swissarmygrid"]
+
+# The plugin installs from the wheel, so the page ships inside it (built by build.py
+# with `npm run build:release`, which writes no source maps).
+[tool.hatch.build.targets.wheel.force-include]
+"web/static" = "swissarmygrid/web_static"
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src", "tests", "examples", "tools", "build.py"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+# These ship no type information.
+module = ["pyarrow", "pyarrow.*", "xlsxwriter", "xlsxwriter.*", "openpyxl", "openpyxl.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "S", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use assert and fixed fake tokens; golden cases hold deliberate Greek letters.
+"tests/**" = ["S101", "S105", "S106", "RUF001"]
+# These modules build SQL text by design. Every value goes through steps.literal() and every
+# name through quote(); no caller text is ever spliced in. S608 cannot see that, so it is off
+# here rather than sprinkled as noqa on every line.
+"src/swissarmygrid/engine/steps.py" = ["S608"]
+"src/swissarmygrid/engine/views.py" = ["S608"]
+"src/swissarmygrid/engine/profile.py" = ["S608"]
+"src/swissarmygrid/charts/spec.py" = ["S608"]
+"src/swissarmygrid/codegen/duckdb_code.py" = ["S608", "E501"]
+"src/swissarmygrid/server/routes_grids.py" = ["S608"]
+"src/swissarmygrid/server/routes_agent.py" = ["S608"]
+# Developer scripts: they run fixed local tools (git, npm, uv, VS Code) with our own arguments,
+# set up sys.path before importing, and hold long command lines.
+"tools/**" = ["S603", "S607", "S110", "E402", "E501"]
+"build.py" = ["S603", "S607"]
+# Templates for generated code: their lines are the lines the user will read.
+"src/swissarmygrid/codegen/python_code.py" = ["E501"]
+# The command catalog: one-line help prose per command and argument, read by the agent as written.
+"src/swissarmygrid/cli/commands.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
