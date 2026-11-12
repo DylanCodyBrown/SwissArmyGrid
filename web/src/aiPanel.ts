@@ -167,6 +167,9 @@ export function handleNotice(notice: Notice): void {
 
 async function render(): Promise<void> {
   if (!panel || !state.info) return;
+  // Hidden (the grids are showing): nothing to draw. Every step change and tab switch used to
+  // fetch the cards and redraw every chart here unseen; showing the Agent tab draws it fresh.
+  if (!panel.getClientRects().length) return;
   const mode = workspace.dataset.panel;
   const layout = workspace.dataset.layout;
   const body = h("div", { class: "panel-body", id: "ai-panel-body" });
@@ -334,8 +337,9 @@ async function crossFilter(card: Card, value: unknown): Promise<void> {
     toast(`Filtered the grid to ${String((card.spec as { x?: { field?: string } })?.x?.field)} = ${value === null ? "(blank)" : String(value)}.`);
     // The card's own table gets the filter step, whichever table is in front.
     const owner = contextOf(card.grid)?.state ?? state;
-    await owner.load();
+    // A new generation before load() redraws the panels, so their requests are not stale (409).
     owner.gen += 1;
+    await owner.load();
     owner.emit("view");
   } catch (e) {
     toast((e as Error).message, "error");

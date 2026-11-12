@@ -1721,3 +1721,68 @@ def test_a_narrow_window_has_no_sideways_page_scroll(browser: Browser, orders_ur
     assert page.evaluate("document.documentElement.scrollWidth") <= 420
     grid = page.locator(".pane.active .grid-host").bounding_box()
     assert grid is not None and grid["width"] > 200  # most of the width stays with the grid
+
+
+def test_switching_tabs_asks_for_the_step_counts_once_and_not_for_hidden_cards(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    other = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+    try:
+        page = open_grid(browser, orders_url)
+        first = grid_of(orders_url)
+        page.locator(f".tab-item[data-grid='{other}']").click()
+        expect(page.locator(f".pane[data-grid='{other}'] .ag-row[row-index='0']").first).to_be_visible(
+            timeout=15000
+        )
+        page.wait_for_timeout(500)
+        seen: list[str] = []
+        page.on("request", lambda request: seen.append(request.url))
+        page.locator(f".tab-item[data-grid='{first}']").click()
+        expect(page.locator(".steps-panel .step.source")).to_contain_text("orders")
+        page.wait_for_timeout(1000)
+        assert sum("/step-counts" in url for url in seen) == 1, seen
+        assert not any(url.endswith("/cards") for url in seen), seen  # the Agent tab is not showing
+    finally:
+        call(server, "DELETE", f"/grids/{other}")
+
+
+def test_the_sandbox_draws_cleanly_and_a_chart_click_keeps_the_step_counts(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    grid = grid_of(orders_url)
+    chart = {"mark": "bar", "x": {"field": "product"}, "y": {"aggregate": "count"}}
+    cards = [
+        call(
+            server,
+            "POST",
+            f"/grids/{grid}/cards",
+            {"kind": "chart", "title": "Rows per product", "spec": chart},
+        )["card"],
+        call(
+            server,
+            "POST",
+            f"/grids/{grid}/cards",
+            {"kind": "diagram", "title": "Broken diagram", "body": 'erDiagram\n  A["x"] ||--o{ B : "y"'},
+        )["card"],
+    ]
+    try:
+        page = open_grid(browser, orders_url)
+        noise: list[str] = []
+        page.on("console", lambda m: noise.append(m.text) if m.type in ("warning", "error") else None)
+        page.on("response", lambda r: noise.append(f"{r.status} {r.url}") if r.status >= 400 else None)
+        open_agent(page)
+        # A diagram Mermaid can't parse says so in its card and leaves nothing under the page.
+        broken = page.locator(".card", has_text="Broken diagram")
+        expect(broken).to_contain_text("could not be drawn", timeout=30000)
+        assert page.locator("body > [id*='sag-diagram']").count() == 0
+        expect(page.locator("body")).not_to_contain_text("Syntax error in text")
+        card = page.locator(".card", has_text="Rows per product")
+        card.locator(".chart svg path.mark-rect, .chart svg .mark-rect path").first.click()
+        expect(page.locator(".toast").last).to_contain_text("Filtered the grid", timeout=15000)
+        back_to_grid(page, orders_url)
+        expect(page.locator(".step .meta").first).to_contain_text("5,000 →", timeout=15000)
+        page.wait_for_timeout(500)
+        assert noise == [], noise  # no version warnings from the charts, no refused (409) requests
+    finally:
+        for card_id in cards:
+            call(server, "DELETE", f"/cards/{card_id}")

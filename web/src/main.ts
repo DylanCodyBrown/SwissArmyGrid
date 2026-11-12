@@ -99,8 +99,10 @@ function onLiveNotice(notice: Notice): void {
     // Steps changed in another window, by a chart click, or by the agent.
     const ctx = contextOf(notice.grid);
     if (ctx?.state.info) {
+      // The new generation first: load() redraws the panels at once, and the step counts they
+      // ask for with the old one were refused (409), so the row counts went missing.
+      ctx.state.gen = Math.max(ctx.state.gen, (notice as { gen?: number }).gen ?? 0);
       void ctx.state.load().then(() => {
-        ctx.state.gen = Math.max(ctx.state.gen, (notice as { gen?: number }).gen ?? 0);
         ctx.view?.refresh();
         if (notice.by === "agent" && ctx.state === state) toast("The agent changed this grid's view.");
       }).catch(() => undefined);
