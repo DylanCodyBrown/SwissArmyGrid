@@ -996,6 +996,14 @@ table.small td.num {
   text-align: right;
 }
 
+/* A result card's long text is cut (the whole of it on hover), so one value cannot push the
+   other columns out of the card. */
+.card-body table.small td {
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .empty-state {
   display: grid;
   place-items: center;

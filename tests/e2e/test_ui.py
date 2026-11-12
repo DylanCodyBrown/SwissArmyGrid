@@ -626,6 +626,23 @@ def test_thousands_of_bars_stay_bars_with_readable_labels(browser: Browser, serv
     call(server, "DELETE", f"/grids/{grid}")
 
 
+def test_a_result_card_keeps_long_text_from_hiding_the_other_columns(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # demo_frame's row 3 holds a 700-character note: its column took the card's whole width.
+    sql = "SELECT note, order_id, region FROM grid WHERE order_id IN (3, 4, 5) ORDER BY order_id"
+    call(
+        server, "POST", f"/grids/{grid_of(orders_url)}/cards", {"kind": "table", "title": "Notes", "sql": sql}
+    )
+    page = open_grid(browser, orders_url)
+    open_agent(page)
+    card = page.locator(".card", has_text="Notes")
+    expect(card.locator("tbody tr").nth(1).locator("td").first).to_have_attribute("title", "x" * 700)
+    card_box = card.bounding_box()
+    region = card.locator("th", has_text="region").bounding_box()
+    assert card_box and region and region["x"] + region["width"] <= card_box["x"] + card_box["width"]
+
+
 def test_note_markdown_is_rendered_safely(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     grid = orders_url.split("/g/")[1].split("#")[0]
     call(

@@ -328,7 +328,8 @@ function smallTable(columns: string[], rows: unknown[][]): HTMLElement {
       "table",
       { class: "small" },
       h("thead", {}, h("tr", {}, ...columns.map((c) => h("th", { scope: "col" }, c)))),
-      h("tbody", {}, ...rows.map((r) => h("tr", {}, ...r.map((v) => h("td", { class: typeof v === "number" ? "num" : "" }, v === null ? "(blank)" : String(v)))))),
+      // A long value is cut to the cell's width (grid.css), the whole of it on hover.
+      h("tbody", {}, ...rows.map((r) => h("tr", {}, ...r.map((v) => h("td", { class: typeof v === "number" ? "num" : "", title: v === null ? "" : String(v) }, v === null ? "(blank)" : String(v)))))),
     ),
   );
 }
