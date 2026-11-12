@@ -1786,3 +1786,55 @@ def test_the_sandbox_draws_cleanly_and_a_chart_click_keeps_the_step_counts(
     finally:
         for card_id in cards:
             call(server, "DELETE", f"/cards/{card_id}")
+
+
+def test_closing_one_side_of_a_compare_gives_the_other_grid_its_own_rows_back(
+    browser: Browser, server: dict[str, Any]
+) -> None:
+    lefts = pd.DataFrame({"invoice": [1, 1, 2], "amount": [10.0, 11.0, 20.0]})
+    rights = pd.DataFrame({"invoice": [1, 2, 3], "amount": [10.0, 25.0, 30.0]})
+    right_url = push_client.push(rights, new_grid=True)
+    page = open_grid(browser, push_client.push(lefts, new_grid=True))
+    tabs = page.locator(".tab-item")
+    tabs.filter(has_text="rights").drag_to(tabs.filter(has_text="lefts"))
+    picker = page.locator("dialog .compare-dialog")
+    expect(picker.locator("tbody tr").first).to_contain_text("invoice", timeout=20000)
+    page.locator("dialog").get_by_role("button", name="Compare", exact=True).click()
+    left = page.locator(".pane:not([hidden])").nth(0)
+    expect(left.locator(".ag-row")).to_have_count(4, timeout=20000)  # keys 1, 1, 2, 3 lined up
+    page.locator(f".tab-item[data-grid='{grid_of(right_url)}'] .tab-close").click()
+    expect(page.locator(".panes")).to_have_attribute("data-split", "off")
+    # lefts is its own three rows again, not the compare's four.
+    expect(page.locator(".pane.active .ag-row")).to_have_count(3, timeout=15000)
+    expect(page.locator("#status")).to_contain_text("of 3")
+
+
+def test_a_query_that_answers_after_a_tab_switch_stays_off_the_new_tab(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    other = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+    try:
+        page = open_grid(browser, orders_url)
+        first = grid_of(orders_url)
+        page.get_by_role("button", name="Create SQL transformation").click()
+        editor = page.locator(".sql-editor .monaco-editor, .sql-editor textarea").first
+        expect(editor).to_be_visible(timeout=20000)
+
+        def slow(route: Any) -> None:
+            time.sleep(1.5)
+            route.continue_()
+
+        page.route(re.compile(f"/grids/{first}/sql$"), slow)
+        # The tab switch happens in the page while the query is held up.
+        page.evaluate(
+            "id => setTimeout(() => document.querySelector(`.tab-item[data-grid='${id}']`).click(), 300)",
+            other,
+        )
+        page.get_by_role("button", name="Run", exact=True).click()
+        page.wait_for_timeout(2500)
+        expect(page.locator(".tab-item.active")).to_have_attribute("data-grid", other)
+        expect(page.locator("#sql-result-bar")).to_have_count(0)
+        expect(page.locator(".sql-status")).to_contain_text("finished after you switched tabs")
+        expect(page.locator("#status")).to_contain_text("of 5,000")
+    finally:
+        call(server, "DELETE", f"/grids/{other}")

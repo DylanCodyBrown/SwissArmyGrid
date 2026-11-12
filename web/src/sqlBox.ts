@@ -44,6 +44,8 @@ let box: HTMLElement;
 let status: HTMLElement;
 let historyPicker: HTMLSelectElement;
 let controller: AbortController | null = null;
+/** The API path of the grid the last query ran on (Cancel goes there). */
+let running: string | null = null;
 let resultGrid: GridApi | null = null;
 let lastSql = "";
 /** The SQL step being edited (its index), or null when Apply adds a new step. */
@@ -217,8 +219,16 @@ async function run(): Promise<void> {
   history.unshift({ sql, by: "user", when: new Date().toLocaleTimeString() });
   history.splice(30);
   renderHistory();
+  // The grid the query runs on: another tab may be in front by the time it answers.
+  const owner = state;
+  running = grid;
   try {
     const result = await api<SqlResult>(`${grid}/sql`, "POST", editing === null ? { sql } : { sql, upto: editing }, controller.signal);
+    if (state !== owner) {
+      // Shown here it would stand in for the wrong table (and carry its title and status bar).
+      clear(status, `That query on ${owner.info?.dataset ?? "another table"} finished after you switched tabs; run it there to see its rows.`);
+      return;
+    }
     if (result.pinned) {
       // The new grid arrives as a tab (the server announces it) and comes to the front.
       clear(status, `Pinned as dataset ${result.pinned}; it opened as a tab.`);
@@ -239,7 +249,8 @@ async function run(): Promise<void> {
 async function cancel(): Promise<void> {
   controller?.abort();
   try {
-    await api(`${grid}/cancel`, "POST");
+    // Cancel where the query runs, which may not be the tab now in front.
+    await api(`${running ?? grid}/cancel`, "POST");
     status.textContent = "Cancelled.";
   } catch (e) {
     toast((e as Error).message, "error");

@@ -20,7 +20,7 @@
  */
 import { api } from "./api";
 import { button, clear, formatCount, h, toast } from "./dom";
-import { onSplitChange, splitPair, type Context } from "./panes";
+import { contextOf, onSplitChange, splitPair, type Context } from "./panes";
 
 export interface CompareInfo {
   compare: string;
@@ -87,8 +87,11 @@ export async function changeCompare(patch: Partial<Pick<CompareInfo, "keys" | "m
 export async function stopCompare(): Promise<void> {
   const was = current;
   current = null;
-  const pair = splitPair();
-  for (const ctx of pair ?? []) {
+  // The compared grids by id: when the split itself ended (a side closed, "Close this side"),
+  // splitPair() is already empty, and the grid left on screen kept showing the compare's rows.
+  const compared = was ? [contextOf(was.left), contextOf(was.right)] : (splitPair() ?? []);
+  for (const ctx of compared) {
+    if (!ctx) continue;
     ctx.view?.setCompare(null);
     banner(ctx, null);
   }
