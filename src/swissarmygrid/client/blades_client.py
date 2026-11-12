@@ -86,9 +86,26 @@ def load(catalog: object, name: str, *, dialect: str | None = None) -> str:
     return str(answer.get("url") or "")
 
 
-def blades() -> list[str]:
-    """The names of the saved blades."""
-    return [str(b["name"]) for b in _call("GET", "/blades")["blades"]]
+def blades(tag: str | None = None, search: str | None = None) -> list[str]:
+    """The names of the blades (saved ones and those in your blade folders), favourites first.
+
+    `tag` keeps those with that tag (ignoring case); `search` keeps those whose name, description or a
+    tag contains the text: `sag.blades(search="orders-function-app")`.
+    """
+    found = _call("GET", "/blades")["blades"]
+    if tag:
+        found = [b for b in found if tag.casefold() in (t.casefold() for t in b.get("tags", []))]
+    if search:
+        text = search.casefold()
+        found = [
+            b
+            for b in found
+            if text in str(b["name"]).casefold()
+            or text in str(b.get("description", "")).casefold()
+            or any(text in t.casefold() for t in b.get("tags", []))
+        ]
+    found.sort(key=lambda b: (not b.get("pinned"), str(b["name"]).casefold()))
+    return [str(b["name"]) for b in found]
 
 
 def _ask(names: list[str], source: str) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -229,3 +230,102 @@ def test_inspect_templates_and_install_checks(client: TestClient) -> None:
 def test_the_catalog_page_is_served_without_the_token(client: TestClient) -> None:
     page = client.get("/catalog")
     assert page.status_code == 200 and "<title>" in page.text
+
+
+# ===== portable blades: export, import, folders, favourites =====
+
+
+def test_export_then_import_on_another_computer(client: TestClient, bakery: Path) -> None:
+    blade = sqlite_blade(bakery) | {"description": "The bakery.", "tags": ["bakery", "orders-function-app"]}
+    assert client.post("/blades", json=blade, headers=AUTH).status_code == 200
+    exported = client.get("/blades/Bakery%20DB/export", headers=AUTH)
+    assert exported.status_code == 200 and "bakery_db.blade.py" in exported.headers["content-disposition"]
+    text = exported.text
+    assert text.startswith("# /// swissarmygrid-blade") and '"orders-function-app"' in text
+    # The other computer: no blades yet. Review first: nothing saved, nothing run.
+    client.delete("/blades/Bakery%20DB", headers=AUTH)
+    files = [{"name": "bakery_db.blade.py", "data": base64.b64encode(text.encode()).decode()}]
+    preview = client.post("/blades/import", json={"files": files}, headers=AUTH).json()["items"]
+    assert preview[0]["blade"]["name"] == "Bakery DB" and preview[0]["conflict"] is None
+    assert client.get("/blades", headers=AUTH).json()["blades"] == []
+    applied = client.post("/blades/import", json={"files": files, "apply": True}, headers=AUTH).json()
+    assert applied["results"][0]["status"] == "saved"
+    listed = client.get("/blades", headers=AUTH).json()["blades"][0]
+    assert listed["tags"] == ["bakery", "orders-function-app"] and listed["description"] == "The bakery."
+    # Again: the name is taken. Keep both, replace, or skip.
+    again = client.post("/blades/import", json={"files": files}, headers=AUTH).json()["items"][0]
+    assert again["conflict"] == {"name": "Bakery DB", "source": "saved"}
+    kept = client.post(
+        "/blades/import", json={"files": files, "apply": True, "choices": {"0": "copy"}}, headers=AUTH
+    )
+    assert kept.json()["results"][0] | {"path": None} == {
+        "file": "bakery_db.blade.py",
+        "name": "Bakery DB 2",
+        "status": "saved",
+        "path": None,
+    }
+    skipped = client.post(
+        "/blades/import", json={"files": files, "apply": True, "choices": {"0": "skip"}}, headers=AUTH
+    )
+    assert skipped.json()["results"][0]["status"] == "skipped"
+    zipped = client.get("/blades/export", headers=AUTH)
+    assert zipped.headers["content-type"] == "application/zip"
+    zip_file = [{"name": "blades.zip", "data": base64.b64encode(zipped.content).decode()}]
+    names = [
+        i["blade"]["name"]
+        for i in client.post("/blades/import", json={"files": zip_file}, headers=AUTH).json()["items"]
+    ]
+    assert names == ["Bakery DB", "Bakery DB 2"]
+
+
+def test_import_never_runs_code_and_reports_bad_files(client: TestClient, tmp_path: Path) -> None:
+    marker = tmp_path / "ran.txt"
+    code = f"open({str(marker)!r}, 'w').write('ran')\nx = 1\n"
+    text = (
+        '# /// swissarmygrid-blade\n# format = 1\n# name = "Sneaky"\n# kind = "other"\n'
+        '# variable = "x"\n# ///\n' + code
+    )
+    files = [
+        {"name": "sneaky.blade.py", "data": base64.b64encode(text.encode()).decode()},
+        {"name": "script.py", "data": base64.b64encode(b"print('hello')\n").decode()},
+    ]
+    preview = client.post("/blades/import", json={"files": files}, headers=AUTH).json()["items"]
+    assert preview[0]["blade"]["code"] == code and "no swissarmygrid-blade header" in preview[1]["error"]
+    client.post("/blades/import", json={"files": files, "apply": True}, headers=AUTH)
+    assert not marker.exists()  # reading and saving a blade never runs it
+    bad = client.post("/blades/import", json={"files": [{"name": "x", "data": "%%%"}]}, headers=AUTH)
+    assert bad.status_code == 400
+
+
+def test_folders_and_favourites_over_http(
+    client: TestClient, tmp_path: Path, bakery: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SWISSARMYGRID_BLADE_FOLDERS", raising=False)
+    team = tmp_path / "team"
+    team.mkdir()
+    (team / "pantry.blade.py").write_text(
+        '# /// swissarmygrid-blade\n# format = 1\n# name = "Pantry"\n# kind = "other"\n# variable = "x"\n'
+        '# tags = ["orders-function-app"]\n# ///\nx = 1\n'
+    )
+    answer = client.put("/blades/folders", json={"folders": [str(team)]}, headers=AUTH).json()
+    assert answer["folders"][0] | {"blades": 1} == {
+        "path": str(team),
+        "from_env": False,
+        "exists": True,
+        "blades": 1,
+    }
+    assert client.post("/blades", json=sqlite_blade(bakery), headers=AUTH).status_code == 200
+    listed = {b["name"]: b for b in client.get("/blades", headers=AUTH).json()["blades"]}
+    assert listed["Pantry"]["source"] == "folder" and listed["Pantry"]["path"] == str(
+        team / "pantry.blade.py"
+    )
+    assert client.put("/blades/Pantry/pin", json={"pinned": True}, headers=AUTH).json() == {"pinned": True}
+    assert {b["name"]: b["pinned"] for b in client.get("/blades", headers=AUTH).json()["blades"]} == {
+        "Bakery DB": False,
+        "Pantry": True,
+    }
+    refused = client.delete("/blades/Pantry", headers=AUTH)
+    assert refused.status_code == 400 and "Delete or move the file" in refused.text
+    for path in ("/blades/folders", "/blades/export", "/blades/Pantry/export"):
+        assert client.get(path, headers=AGENT).status_code == 403
+    assert client.put("/blades/Pantry/pin", json={"pinned": False}, headers=AGENT).status_code == 403

@@ -19,11 +19,18 @@ Blades, the user's alone (the agent is refused: their code names servers and acc
   POST   /blades/{name}/test         run it in a child process: does it work?
   GET    /blades/{name}/python       everything sag.blade() needs to run it in the caller's Python
   POST   /blades/install             install packages into SwissArmyGrid's own Python
+  GET    /blades/folders  PUT ...    the blade folders searched for blade files, and files that failed
+  PUT    /blades/{name}/pin          a favourite, or not (kept on this computer)
+  GET    /blades/{name}/export       the blade as a portable .blade.py file
+  GET    /blades/export?names=       several (or all) as a zip of them
+  POST   /blades/import              review what files hold (nothing saved or run), then apply choices
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import re
 import shutil
@@ -39,6 +46,8 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.blade_core import code as blade_code
 from swissarmygrid.blade_core.packages import install_command, needed, pip_name
+from swissarmygrid.blade_core.portable import file_name as portable_file_name
+from swissarmygrid.blade_core.portable import read_blades, write_blade, write_zip
 from swissarmygrid.engine.catalog import CatalogInfo, select_sql
 from swissarmygrid.engine.datasets import arrow_stream_to_table, split_json_to_arrow
 from swissarmygrid.engine.workers import BACKGROUND, INTERACTIVE
@@ -71,6 +80,16 @@ def _text_table(columns: list[str], rows: list[list[Any]]) -> pa.Table:
             value = row[i] if i < len(row) else None
             values[i].append(None if value is None else str(value))
     return pa.table({name: pa.array(column, pa.string()) for name, column in zip(names, values, strict=True)})
+
+
+def _free_name(name: str, taken: set[str]) -> str:
+    """`name 2`, `name 3`... the first not taken (names compared ignoring case), within 64 characters."""
+    n = 2
+    while True:
+        candidate = f"{name[:58]} {n}"
+        if candidate.casefold() not in taken:
+            return candidate
+        n += 1
 
 
 def _agent_refused() -> Response:
@@ -210,9 +229,12 @@ def routes(ctx: Context) -> list[BaseRoute]:
 
     # ===== blades =====
 
-    def summary(blade: Blade) -> dict[str, Any]:
-        vaults, typed = blades.providers(blade)
+    def summary(
+        blade: Blade, everything: list[Blade] | None = None, pinned: set[str] | None = None
+    ) -> dict[str, Any]:
+        vaults, typed = blades.providers(blade, everything)
         loaded = {i.name.casefold() for i in catalogs.all()}
+        favourites = blades.pinned() if pinned is None else pinned
         return {
             "name": blade.name,
             "kind": blade.kind,
@@ -221,10 +243,15 @@ def routes(ctx: Context) -> list[BaseRoute]:
             "has_catalog": blade.has_catalog,
             "catalog_loaded": blade.name.casefold() in loaded,
             "template": blade.template,
-            "secrets": blades.secret_status(blade.name),
+            "secrets": blades.secret_status(blade),
             "vaults": [v.name for v in vaults],
             "typed": typed,
             "env_names": blade.env_names,
+            "description": blade.description,
+            "tags": blade.tags,
+            "pinned": blade.name.casefold() in favourites,
+            "source": "folder" if blade.path else "saved",
+            "path": blade.path,
             "updated_at": blade.updated_at,
         }
 
@@ -248,7 +275,9 @@ def routes(ctx: Context) -> list[BaseRoute]:
         if actor(request) == "agent":
             return _agent_refused()
         try:
-            return json_response({"blades": [summary(b) for b in blades.all()]})
+            everything = blades.all()
+            pinned = blades.pinned()
+            return json_response({"blades": [summary(b, everything, pinned) for b in everything]})
         except Exception as error:
             return error_response(error)
 
@@ -420,6 +449,144 @@ def routes(ctx: Context) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    # ===== favourites, blade folders, export and import (portable blades) =====
+
+    async def pin(request: Request) -> Response:
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            body = await read_json_object(request, '{"pinned": true}')
+            pinned = blades.set_pinned(request.path_params["name"], bool(body.get("pinned")))
+            await ctx.live.broadcast({"type": "blades_changed"})
+            return json_response({"pinned": pinned})
+        except Exception as error:
+            return error_response(error)
+
+    async def folders(request: Request) -> Response:
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            if request.method == "PUT":
+                body = await read_json_object(request, '{"folders": ["..."]}')
+                blades.set_folders(body.get("folders"))
+                ctx.audit.write("user", "blade_folders")
+                await ctx.live.broadcast({"type": "blades_changed"})
+            listed = blades.folders()
+            everything = blades.all()  # also refreshes the list of files that could not be read
+            for entry in listed:
+                root = entry["path"]
+                entry["blades"] = sum(1 for b in everything if b.path and b.path.startswith(root))
+            return json_response({"folders": listed, "problems": blades.problems})
+        except Exception as error:
+            return error_response(error)
+
+    async def export_one(request: Request) -> Response:
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            blade = blades.get(request.path_params["name"])
+            text = write_blade(blade.to_json())
+            return Response(
+                text,
+                media_type="text/x-python; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{portable_file_name(blade.name)}"'},
+            )
+        except Exception as error:
+            return error_response(error)
+
+    async def export_all(request: Request) -> Response:
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            wanted = {
+                n.strip().casefold() for n in request.query_params.get("names", "").split(",") if n.strip()
+            }
+            chosen = [b.to_json() for b in blades.all() if not wanted or b.name.casefold() in wanted]
+            if not chosen:
+                raise LookupError("No blades to export.")
+            return Response(
+                write_zip(chosen),
+                media_type="application/zip",
+                headers={"Content-Disposition": 'attachment; filename="blades.zip"'},
+            )
+        except Exception as error:
+            return error_response(error)
+
+    async def import_blades(request: Request) -> Response:
+        """Import portable blades in two steps. Without "apply": what each file holds (name, kind,
+        description, tags, its full code, the secrets it will ask for) and whether its name is taken, so
+        the person reviews it; nothing is saved and nothing runs. With "apply": the choice for each
+        (save, replace, copy or skip), saved in the app or into a blade folder."""
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            body = await read_json_object(request, '{"files": [{"name": "...", "data": "<base64>"}]}')
+            files = body.get("files")
+            if not isinstance(files, list) or not 0 < len(files) <= 50:
+                raise ValueError("Send 1 to 50 files.")
+            decoded: list[tuple[str, bytes]] = []
+            for entry in files:
+                if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+                    raise ValueError('Each file is {"name": "...", "data": "<base64>"}.')
+                try:
+                    decoded.append(
+                        (entry["name"][:200], base64.b64decode(str(entry.get("data", "")), validate=True))
+                    )
+                except (binascii.Error, ValueError):
+                    raise ValueError(f"{entry['name']} did not arrive whole (not base64).") from None
+            found = read_blades(decoded)
+            existing = {b.name.casefold(): b for b in blades.all()}
+            if not body.get("apply"):
+                preview = []
+                for index, item in enumerate(found):
+                    row: dict[str, Any] = {"index": index, "file": item.file, "error": item.error}
+                    if item.blade is not None:
+                        taken = existing.get(str(item.blade["name"]).casefold())
+                        row |= {
+                            "blade": item.blade,
+                            "secrets": blade_code.read(item.blade.get("code") or "").secrets
+                            if item.blade.get("code")
+                            else [],
+                            "conflict": {"name": taken.name, "source": "folder" if taken.path else "saved"}
+                            if taken
+                            else None,
+                        }
+                    preview.append(row)
+                return json_response({"items": preview})
+            choices = body.get("choices") or {}
+            folder = body.get("folder") or None
+            results = []
+            for index, item in enumerate(found):
+                choice = str(choices.get(str(index), "save")) if isinstance(choices, dict) else "save"
+                if item.blade is None:
+                    results.append({"file": item.file, "status": "error", "message": item.error})
+                    continue
+                data = dict(item.blade)
+                taken = existing.get(str(data["name"]).casefold())
+                try:
+                    if choice == "skip":
+                        results.append({"file": item.file, "name": data["name"], "status": "skipped"})
+                        continue
+                    if taken is not None and choice == "replace":
+                        saved = blades.save(data, previous_name=taken.name)
+                    else:
+                        if taken is not None:  # keep both: the copy gets a free name
+                            data["name"] = _free_name(str(data["name"]), set(existing))
+                        saved = blades.save(data | ({"folder": folder} if folder else {}))
+                    existing[saved.name.casefold()] = saved
+                    results.append(
+                        {"file": item.file, "name": saved.name, "status": "saved", "path": saved.path}
+                    )
+                except (BladeError, ValueError) as error:
+                    results.append(
+                        {"file": item.file, "name": data["name"], "status": "error", "message": str(error)}
+                    )
+            ctx.audit.write("user", "import_blades", ", ".join(str(r.get("name", "")) for r in results))
+            await ctx.live.broadcast({"type": "blades_changed"})
+            return json_response({"results": results})
+        except Exception as error:
+            return error_response(error)
+
     async def install(request: Request) -> Response:
         """Install packages into SwissArmyGrid's own Python, where Refresh runs, on the user's click."""
         if actor(request) == "agent":
@@ -487,6 +654,9 @@ def routes(ctx: Context) -> list[BaseRoute]:
         Route("/blades", list_blades),
         Route("/blades", save_blade, methods=["POST"]),
         Route("/blades/templates", templates),
+        Route("/blades/folders", folders, methods=["GET", "PUT"]),
+        Route("/blades/export", export_all),
+        Route("/blades/import", import_blades, methods=["POST"]),
         Route("/blades/inspect", inspect_code, methods=["POST"]),
         Route("/blades/install", install, methods=["POST"]),
         Route("/blades/{name}", get_blade),
@@ -496,4 +666,6 @@ def routes(ctx: Context) -> list[BaseRoute]:
         Route("/blades/{name}/refresh", refresh, methods=["POST"]),
         Route("/blades/{name}/test", test, methods=["POST"]),
         Route("/blades/{name}/python", python),
+        Route("/blades/{name}/pin", pin, methods=["PUT"]),
+        Route("/blades/{name}/export", export_one),
     ]

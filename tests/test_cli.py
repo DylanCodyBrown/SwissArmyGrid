@@ -159,6 +159,11 @@ NOT_COMMANDS = {
     "/blades/{}/refresh": "as /blades: running a blade's code is the user's click",
     "/blades/{}/test": "as /blades",
     "/blades/{}/python": "as /blades: sag.blade() in the user's Python",
+    "/blades/folders": "as /blades",
+    "/blades/export": "as /blades",
+    "/blades/import": "as /blades",
+    "/blades/{}/pin": "as /blades",
+    "/blades/{}/export": "as /blades",
 }
 
 

@@ -569,9 +569,9 @@ class BladeStore:
         except Exception:  # keyring raises PasswordDeleteError for one that was never set
             return
 
-    def secret_status(self, name: str) -> dict[str, bool]:
+    def secret_status(self, name: str | Blade) -> dict[str, bool]:
         """Each secret the blade's code asks for, and whether a value is saved (never the value)."""
-        blade = self.get(name)
+        blade = name if isinstance(name, Blade) else self.get(name)
         try:
             return {s: self._secret(blade.name, s) is not None for s in blade.secrets}
         except VaultUnavailableError:
@@ -607,13 +607,15 @@ class BladeStore:
 
     # ===== what a blade needs from vault and secret blades =====
 
-    def providers(self, blade: Blade) -> tuple[list[Blade], dict[str, str]]:
+    def providers(
+        self, blade: Blade, everything: list[Blade] | None = None
+    ) -> tuple[list[Blade], dict[str, str]]:
         """For the secrets the blade asks for and has no saved value for: the vault blades that set
         them (to run first), and the variables a secret blade asks the user for (name -> that blade)."""
         missing = [s for s in blade.secrets if s not in self.saved_secrets(blade)]
         vaults: list[Blade] = []
         typed: dict[str, str] = {}
-        for other in self.all():
+        for other in self.all() if everything is None else everything:
             if other.name == blade.name:
                 continue
             if other.kind == "vault" and any(env in missing for env in other.vault_mapping):
