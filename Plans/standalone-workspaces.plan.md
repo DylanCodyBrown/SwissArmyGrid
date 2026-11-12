@@ -1,6 +1,6 @@
 # SwissArmyGrid standalone: one local server, separate workspaces
 
-Status: groundwork done (2026-11-12). Phases 1-5 not started.
+Status: groundwork done (2026-11-12). Phases 1-5 (and 2b) not started.
 
 ## Why
 
@@ -12,6 +12,7 @@ also the only thing that keeps the server running. The goal is a product that st
 - installed with uv, started from any Python with one call;
 - each launch is its own workspace, with its own scoped grids;
 - an in-app Python terminal, so VS Code is optional;
+- GitHub Copilot suggestions (ghost text) in the terminal and the SQL query editors;
 - workspaces that save, together with the Python that made them;
 - a Power BI style relationships view, with optional autodetection, replacing the FI-Atlas ERD.
 
@@ -30,10 +31,19 @@ also the only thing that keeps the server running. The goal is a product that st
 5. **The Python terminal is off until the user launches it** from the page. Nothing runs Python on the
    user's behalf before that click.
 6. **New dependencies approved:** `pystray` and `Pillow` (tray icon), `jupyter_client` and `ipykernel`
-   (the terminal's kernel), xterm.js (the terminal on the page), elkjs (diagram layout). Each is added
-   in the phase that first uses it, not before.
+   (the terminal's kernel), elkjs (diagram layout), and `@github/copilot-language-server` (Copilot
+   suggestions). Each is added in the phase that first uses it, not before. (xterm.js was dropped: see
+   decision 8.)
 7. **The FI-Atlas ERD feature goes.** The `atlas` extra (fi-clients from a private repository) is
    already removed; the code behind it goes in phase 4, when the relationships view replaces it.
+8. **The terminal is a Monaco input with an output log, not a character terminal** (like VS Code's
+   Python Interactive window). A character terminal (xterm.js) cannot show inline suggestions or hold
+   an editable multi-line command; Monaco, already the SQL editor, can. It is not a shell: full-screen
+   terminal programs do not run in it, and it is for Python.
+9. **Copilot is optional and per person.** Off until the person signs in with their own GitHub account
+   (GitHub's device-code sign-in) and their own Copilot subscription; nothing is shared or stored by
+   SwissArmyGrid. Without it everything works as before. The suggestion source is behind one interface,
+   so another model can replace Copilot later.
 
 ## Groundwork (done)
 
@@ -75,7 +85,10 @@ also the only thing that keeps the server running. The goal is a product that st
 ## Phase 2: the Python terminal
 
 - A terminal panel per workspace, off until the user clicks it. The click starts an IPython kernel
-  (`jupyter_client`) with the watcher on, bound to that workspace. xterm.js draws it on the page.
+  (`jupyter_client`) with the watcher on, bound to that workspace.
+- On the page (decision 8): a Monaco editor for the input (Python highlighting, completion of the
+  workspace's variable and column names, multi-line editing; Enter runs, Shift+Enter adds a line, Up
+  recalls history) above which a log shows each command with its output, errors and rich results.
 - Every table a command creates appears in the Open list; a setting auto-opens new ones as grids.
   Reassigning a variable refreshes its open grid (the watcher already does this).
 - The kernel's history is kept per workspace: it becomes the saved code in phase 3.
@@ -102,6 +115,32 @@ The user chooses pandas or DuckDB SQL per workspace (DuckDB runs the same SQL th
 Workspaces without a terminal (a notebook pushing from VS Code) keep today's server-side steps, and
 their copied code gets fixed separately (task: the copied code must be one runnable function or
 statement over the user's own variable, with no stray imports).
+
+## Phase 2b: GitHub Copilot in the SQL editors and the terminal
+
+The SQL query editors (the SQL box, a SQL step, the "+" tab's query tray) can take it before the
+terminal exists, since they are Monaco already: they are the first test of it.
+
+- **The server runs Copilot.** It starts `@github/copilot-language-server` (the Language Server
+  Protocol server GitHub publishes for editors) once, on first sign-in, and relays to it; the page
+  never talks to GitHub. Its standalone build is preferred, so a machine needs no Node.js; if that
+  cannot be used, Node.js becomes a requirement of this feature only.
+- **Sign-in:** Settings, "Sign in to GitHub Copilot": the server asks the language server for a device
+  code, the page shows the code and the GitHub page to enter it on, and the session stays signed in
+  on that machine (the language server keeps it, as in any editor). "Sign out" ends it.
+- **Suggestions:** Monaco's inline completions provider asks the server, which sends
+  `textDocument/inlineCompletion` with the editor's text as a document (`.sql` or `.py`), plus
+  context Copilot cannot see otherwise: the workspace's table names, their columns and types (never
+  cell values), and for the terminal the commands run so far. Tab accepts; Escape dismisses. Shown
+  and accepted suggestions are reported back (`textDocument/didShowCompletion`, the acceptance
+  command), as the protocol asks.
+- **Privacy:** what goes to Copilot is the editor's text and those names, nothing else; Settings says
+  so next to the sign-in. Off for a workspace with one switch.
+- **To check before it ships to anyone else:** GitHub's terms for the language server (the "GitHub
+  Terms for Additional Products and Features") for use in a local web page, and, at work, whether
+  the employer allows Copilot to see query text and column names.
+- Done when: signed in, typing `SELECT region, sum(` in the SQL box over the sample store offers a
+  ghost-text completion that names real columns, Tab accepts it, and signed out nothing is sent.
 
 ## Phase 3: save and open a workspace
 
@@ -149,3 +188,5 @@ Built on Key Finder (`engine/keyfinder.py`). Each candidate pair gets a confiden
   workspace's token can start or type into it; never the MCP (decision 4); never before the click
   (decision 5). Host and Origin checks (`server/security.py`) stay on every route.
 - Saved workspaces hold data snapshots: they are written only where the user saves them.
+- Copilot (phase 2b) is the one feature that sends anything off the machine: the editor's text and
+  table and column names, only while the person is signed in, never cell values.

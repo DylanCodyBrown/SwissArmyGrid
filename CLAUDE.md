@@ -10,7 +10,8 @@ standard-library-only push client for any Python environment; the `[server]` ext
 installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), started by `swissarmygrid`.
 
 - **Where it is going:** [Plans/standalone-workspaces.plan.md](Plans/standalone-workspaces.plan.md):
-  one local server with separate workspaces (`sag.create_workspace()`), an in-app Python terminal,
+  one local server with separate workspaces (`sag.create_workspace()`), an in-app Python terminal
+  (a Monaco input with an output log), optional GitHub Copilot suggestions there and in the SQL editors,
   saved workspaces, a tray icon, and a Power BI style relationships view with autodetection that
   replaces the FI-Atlas ERD feature. VS Code becomes optional.
 - **The original plan:** [Plans/swissarmygrid-build-plan.md](Plans/swissarmygrid-build-plan.md).
