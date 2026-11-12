@@ -14,10 +14,12 @@ DuckDB, one 50-tab cap; every live update to every page; SQL and the agent can r
 VS Code is the only thing that keeps the server running. And the copied code (Python or SQL) never
 reliably transformed the source table back in the user's own environment.
 
-The goal, on one screen per workspace:
+The goal, per workspace, without panning:
 
-- **the notebook** (marimo: Python cells and DuckDB SQL cells, with a terminal panel) beside
-- **the grids** (SAG: scroll millions of rows, profile, Key Finder, compare, charts, relationships);
+- **the notebook** (marimo: Python cells and DuckDB SQL cells, with a terminal panel), in its own
+  browser tab, on one screen, and
+- **the grids** (SAG: scroll millions of rows, profile, Key Finder, compare, charts, relationships),
+  in theirs, on another (decision 12);
 - every transformation is a **DuckDB SQL query** over the user's own table, so the code is the
   transformation, not a translation of it;
 - installed with one installer that sets up everything; VS Code optional;
@@ -48,8 +50,8 @@ The goal, on one screen per workspace:
    - `marimo convert` turns a `# %%` script into a notebook and renames reassigned variables
      (`df = df.dropna()` in a later cell becomes `df_1`), so ordinary scripts follow marimo's
      one-definition rule; a script with no markers becomes one cell, so SAG adds markers first;
-   - `marimo edit --headless` sends no header that stops it being framed, and has its own token
-     (`--token-password`) and `--base-url`, so SAG can show it beside the grids;
+   - `marimo edit --headless` has its own token (`--token-password`) and `--base-url`, so SAG can
+     serve it under its own address in a tab of its own (decision 12);
    - `sag.push(cleaned)` in a marimo cell reached the SAG server as dataset `cleaned`;
    - its SQL cells run DuckDB over Python data frames by name: the transforming half of SAG's purpose.
    Not yet checked: its terminal panel on Windows (added for macOS and Linux first; Windows shells
@@ -61,6 +63,11 @@ The goal, on one screen per workspace:
 11. **Division of labour: DuckDB SQL transforms, Python analyses.** Grid transformation steps are
     DuckDB SQL; the grid, profile, charts, Key Finder, compare and relationships are SAG's analysis on
     top. pandas stays for loading and for Python the user writes, not for generated transformations.
+12. **The notebook and terminal always get their own browser tab, never the grids' page** (the
+    owner's rule), so each can sit on its own screen. The grid page links to its workspace's notebook
+    ("Open notebook", which opens or focuses that tab) and the notebook links back; the two stay in
+    step through the server (a grid action writes its cell into the open notebook; running a cell
+    refreshes the open grid), never by being framed in one page.
 
 ## Groundwork (done)
 
@@ -117,15 +124,16 @@ One command per platform, from a release:
 - Done when: two Python processes each `create_workspace()` and push a table named `df`, both grids
   stay correct, each page sees only its own tables, and the agent sees both by workspace.
 
-## Phase 2: marimo built in, beside the grids
+## Phase 2: marimo built in, in its own tab
 
 - **One marimo server** for all workspaces, started by SAG on first use: `marimo edit <workspaces
   folder> --headless`, on 127.0.0.1, with a token SAG generates (`--token-password-file`) and a base
   URL under SAG (`/notebook/`), so it is reached through SAG's own address and token. If marimo's
-  server cannot sit behind SAG cleanly, SAG frames it on its own port, still token-protected.
-- **Each workspace is a marimo notebook file** (`<workspace>.py` in the workspaces folder). The page
-  shows it as a panel beside the grids (left/right or top/bottom, resizable, can pop out), with
-  marimo's own terminal panel for shell commands.
+  server cannot sit behind SAG cleanly, SAG opens it on its own port, still token-protected.
+- **Each workspace is a marimo notebook file** (`<workspace>.py` in the workspaces folder), always in
+  its **own browser tab** (decision 12), with marimo's own terminal panel for shell commands. The grid
+  page's "Open notebook" opens that tab or brings it forward (one tab per workspace, by a named
+  window); the tray and `swissarmygrid open --notebook` open it too. Never framed in the grid page.
 - **The notebook's tables become grids.** A small marimo-aware hook in the client (the watcher reads
   `__main__`, which marimo does not use) reports each cell's data frames to the workspace; opening one
   shows it as a grid, and re-running the cell refreshes it. `sag.push` keeps working as checked.

@@ -14,8 +14,9 @@ installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), s
   DuckDB SQL over the user's own table, never a pandas translation.
 - **Where it is going:** [Plans/standalone-workspaces.plan.md](Plans/standalone-workspaces.plan.md):
   a one-command installer that sets up everything; one local server with separate workspaces
-  (`sag.create_workspace()`); marimo built in beside the grids (each workspace is a marimo notebook,
-  grid actions write DuckDB SQL cells); saved workspaces; a tray icon; and a Power BI style
+  (`sag.create_workspace()`); marimo built in (each workspace is a marimo notebook, grid actions
+  write DuckDB SQL cells). **Rule: the notebook/terminal always opens in its own browser tab, never in
+  the grid page**, so it can sit on another screen; saved workspaces; a tray icon; and a Power BI style
   relationships view with autodetection that replaces the FI-Atlas ERD feature. VS Code is optional.
 - **The original plan:** [Plans/swissarmygrid-build-plan.md](Plans/swissarmygrid-build-plan.md).
   Follow its section 0 working agreements: typed Python, tests first for semantics, ask before
