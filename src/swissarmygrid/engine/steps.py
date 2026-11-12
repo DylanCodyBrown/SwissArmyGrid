@@ -46,11 +46,16 @@ from typing import Any, TypeGuard
 
 import duckdb
 
-from swissarmygrid.engine.datasets import Column
+from swissarmygrid.engine.datasets import Column, reserved_column_name, same_name_ignoring_case
 from swissarmygrid.engine.sql_guard import SqlRefused, guard_step
 
 ORD: str = "__sag_ord"
 RESERVED_PREFIX: str = "__sag_"
+# Numbers a step may compare against: up to DuckDB's widest integers, UHUGEINT and HUGEINT.
+_LARGEST_INTEGER: int = 2**128 - 1
+_SMALLEST_INTEGER: int = -(2**127)
+_MAX_LIMIT: int = 2**63 - 1
+_RESERVED_MESSAGE: str = f"Column names may not start with {RESERVED_PREFIX!r} or be rowid, in any case."
 # Spaces, tabs and line breaks (plan section 7, "trim").
 TRIM_CHARACTERS: str = " \t\r\n"
 _TRIM_SQL: str = "(' ' || chr(9) || chr(13) || chr(10))"
@@ -269,11 +274,15 @@ def bucket_edges(params: dict[str, Any]) -> list[float]:
             raise ValueError("A width bucket needs numbers width, low and high.")
         if width <= 0 or high <= low:
             raise ValueError("Need width > 0 and high > low.")
-        count = math.ceil((high - low) / width)
-        if count > 1000:
+        span = (float(high) - float(low)) / float(width)
+        if not math.isfinite(span) or span > 1000:
             raise ValueError("That width makes more than 1,000 buckets.")
-        edges = [low + i * width for i in range(count + 1)]
-        return [float(e) for e in edges]
+        count = math.ceil(span)
+        edges = [float(low + i * width) for i in range(count + 1)]
+        if any(b <= a for a, b in itertools.pairwise(edges)):
+            # Floats this large are too far apart to step by this width (1e16 + 1 == 1e16).
+            raise ValueError("That width is too small for numbers this large.")
+        return edges
     raise ValueError("mode must be edges, width or date.")
 
 
@@ -283,7 +292,13 @@ def bucket_labels(edges: list[float], right_closed: bool) -> list[str]:
 
 
 def _is_number(value: Any) -> TypeGuard[int | float]:
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+    """A finite number DuckDB can compare: a float, or an integer within UHUGEINT/HUGEINT
+    (JSON allows any length, and math.isfinite on a longer one raises OverflowError)."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return _SMALLEST_INTEGER <= value <= _LARGEST_INTEGER
+    return isinstance(value, float) and math.isfinite(value)
 
 
 # ===== Compilation =====
@@ -377,8 +392,8 @@ def _check_sql_columns(columns: tuple[Column, ...]) -> None:
     if len(set(names)) != len(names):
         raise StepError(None, "The query returns two columns with the same name; alias one with AS.")
     for name in names:
-        if name.startswith(RESERVED_PREFIX):
-            raise StepError(None, f"Column names may not start with {RESERVED_PREFIX!r}.")
+        if reserved_column_name(name):
+            raise StepError(None, _RESERVED_MESSAGE)
 
 
 def _column(stage: Stage, name: Any) -> Column:
@@ -390,14 +405,16 @@ def _column(stage: Stage, name: Any) -> Column:
     raise StepError(None, f"Column {name!r} is not in the table at this step.")
 
 
-def _new_name(stage: Stage, name: Any, replacing: set[str] | None = None) -> str:
+def _new_name(stage: Stage, name: Any) -> str:
+    """A name for a column a step adds: not reserved, and not an existing name in any case
+    (DuckDB matches names without case, and would rename the clash to name_1)."""
     if not isinstance(name, str) or not name.strip():
         raise StepError(None, "A new column needs a name.")
-    if name.startswith(RESERVED_PREFIX):
-        raise StepError(None, f"Column names may not start with {RESERVED_PREFIX!r}.")
-    existing = {c.name for c in stage.columns} - (replacing or set())
-    if name in existing:
-        raise StepError(None, f"There is already a column named {name!r}.")
+    if reserved_column_name(name):
+        raise StepError(None, _RESERVED_MESSAGE)
+    for column in stage.columns:
+        if column.name.lower() == name.lower():
+            raise StepError(None, f"There is already a column named {column.name!r}.")
     return name
 
 
@@ -564,7 +581,12 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
 
     if step.kind == "columns":
         keep = p.get("keep")
-        if not isinstance(keep, list) or not keep or len(set(keep)) != len(keep):
+        if (
+            not isinstance(keep, list)
+            or not keep
+            or not all(isinstance(k, str) for k in keep)
+            or len(set(keep)) != len(keep)
+        ):
             raise StepError(None, "keep must be a non-empty list of distinct column names.")
         names = [quote(_column(stage, name).name) for name in keep]
         return f"SELECT {', '.join(names)}, {ORD} FROM {src}"
@@ -573,13 +595,16 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
         mapping = p.get("mapping")
         if not isinstance(mapping, dict) or not mapping:
             raise StepError(None, "mapping must be an object of old name to new name.")
-        for old in mapping:
+        for old, new in mapping.items():
             _column(stage, old)
+            if not isinstance(new, str) or not new.strip():
+                raise StepError(None, "A new column needs a name.")
+            if reserved_column_name(new):
+                raise StepError(None, _RESERVED_MESSAGE)
         final = [mapping.get(c.name, c.name) for c in stage.columns]
-        if len(set(final)) != len(final):
+        # In any case: DuckDB would rename the second of "Y" and "y" to "y_1".
+        if same_name_ignoring_case(final) is not None or len(set(final)) != len(final):
             raise StepError(None, "Renaming would leave two columns with the same name.")
-        for new in mapping.values():
-            _new_name(stage, new, replacing=set(mapping) | {new} & {c.name for c in stage.columns})
         parts = [
             f"{quote(c.name)} AS {quote(mapping[c.name])}" if c.name in mapping else quote(c.name)
             for c in stage.columns
@@ -589,12 +614,16 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
     if step.kind == "group_by":
         keys = p.get("keys", [])
         aggregates = p.get("aggregates")
-        if not isinstance(keys, list) or len(set(keys)) != len(keys):
+        if (
+            not isinstance(keys, list)
+            or not all(isinstance(k, str) for k in keys)
+            or len(set(keys)) != len(keys)
+        ):
             raise StepError(None, "keys must be a list of distinct column names.")
         key_sql = [quote(_column(stage, k).name) for k in keys]
         if not isinstance(aggregates, list) or not aggregates:
             raise StepError(None, "Group by needs at least one aggregate.")
-        used_names: set[str] = set(keys)
+        used_names: set[str] = {k.lower() for k in keys}
         agg_sql: list[str] = []
         for agg in aggregates:
             agg_sql.append(_aggregate(stage, agg, used_names))
@@ -613,7 +642,7 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
 
     if step.kind == "limit":
         n = p.get("n")
-        if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+        if not isinstance(n, int) or isinstance(n, bool) or n < 0 or n > _MAX_LIMIT:
             raise StepError(None, "n must be a whole number, 0 or more.")
         return f"SELECT * FROM {src} ORDER BY {ORD} LIMIT {n}"
 
@@ -724,9 +753,12 @@ def _aggregate(stage: Stage, agg: Any, names: set[str]) -> str:
         raise StepError(None, f"Each aggregate needs fn: {', '.join(AGGREGATES)}.")
     fn = agg["fn"]
     out_name = aggregate_name(agg)
-    if out_name in names or out_name.startswith(RESERVED_PREFIX):
+    if reserved_column_name(out_name):
+        raise StepError(None, _RESERVED_MESSAGE)
+    # `names` holds the names used so far, lowercased: DuckDB matches names without case.
+    if out_name.lower() in names:
         raise StepError(None, f"Aggregate name {out_name!r} is already used.")
-    names.add(out_name)
+    names.add(out_name.lower())
     if fn == "count_rows":
         return f"count(*) AS {quote(out_name)}"
     column = _column(stage, agg.get("column"))

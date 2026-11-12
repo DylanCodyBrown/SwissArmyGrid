@@ -154,18 +154,67 @@ def _batches(reader: Any) -> Iterator[pa.RecordBatch]:
             return
 
 
+def reserved_column_name(name: str) -> bool:
+    """Names a column may not have, in any case (DuckDB matches names without case): the
+    engine's own __sag_ columns, and rowid, which would hide the row numbers views read."""
+    lowered = name.lower()
+    return lowered.startswith(RESERVED_PREFIX) or lowered == "rowid"
+
+
+def same_name_ignoring_case(names: list[str]) -> tuple[str, str] | None:
+    """The first two names DuckDB would take for one (it matches names without case)."""
+    seen: dict[str, str] = {}
+    for name in names:
+        earlier = seen.setdefault(name.lower(), name)
+        if earlier != name:
+            return earlier, name
+    return None
+
+
 def check_table(table: pa.Table) -> pa.Table:
     """Names unique and not reserved; types DuckDB can store."""
     names: list[str] = list(table.column_names)
+    if not names:
+        raise DatasetError("The data has no columns.")
     if len(set(names)) != len(names):
         raise DatasetError("Column names must be unique.")
-    if any(not n or n.startswith(RESERVED_PREFIX) for n in names):
-        raise DatasetError(f"Column names must be non-empty and not start with {RESERVED_PREFIX!r}.")
-    # An all-blank column has Arrow's null type, which DuckDB cannot store; keep it as text.
+    clash = same_name_ignoring_case(names)
+    if clash is not None:
+        raise DatasetError(
+            f"Columns {clash[0]!r} and {clash[1]!r} differ only in case; DuckDB matches names "
+            "without case, so rename one."
+        )
+    if any(not n for n in names):
+        raise DatasetError("Column names must be non-empty.")
+    reserved = [n for n in names if reserved_column_name(n)]
+    if reserved:
+        raise DatasetError(
+            f"Column name {reserved[0]!r} is reserved (rowid, and names starting with "
+            f"{RESERVED_PREFIX!r}, in any case); rename it before pushing."
+        )
     for index, column_field in enumerate(table.schema):
-        if column_field.type == pa.null():
-            table = table.set_column(index, column_field.name, table.column(index).cast(pa.string()))
+        converted = _storable(column_field.type)
+        if converted is not None:
+            table = table.set_column(index, column_field.name, table.column(index).cast(converted))
     return table
+
+
+def _storable(arrow_type: pa.DataType) -> pa.DataType | None:
+    """The type to cast a column to so DuckDB can store it (None: it already can). Every cast
+    keeps each value exactly."""
+    # An all-blank column has Arrow's null type, which DuckDB cannot store; keep it as text.
+    if arrow_type == pa.null():
+        return pa.string()
+    if pa.types.is_float16(arrow_type):
+        return pa.float32()
+    if pa.types.is_decimal256(arrow_type):
+        # DuckDB reads decimals up to 38 digits; a wider one is kept exactly as text.
+        if arrow_type.precision <= 38:
+            return pa.decimal128(arrow_type.precision, arrow_type.scale)
+        return pa.string()
+    if pa.types.is_union(arrow_type):
+        raise DatasetError("Union columns cannot be stored; convert them to one type first.")
+    return None
 
 
 class DatasetStore:
@@ -203,6 +252,13 @@ class DatasetStore:
             )
         with self._lock:
             previous = self._datasets.get(name)
+            # DuckDB matches table names without case: "ds_orders" is the table of "Orders" too.
+            clash = next((n for n in self._datasets if n != name and n.lower() == name.lower()), None)
+            if clash is not None:
+                raise DatasetError(
+                    f"A dataset named {clash!r} is open; names that differ only in case are one "
+                    f"table to DuckDB. Push {clash!r} again to replace it, or pick another name."
+                )
             if previous is None and len(self._datasets) >= self.max_datasets:
                 raise DatasetLimitError(
                     f"{len(self._datasets)} datasets are open, the most allowed. Close one "
@@ -222,8 +278,8 @@ class DatasetStore:
                 )
             cursor: duckdb.DuckDBPyConnection = self._connection.cursor()
             staging: str = "incoming_" + uuid.uuid4().hex
-            cursor.register(staging, table)
             try:
+                cursor.register(staging, table)
                 cursor.execute(
                     f"CREATE OR REPLACE TABLE {quote('ds_' + name)} AS SELECT * FROM {staging}"  # noqa: S608 (both names are generated)
                 )
