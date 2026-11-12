@@ -87,3 +87,30 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   table took 0.76 s, so the whole build (at most 8 rounds) finishes in seconds.
 - (2026-10-24) `test_lifecycle.py::test_start_status_second_start_and_stop` timed out once in a
   full run (its 10 s start wait, under the browser tests' load) and passed alone, 11 of 11.
+- (2026-11-12) SQL guard escapes, DuckDB 2.0.0 and sqlglot 30.24: a CTE name passed the table
+  check anywhere in the query, but DuckDB scopes CTEs, so `SELECT * FROM (WITH ds_x AS (SELECT 1)
+  SELECT 1), ds_x` read the raw table ds_x (also vc_ cache tables, duckdb_tables, duckdb_columns,
+  pg_settings, sqlite_master). A non-recursive CTE's own name in its body is the real table
+  (`WITH ds_x AS (SELECT * FROM ds_x)`), and so is a WITH RECURSIVE self-reference outside the
+  recursive side of a UNION. `LATERAL json_execute_serialized_sql(json_serialize_sql('...'))` ran
+  any SELECT, because sqlglot keeps a LATERAL function out of its Table nodes. The guard now renames
+  every CTE to `__sag_cte_<n>` by scope, refuses every table-only function, and checks DuckDB's own
+  parse (`json_serialize_sql`) of the rewritten query (`tests/test_sql_guard.py`).
+- (2026-11-12) Engine hardening, DuckDB 2.0.0: DuckDB matches table and column names without
+  case, so "ds_orders" is also the table of a dataset "Orders" (a push of "orders" replaced it)
+  and a CTE or subquery renames a second "y"/"Y" to "y_1"; a column named rowid hides the rowid
+  pseudo-column (every window came back empty). `CAST('...+05:00' AS TIMESTAMP)` drops the
+  offset; TIMESTAMPTZ keeps the instant. GROUP BY binds a column before a select alias of the
+  same name (profiles now group by position). A DROP while another cursor's query reads the
+  table does not disturb that query (MVCC); a lookup between them fails, hence the view cache's
+  leases. Fetching a TIMESTAMP WITH TIME ZONE value into Python (`fetchall`) needs pytz, which
+  the server's dependencies do not include: such a column fails every window and profile
+  (to_arrow_table does not need it). Not fixed: adding pytz is a dependency decision.
+- (2026-11-12) Measured on 1,000,000 rows x 10 columns (`tests/test_performance.million`), at
+  the engine, with a filter and a sort step, before -> after: column profile 589 -> 44 ms, text
+  column profile 634 -> 65 ms, table profile 1556 -> 112 ms, header numbers 296 -> 79 ms (they
+  read the view cache, `ViewEngine.reading`, instead of every step and the final sort); Key
+  Finder pairs against 333,334 rows about 1.7-2.2 s -> 1.0-1.2 s; SQL box `SELECT * FROM grid
+  LIMIT 100` 94 -> 6 ms; CSV export 6.2 -> 2.1 s (byte for byte the same); Excel export 50 ->
+  45.6 s (xlsxwriter's own writes and close are the rest). `tests/test_performance.py` after:
+  first window 13 ms, sort 247 ms, filter 51 ms, profile 39 ms.

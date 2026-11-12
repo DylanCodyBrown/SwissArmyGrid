@@ -19,15 +19,27 @@ Anything else (a schema-qualified name, a table function such as read_csv or que
 internal table) is refused before DuckDB sees it. The source datasets are never written:
 the only write shape, CREATE TABLE AS, is executed by Python as a read plus a new dataset.
 
+Two details keep the name rules exact:
+- Every CTE is renamed to a fresh internal name (__sag_cte_<n>), and only a reference that the
+  CTE's scope covers is pointed at it. A name used outside that scope (or inside a CTE's own,
+  non-recursive body, where DuckDB reads the real table) is checked like any other table name,
+  so a CTE can never make an internal table's name pass.
+- The rewritten query is then parsed again by DuckDB itself (json_serialize_sql), and every
+  table and table function in DuckDB's own parse must be one the rewrite produced. A query
+  sqlglot reads differently from DuckDB is refused rather than trusted.
+
 Think of it as a whitelist validator in front of a stored-procedure-only database.
 """
 
 from __future__ import annotations
 
+import json
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+import duckdb
 import sqlglot
 from sqlglot import exp
 
@@ -39,6 +51,13 @@ _ALLOWED_TABLE_FUNCTIONS: frozenset[str] = frozenset({"range", "generate_series"
 _VIEW_CTE: str = "__sag_grid"
 # A dataset read as its tab shows it: __sag_view_<dataset>.
 _DATASET_VIEW_CTE: str = "__sag_view_"
+# Each CTE of the user's query is renamed __sag_cte_<n>; no real table has such a name.
+_FRESH_CTE: str = "__sag_cte_"
+_RESERVED: str = "__sag_"
+# Table references in DuckDB's parse that read nothing by themselves (their parts are checked).
+_SAFE_TABLE_REFS: frozenset[str] = frozenset(
+    {"SUBQUERY", "JOIN", "EXPRESSION_LIST", "EMPTY", "EMPTY_FROM", "PIVOT"}
+)
 
 # Functions refused anywhere in a query. DuckDB would block most of them anyway; this keeps
 # the refusal message plain and covers functions that run SQL from a string (query, ...).
@@ -78,6 +97,87 @@ class SqlRefused(ValueError):
     """The query is not allowed. The message says why, in plain words."""
 
 
+# A private connection that only parses: DuckDB's own reading of a query (json_serialize_sql)
+# and its list of table functions. It holds no data and reaches nothing.
+_parser_lock = threading.Lock()
+_parser: duckdb.DuckDBPyConnection | None = None
+_table_functions: frozenset[str] | None = None
+
+
+def _parser_connection() -> duckdb.DuckDBPyConnection:
+    global _parser
+    if _parser is None:
+        _parser = duckdb.connect(
+            ":memory:",
+            config={
+                "enable_external_access": False,
+                "autoinstall_known_extensions": False,
+                "autoload_known_extensions": False,
+                "lock_configuration": True,
+            },
+        )
+    return _parser
+
+
+def table_only_functions() -> frozenset[str]:
+    """DuckDB's table functions that are not also scalar or aggregate functions (repeat and
+    range are both): a call to one of these anywhere in a query is refused."""
+    global _table_functions
+    with _parser_lock:
+        if _table_functions is None:
+            rows = (
+                _parser_connection()
+                .execute(
+                    "SELECT function_name FROM duckdb_functions() GROUP BY function_name "
+                    "HAVING bool_or(function_type IN ('table', 'table_macro', 'pragma')) "
+                    "AND NOT bool_or(function_type IN ('scalar', 'aggregate', 'macro'))"
+                )
+                .fetchall()
+            )
+            _table_functions = frozenset(str(r[0]).lower() for r in rows) - _ALLOWED_TABLE_FUNCTIONS
+        return _table_functions
+
+
+def check_duckdb_parse(sql: str, tables: set[str]) -> None:
+    """Refuse `sql` unless DuckDB's own parse of it reads only `tables` (plain names) and the
+    allowed table functions: the second opinion behind the sqlglot rewrite."""
+    with _parser_lock:
+        row = _parser_connection().execute("SELECT json_serialize_sql(?)", [sql]).fetchone()
+    parsed: Any = json.loads(str(row[0])) if row else {"error": True}
+    if parsed.get("error"):
+        raise SqlRefused(f"DuckDB could not read the query: {parsed.get('error_message', 'unknown error')}")
+    # DuckDB runs every statement it is given, so the text it will run must be exactly one.
+    if not isinstance(parsed.get("statements"), list) or len(parsed["statements"]) != 1:
+        raise SqlRefused("Run one statement at a time.")
+    allowed = {t.lower() for t in tables}
+    stack: list[Any] = [parsed.get("statements")]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        stack.extend(node.values())
+        kind = node.get("type")
+        if "class" in node or "query_location" not in node or not isinstance(kind, str):
+            continue  # an expression, a modifier or a literal, not a table reference
+        if kind.endswith("_NODE") or kind in _SAFE_TABLE_REFS:
+            continue
+        if kind == "BASE_TABLE":
+            name = str(node.get("table_name", ""))
+            if node.get("schema_name") or node.get("catalog_name") or name.lower() not in allowed:
+                raise SqlRefused(f"The query reads {name!r}, which is not an open table.")
+        elif kind == "TABLE_FUNCTION":
+            function = node.get("function") or {}
+            name = str(function.get("function_name", ""))
+            qualified = function.get("schema") or function.get("catalog")
+            if qualified or name.lower() not in _ALLOWED_TABLE_FUNCTIONS:
+                raise SqlRefused(f"The table function {name}() is not allowed here.")
+        else:
+            raise SqlRefused("Read from grid, a dataset or a CTE by name.")
+
+
 @dataclass(frozen=True)
 class GuardedQuery:
     sql: str  # rewritten, ready for DuckDB
@@ -103,6 +203,19 @@ def guard(
     the SQL box a dataset name, the grid's own included, reads its rows as loaded, as the user's
     Python variable of that name does.
     """
+    try:
+        return _guard(text, datasets, grid_sql, dataset_sql, grid_alias)
+    except RecursionError as error:  # sqlglot parses and prints recursively
+        raise SqlRefused("The query is nested too deeply.") from error
+
+
+def _guard(
+    text: str,
+    datasets: set[str],
+    grid_sql: Callable[[], str] | None,
+    dataset_sql: Callable[[str], str] | None,
+    grid_alias: str | None,
+) -> GuardedQuery:
     try:
         statements = [s for s in sqlglot.parse(text, read="duckdb") if s is not None]
     except sqlglot.errors.ParseError as error:
@@ -135,9 +248,11 @@ def guard(
 
     _refuse_denied_functions(query)
     grid_names = {GRID_TABLE} if grid_alias is None else {GRID_TABLE, grid_alias}
-    needs_grid, read = _rewrite_tables(
+    needs_grid, read, targets = _rewrite_tables(
         query, datasets, grid_names if grid_sql is not None else set(), as_views=dataset_sql is not None
     )
+    # DuckDB's own parse of the user's part, before the server's CTEs are added.
+    check_duckdb_parse(query.sql(dialect="duckdb"), targets)
     if dataset_sql is not None:
         for name in read:
             query = _prepend_cte(query, _DATASET_VIEW_CTE + name, dataset_sql(name))
@@ -172,7 +287,10 @@ def guard_step(text: str, grid_sql: str, dataset: str) -> str:
     if guarded.kind != "select":
         raise SqlRefused(f"A SQL step is one SELECT over {dataset} (use Pin to make a new dataset).")
     ordered = f"SELECT * FROM ({guarded.sql}) ORDER BY ALL"  # noqa: S608 (guarded query)
-    return guarded.sql if keeps_order(text, dataset) else ordered
+    try:
+        return guarded.sql if keeps_order(text, dataset) else ordered
+    except RecursionError as error:
+        raise SqlRefused("The query is nested too deeply.") from error
 
 
 def step_query_text(text: str, dataset: str) -> str:
@@ -219,9 +337,10 @@ def _function_name(node: exp.Func) -> str:
 
 
 def _refuse_denied_functions(query: exp.Expression) -> None:
+    table_functions = table_only_functions()
     for node in query.find_all(exp.Func):
         name = _function_name(node)
-        if name.startswith(_DENIED_PREFIXES):
+        if name.startswith(_DENIED_PREFIXES) or name in table_functions:
             raise SqlRefused(f"The function {name}() is not allowed here.")
     for statement in query.find_all(exp.Command, exp.Pragma, exp.Set, exp.Use):
         raise SqlRefused(f"{statement.key.upper()} statements are not allowed.")
@@ -233,11 +352,17 @@ def _cte_names(query: exp.Expression) -> set[str]:
 
 def _rewrite_tables(
     query: exp.Expression, datasets: set[str], grid_names: set[str], as_views: bool
-) -> tuple[bool, list[str]]:
+) -> tuple[bool, list[str], set[str]]:
     """Point each table name at its real table (`as_views`: at the CTE of its tab's view).
     `grid_names` read the grid view (empty: there is none). Returns whether the grid view is
-    used, and the datasets read, in order."""
-    ctes = _cte_names(query)
+    used, the datasets read, in order, and every table name the rewritten query reads."""
+    ctes = list(query.find_all(exp.CTE))
+    fresh: dict[int, str] = {}
+    for number, cte in enumerate(ctes):
+        if cte.alias.lower().startswith(_RESERVED):
+            raise SqlRefused(f"Names starting with {_RESERVED!r} are reserved.")
+        fresh[id(cte)] = f"{_FRESH_CTE}{number}"
+    targets: set[str] = set(fresh.values())
     uses_grid = False
     read: list[str] = []
     for table in list(query.find_all(exp.Table)):
@@ -248,24 +373,58 @@ def _rewrite_tables(
         if table.db or table.catalog:
             raise SqlRefused(f"{table.sql()} is not allowed; use a plain dataset name.")
         name = table.name
-        if name in ctes:
-            continue
-        alias = table.alias or name
-        if name in grid_names:
+        if name.lower().startswith(_RESERVED):
+            raise SqlRefused(f"Names starting with {_RESERVED!r} are reserved.")
+        named = _visible_cte(table)
+        if named is not None:
+            target = fresh[id(named)]
+        elif name in grid_names:
             uses_grid = True
-            table.set("this", exp.to_identifier(_VIEW_CTE, quoted=True))
+            target = _VIEW_CTE
         elif name == GRID_TABLE:
             raise SqlRefused("There is no grid view here; read a dataset by name.")
         elif name in datasets:
             target = _DATASET_VIEW_CTE + name if as_views else "ds_" + name
-            table.set("this", exp.to_identifier(target, quoted=True))
             if name not in read:
                 read.append(name)
         else:
             known = ", ".join(sorted({*grid_names, *datasets}))
             raise SqlRefused(f"Unknown table {name!r}. Available: {known}.")
-        table.set("alias", exp.TableAlias(this=exp.to_identifier(alias, quoted=True)))
-    return uses_grid, read
+        targets.add(target)
+        table.set("this", exp.to_identifier(target, quoted=True))
+        # The table keeps its own name as its alias, so `name.column` still resolves; an alias
+        # the user gave (with any column names) stays as written.
+        if not table.args.get("alias"):
+            table.set("alias", exp.TableAlias(this=exp.to_identifier(name, quoted=True)))
+    for cte in ctes:
+        alias: Any = cte.args.get("alias")
+        alias.set("this", exp.to_identifier(fresh[id(cte)], quoted=True))
+    return uses_grid, read, targets
+
+
+def _visible_cte(table: exp.Table) -> exp.CTE | None:
+    """The CTE `table` names, if one is in scope where it appears (DuckDB's rules, matched
+    without case): an enclosing query's CTEs, and inside a CTE's body only the CTEs before it
+    (and itself, in a WITH RECURSIVE)."""
+    name = table.name.lower()
+    child: Any = table
+    node: Any = table.parent
+    while node is not None:
+        visible: list[Any] = []
+        if isinstance(node, exp.With):
+            ctes = list(node.expressions)
+            index = next((i for i, cte in enumerate(ctes) if cte is child), None)
+            if index is not None:
+                visible = ctes[: index + 1] if node.args.get("recursive") else ctes[:index]
+        else:
+            with_ = node.args.get("with_")
+            if isinstance(with_, exp.With) and with_ is not child:
+                visible = list(with_.expressions)
+        for cte in reversed(visible):
+            if isinstance(cte, exp.CTE) and cte.alias.lower() == name:
+                return cte
+        child, node = node, node.parent
+    return None
 
 
 def _prepend_cte(query: exp.Expression, name: str, body: str) -> exp.Expression:

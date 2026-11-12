@@ -39,6 +39,8 @@ def load_recipe(folder: Path, dataset: str) -> tuple[list[Step], ViewSettings] |
         return None
     try:
         body = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(body, dict):  # edited by hand into something else: ignore it
+            return None
         return steps_from_json(body.get("steps", [])), ViewSettings.from_json(body.get("settings"))
     except (ValueError, OSError):
         return None

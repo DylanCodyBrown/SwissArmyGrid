@@ -249,7 +249,8 @@ def mermaid_erd(model: Model, columns: dict[str, list[tuple[str, str]]], only: s
     for r in drawn:
         # A line carries only the join's note (an outlier or caveat), never column names: the
         # boxes already show the keys. Mermaid needs a label, so a join without a note gets "".
-        label = r.note.replace('"', "'")
+        # One line: Mermaid ends a statement at a line break.
+        label = " ".join(r.note.replace('"', "'").split())
         left, ends, right = r.from_table, _CARDINALITY[r.kind], r.to_table
         hub = max((left, right), key=lambda t: (degree.get(t, 0), t))
         if left != right and degree.get(hub, 0) >= 3:

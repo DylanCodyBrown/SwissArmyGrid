@@ -26,7 +26,9 @@ A blank key never matches anything (SQL), so its rows show as unmatched on their
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 import duckdb
@@ -220,13 +222,20 @@ def differences(
 
 
 def _same(a: Any, b: Any) -> bool:
+    """Whether two cells hold the same value. Integers and decimals compare exactly; when either
+    is a float, numbers within a relative 1e-9 are the same (0.1 + 0.2 and 0.3), as are two NaNs
+    (one value to DuckDB) and two infinities of one sign."""
     if a is None or b is None:
         return a is None and b is None
-    if (
-        isinstance(a, int | float)
-        and isinstance(b, int | float)
-        and not isinstance(a, bool)
-        and not isinstance(b, bool)
-    ):
-        return abs(float(a) - float(b)) <= 1e-9 * max(1.0, abs(float(a)), abs(float(b)))
+    if _is_number(a) and _is_number(b):
+        if not isinstance(a, float) and not isinstance(b, float):
+            return bool(a == b)
+        x, y = float(a), float(b)
+        if math.isnan(x) or math.isnan(y):
+            return math.isnan(x) and math.isnan(y)
+        return x == y or math.isclose(x, y, rel_tol=1e-9, abs_tol=0.0)
     return bool(a == b) or str(a) == str(b)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float | Decimal) and not isinstance(value, bool)

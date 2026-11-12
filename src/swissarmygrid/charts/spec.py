@@ -60,7 +60,7 @@ def validate(spec: Any, columns: tuple[Column, ...]) -> dict[str, Any]:
 
     def field(part: dict[str, Any], where: str) -> Column:
         name = part.get("field")
-        if name not in by_name:
+        if not isinstance(name, str) or name not in by_name:
             raise ChartError(f"{where}.field must be a column of the view; {name!r} is not.")
         return by_name[name]
 
@@ -98,6 +98,11 @@ def validate(spec: Any, columns: tuple[Column, ...]) -> dict[str, Any]:
         field(_only(spec["color"], _COLOR_KEYS, "color"), "color")
     if mark == "heatmap" and "color" in spec:
         raise ChartError("A heatmap uses color for the value; put the second axis on y.field.")
+    if mark == "heatmap":
+        y = spec["y"]
+        if y.get("aggregate") != "count":
+            raise ChartError("A heatmap counts rows by x.field and y.field; use aggregate count.")
+        field(y, "y")
     if "title" in spec and not isinstance(spec["title"], str):
         raise ChartError("title must be text.")
     return dict(spec)
@@ -115,17 +120,21 @@ def aggregate(
 
     if mark == "histogram":
         bins = x.get("bins", 20)
-        low, high = cursor.execute(f"SELECT min({xf}), max({xf}) FROM {v}").fetchone() or (
+        # NaN and infinities have no bin (their width would be NaN, which no BIGINT holds).
+        where = f"{xf} IS NOT NULL AND isfinite(CAST({xf} AS DOUBLE))"
+        low, high = cursor.execute(f"SELECT min({xf}), max({xf}) FROM {v} WHERE {where}").fetchone() or (
             None,
             None,
         )
         if low is None:
             return {"values": [], "note": "No values to chart."}
         low_f, high_f = float(low), float(high)
-        width = (high_f - low_f) / bins if high_f > low_f else 1.0
+        # Divided before subtracting, so -1e308 to 1e308 does not overflow to infinity.
+        width = high_f / bins - low_f / bins if high_f > low_f else 1.0
+        position = f"(CAST({xf} AS DOUBLE) / {width!r} - {low_f / width!r})"
         rows = cursor.execute(
-            f"SELECT least(CAST(floor(({xf} - {low_f!r}) / {width!r}) AS BIGINT), {bins - 1}) AS b, count(*) "
-            f"FROM {v} WHERE {xf} IS NOT NULL GROUP BY 1 ORDER BY b"
+            f"SELECT greatest(0, least(CAST(floor({position}) AS BIGINT), {bins - 1})), count(*) "
+            f"FROM {v} WHERE {where} GROUP BY 1 ORDER BY 1"
         ).fetchall()
         values = [
             {"bin_start": low_f + b * width, "bin_end": low_f + (b + 1) * width, "count": n} for b, n in rows

@@ -10,6 +10,8 @@ passes the dataset cap, so a small compressed Parquet file cannot expand into gi
 from __future__ import annotations
 
 import io
+import json
+import re
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -78,23 +80,28 @@ def load_file(path_text: str, max_bytes: int, sheet: str | None = None) -> tuple
         if suffix == ".xlsx":
             table = _read_sheet(path, sheet, max_bytes, what)
         elif suffix in (".csv", ".tsv", ".txt"):
-            delimiter = "\t" if suffix == ".tsv" else ","
-            reader = pacsv.open_csv(
-                path, parse_options=pacsv.ParseOptions(delimiter=delimiter, newlines_in_values=True)
-            )
-            table = _collect(reader, reader.schema, max_bytes, what)
+            table = _read_delimited(path, _delimiter(path), max_bytes, what)
         elif suffix == ".parquet":
             parquet = pq.ParquetFile(path)
             table = _collect(parquet.iter_batches(batch_size=64_000), parquet.schema_arrow, max_bytes, what)
         elif suffix in (".json", ".jsonl", ".ndjson"):
             if path.stat().st_size > max_bytes:
                 raise DatasetTooLargeError(f"{what} is larger than {mib(max_bytes)}.")
-            table = pajson.read_json(path)
+            try:
+                table = pajson.read_json(path)
+            except pa.ArrowInvalid:
+                # pyarrow reads JSON lines of one shape only: an array of records, or values
+                # that mix kinds, are read in Python instead (which takes several times the
+                # file's size in memory, hence the smaller cap).
+                if path.stat().st_size > _PYTHON_JSON_BYTES:
+                    raise
+                table = _read_json_records(path, what)
         else:
             with pa.memory_map(str(path)) as source:
                 try:
                     stream = ipc.open_file(source)
-                    batches = [stream.get_batch(i) for i in range(stream.num_record_batches)]
+                    # One batch at a time, so a compressed file stops at the limit as it decodes.
+                    batches = (stream.get_batch(i) for i in range(stream.num_record_batches))
                     table = _collect(batches, stream.schema, max_bytes, what)
                 except pa.ArrowInvalid:
                     source.seek(0)
@@ -103,6 +110,93 @@ def load_file(path_text: str, max_bytes: int, sheet: str | None = None) -> tuple
     except (pa.ArrowInvalid, OSError) as error:
         raise DatasetError(f"Could not read {what}: {error}") from error
     return check_table(table), SUFFIXES[suffix]
+
+
+# ===== Delimited text =====
+
+# Excel's "CSV" on Windows is cp1252; latin-1 reads any bytes at all.
+_ENCODINGS: tuple[str, ...] = ("utf8", "cp1252", "latin-1")
+_CONVERSION_ERROR: re.Pattern[str] = re.compile(r"In CSV column #(\d+): CSV conversion error")
+
+
+def _delimiter(path: Path) -> str:
+    """Tab for .tsv; comma for .csv; for .txt, tab when the first line has one (the .txt
+    export is tab-separated), else comma."""
+    suffix = path.suffix.lower()
+    if suffix != ".txt":
+        return "\t" if suffix == ".tsv" else ","
+    with path.open("rb") as handle:
+        first = handle.readline(65_536)
+    return "\t" if b"\t" in first else ","
+
+
+def _read_delimited(path: Path, delimiter: str, max_bytes: int, what: str) -> pa.Table:
+    """A delimited file as a table, with headers made unique (as for Excel).
+
+    pyarrow types each column from the file's first block, so one stray value further down
+    ("oops" in a column of numbers) failed the whole load: such a column is read again as
+    text. A file that is not UTF-8 (pyarrow gave its text columns as binary) is read again as
+    cp1252, then latin-1."""
+    parse = pacsv.ParseOptions(delimiter=delimiter, newlines_in_values=True)
+    as_text: dict[str, pa.DataType] = {}
+    encodings = iter(_ENCODINGS)
+    encoding = next(encodings)
+    while True:
+        names: list[str] = []
+        try:
+            reader = pacsv.open_csv(
+                path,
+                read_options=pacsv.ReadOptions(encoding=encoding),
+                parse_options=parse,
+                convert_options=pacsv.ConvertOptions(column_types=as_text),
+            )
+            names = list(reader.schema.names)
+            table = _collect(reader, reader.schema, max_bytes, what)
+        except (pa.ArrowInvalid, UnicodeDecodeError) as error:
+            match = _CONVERSION_ERROR.match(str(error))
+            index = int(match.group(1)) if match else -1
+            if 0 <= index < len(names) and names[index] not in as_text:
+                as_text[names[index]] = pa.string()
+                continue
+            if isinstance(error, UnicodeDecodeError) or "decode" in str(error).lower():
+                encoding = next(encodings, "")
+                if encoding:
+                    continue
+            raise
+        if encoding == _ENCODINGS[0] and any(pa.types.is_binary(t) for t in table.schema.types):
+            encoding = next(encodings)
+            continue
+        return table.rename_columns(_header_names(list(table.column_names)))
+
+
+# ===== JSON =====
+
+_PYTHON_JSON_BYTES: int = 256 * 1024 * 1024
+
+
+def _read_json_records(path: Path, what: str) -> pa.Table:
+    """A JSON array of objects, or JSON lines of objects, read in Python: a column that mixes
+    kinds becomes text (as in an Excel sheet), objects and lists in it as JSON."""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+        stripped = text.lstrip()
+        if stripped.startswith("["):
+            records: Any = json.loads(stripped)
+        else:
+            records = [json.loads(line) for line in text.splitlines() if line.strip()]
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise DatasetError(f"Could not read {what} as JSON: {error}") from error
+    if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
+        raise DatasetError(
+            f"{what} is not a list of records: give an array of objects, or one object per line."
+        )
+    names: dict[str, None] = {}
+    for record in records:
+        names.update(dict.fromkeys(str(k) for k in record))
+    if not names:
+        raise DatasetError(f"{what} has no fields.")
+    columns = {name: _arrow_column([record.get(name) for record in records]) for name in names}
+    return pa.table(columns)
 
 
 # ===== Excel: one sheet at a time, read by openpyxl in read-only (streaming) mode =====
@@ -175,23 +269,30 @@ def _read_sheet(path: Path, sheet: str | None, max_bytes: int, what: str) -> pa.
 
 
 def _header_names(cells: list[Any]) -> list[str]:
-    """Header cells as unique column names: a blank one becomes column_<n>, a repeat gets _2."""
+    """Header cells as unique column names: a blank one becomes column_<n>, a repeat gets _2.
+    A repeat in another case counts (DuckDB matches names without case)."""
     names: list[str] = []
+    taken: set[str] = set()
     for n, cell in enumerate(cells, start=1):
         base = str(cell).strip() if cell is not None and str(cell).strip() else f"column_{n}"
         name, k = base, 2
-        while name in names:
+        while name.lower() in taken:
             name, k = f"{base}_{k}", k + 1
         names.append(name)
+        taken.add(name.lower())
     return names
 
 
 def _arrow_column(values: list[Any]) -> pa.Array:
     try:
         return pa.array(values)
-    except (pa.ArrowInvalid, pa.ArrowTypeError):
+    except (pa.ArrowInvalid, pa.ArrowTypeError, OverflowError):
         # Mixed kinds (a number column with a "n/a" in it): keep every value, as text.
-        return pa.array([None if v is None else str(v) for v in values], pa.string())
+        return pa.array([None if v is None else _as_text(v) for v in values], pa.string())
+
+
+def _as_text(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False) if isinstance(value, dict | list) else str(value)
 
 
 def parse_pasted(text: str, max_bytes: int) -> pa.Table:
@@ -208,4 +309,4 @@ def parse_pasted(text: str, max_bytes: int) -> pa.Table:
         )
     except pa.ArrowInvalid as error:
         raise DatasetError(f"Could not read the pasted text as a table: {error}") from error
-    return check_table(table)
+    return check_table(table.rename_columns(_header_names(list(table.column_names))))

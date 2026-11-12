@@ -29,18 +29,18 @@ def _one(cursor: duckdb.DuckDBPyConnection, sql: str) -> tuple[Any, ...]:
 
 
 def profile_column(cursor: duckdb.DuckDBPyConnection, view_sql: str, column: Column) -> dict[str, Any]:
-    """Everything section 8 lists for one column of the view `view_sql`."""
+    """Everything section 8 lists for one column of the view `view_sql`. GROUP BY and ORDER
+    BY name their columns by position: an alias would lose to a view column of the same name."""
     c = quote(column.name)
     v = f"({view_sql}) AS v"
     family = type_family(column.type)
-    rows, blanks, distinct, groups = _one(
-        cursor,
-        f"SELECT count(*), count(*) - count({c}), count(DISTINCT {c}), "
-        f"(SELECT count(*) FROM (SELECT {c} FROM {v} GROUP BY {c})) FROM {v}",
+    rows, blanks, distinct = _one(
+        cursor, f"SELECT count(*), count(*) - count({c}), count(DISTINCT {c}) FROM {v}"
     )
+    # GROUP BY's groups: the distinct values, plus one for the blanks if there are any.
+    groups = distinct + (1 if blanks else 0)
     top = cursor.execute(
-        f"SELECT {c}, count(*) AS n FROM {v} GROUP BY {c} ORDER BY n DESC, {c} ASC NULLS LAST "
-        f"LIMIT {TOP_VALUES}"
+        f"SELECT {c}, count(*) FROM {v} GROUP BY 1 ORDER BY 2 DESC, 1 ASC NULLS LAST LIMIT {TOP_VALUES}"
     ).fetchall()
     profile: dict[str, Any] = {
         "column": column.name,
@@ -83,7 +83,7 @@ def profile_column(cursor: duckdb.DuckDBPyConnection, view_sql: str, column: Col
             sum=total,
             zeros=zeros,
             negatives=negatives,
-            histogram=_histogram(cursor, v, c, low, high),
+            histogram=_histogram(cursor, v, c, column.type),
         )
     elif family == "text":
         shortest, longest, empty, padded = _one(
@@ -92,9 +92,9 @@ def profile_column(cursor: duckdb.DuckDBPyConnection, view_sql: str, column: Col
             f"count(*) FILTER ({c} <> trim({c}, {_TRIM_SQL})) FROM {v}",
         )
         case_groups = cursor.execute(
-            f"SELECT lower({c}) AS k, list(DISTINCT {c} ORDER BY {c}) AS variants, "
-            f"count(*) AS n FROM {v} WHERE {c} IS NOT NULL GROUP BY k "
-            f"HAVING count(DISTINCT {c}) > 1 ORDER BY n DESC, k LIMIT {TOP_VALUES}"
+            f"SELECT lower({c}), list(DISTINCT {c} ORDER BY {c}), count(*) FROM {v} "
+            f"WHERE {c} IS NOT NULL GROUP BY 1 HAVING count(DISTINCT {c}) > 1 ORDER BY 3 DESC, 1 "
+            f"LIMIT {TOP_VALUES}"
         ).fetchall()
         profile.update(
             shortest=shortest,
@@ -106,8 +106,8 @@ def profile_column(cursor: duckdb.DuckDBPyConnection, view_sql: str, column: Col
     elif family in ("date", "timestamp"):
         earliest, latest = _one(cursor, f"SELECT min({c}), max({c}) FROM {v}")
         months = cursor.execute(
-            f"SELECT CAST(date_trunc('month', {c}) AS DATE) AS m, count(*) FROM {v} "
-            f"WHERE {c} IS NOT NULL GROUP BY m ORDER BY m"
+            f"SELECT CAST(date_trunc('month', {c}) AS DATE), count(*) FROM {v} "
+            f"WHERE {c} IS NOT NULL GROUP BY 1 ORDER BY 1"
         ).fetchall()
         profile.update(
             earliest=earliest,
@@ -117,21 +117,24 @@ def profile_column(cursor: duckdb.DuckDBPyConnection, view_sql: str, column: Col
     return profile
 
 
-def _histogram(
-    cursor: duckdb.DuckDBPyConnection, v: str, c: str, low: Any, high: Any
-) -> list[dict[str, Any]]:
-    """Equal-width bins between min and max; the max lands in the last bin."""
+def _histogram(cursor: duckdb.DuckDBPyConnection, v: str, c: str, duckdb_type: str) -> list[dict[str, Any]]:
+    """Equal-width bins between the smallest and largest finite values; the largest lands in
+    the last bin. NaN and infinities have no bin (min and max still report them)."""
+    floating = duckdb_type.upper() in ("FLOAT", "DOUBLE", "REAL", "FLOAT4", "FLOAT8")
+    where = f"{c} IS NOT NULL" + (f" AND isfinite({c})" if floating else "")
+    low, high, count = _one(cursor, f"SELECT min({c}), max({c}), count(*) FROM {v} WHERE {where}")
     if low is None or high is None:
         return []
     low_f, high_f = float(low), float(high)
     if low_f == high_f:
-        count = _one(cursor, f"SELECT count({c}) FROM {v}")[0]
-        return [{"low": low_f, "high": high_f, "count": count}]
-    width = (high_f - low_f) / HISTOGRAM_BINS
+        return [{"low": low_f, "high": high_f, "count": int(count)}]
+    # Divided before subtracting, so -1e308 to 1e308 does not overflow to infinity.
+    width = high_f / HISTOGRAM_BINS - low_f / HISTOGRAM_BINS
+    position = f"(CAST({c} AS DOUBLE) / {width!r} - {low_f / width!r})"
     rows = dict(
         cursor.execute(
-            f"SELECT least(CAST(floor(({c} - {low_f!r}) / {width!r}) AS BIGINT), {HISTOGRAM_BINS - 1}) AS b, "
-            f"count(*) FROM {v} WHERE {c} IS NOT NULL GROUP BY 1"
+            f"SELECT greatest(0, least(CAST(floor({position}) AS BIGINT), {HISTOGRAM_BINS - 1})) AS b, "
+            f"count(*) FROM {v} WHERE {where} GROUP BY 1"
         ).fetchall()
     )
     return [
@@ -152,12 +155,14 @@ def profile_table(
         f"(SELECT count(*) FROM (SELECT {names} FROM {v} GROUP BY {names}))",
     )
     summary: list[dict[str, Any]] = []
-    for column in columns:
-        c = quote(column.name)
-        blanks, distinct, low, high = _one(
-            cursor,
-            f"SELECT count(*) - count({c}), count(DISTINCT {c}), min({c}), max({c}) FROM {v}",
-        )
+    # Every column's numbers in one pass over the view (one query per column read it 10 times).
+    parts = [
+        f"count(*) - count({c}), count(DISTINCT {c}), min({c}), max({c})"
+        for c in (quote(column.name) for column in columns)
+    ]
+    values = _one(cursor, f"SELECT {', '.join(parts)} FROM {v}") if parts else ()
+    for index, column in enumerate(columns):
+        blanks, distinct, low, high = values[4 * index : 4 * index + 4]
         summary.append(
             {
                 "column": column.name,
