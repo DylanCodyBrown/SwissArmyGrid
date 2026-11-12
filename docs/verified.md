@@ -76,3 +76,12 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   table took 0.76 s, so the whole build (at most 8 rounds) finishes in seconds.
 - (2026-10-24) `test_lifecycle.py::test_start_status_second_start_and_stop` timed out once in a
   full run (its 10 s start wait, under the browser tests' load) and passed alone, 11 of 11.
+- (2026-11-12) SQL guard escapes, DuckDB 2.0.0 and sqlglot 30.24: a CTE name passed the table
+  check anywhere in the query, but DuckDB scopes CTEs, so `SELECT * FROM (WITH ds_x AS (SELECT 1)
+  SELECT 1), ds_x` read the raw table ds_x (also vc_ cache tables, duckdb_tables, duckdb_columns,
+  pg_settings, sqlite_master). A non-recursive CTE's own name in its body is the real table
+  (`WITH ds_x AS (SELECT * FROM ds_x)`), and so is a WITH RECURSIVE self-reference outside the
+  recursive side of a UNION. `LATERAL json_execute_serialized_sql(json_serialize_sql('...'))` ran
+  any SELECT, because sqlglot keeps a LATERAL function out of its Table nodes. The guard now renames
+  every CTE to `__sag_cte_<n>` by scope, refuses every table-only function, and checks DuckDB's own
+  parse (`json_serialize_sql`) of the rewritten query (`tests/test_sql_guard.py`).
