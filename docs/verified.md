@@ -50,6 +50,17 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   row out of place). A SQL step relies on this to number its rows; a query with no defined
   order (GROUP BY, DISTINCT, joins, windows, set operations, CTEs) is wrapped in `ORDER BY ALL`
   first, so the grid and the generated code agree run after run.
+- (2026-11-12, DuckDB 2.0.0, pandas 3.0.6) For the copied query, on a 3,000,000-row pandas frame
+  read by name with 8 threads, three runs each: `row_number() OVER ()` numbers the frame's rows in
+  order; `ORDER BY k` alone is **not** stable (ties came out of order every run), while
+  `ORDER BY k, row_number() OVER ()` matched pandas' stable sort; an ordered CTE keeps its order
+  through a later CTE's WHERE and projection, and through LIMIT. A window function is allowed in
+  ORDER BY. `SET disabled_filesystems = 'LocalFileSystem'` on the default connection blocks
+  `read_csv`, `COPY`, `ATTACH` and `https://` reads but still reads Python variables by name
+  (unlike `enable_external_access=false`), and `lock_configuration` then stops it being undone.
+  DuckDB 2.0 relations have no `fetchone()`, and `.arrow()` returns a RecordBatchReader, so the
+  copy uses `.to_arrow_table()` for Arrow pushes (tests/test_copied_code.py,
+  tests/test_golden_codegen.py).
 - DuckDB conversion errors quote the cell value ("Could not convert string 'North' to
   INT32"), so an agent below privacy level 2 gets a generic message instead
   (`tests/test_sql_step_and_selection.py`).
