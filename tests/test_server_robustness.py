@@ -89,6 +89,27 @@ def test_json_bodies_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         assert small.status_code == 200
 
 
+def test_jsonable_keeps_its_meaning_on_the_fast_path() -> None:
+    from datetime import date, datetime
+    from decimal import Decimal
+    from uuid import UUID
+
+    from swissarmygrid.server.context import jsonable
+
+    rows = [
+        [1, 2**53 - 1, 2**53, -(2**60), 1.5, float("nan"), float("inf"), None, True, "x"],
+        (date(2024, 1, 2), datetime(2024, 1, 2, 3, 4), Decimal("1.10"), b"abc", UUID(int=1)),
+        [[1, [2**60]], {"k": float("-inf")}],
+    ]
+    assert jsonable(rows) == [
+        [1, 2**53 - 1, str(2**53), str(-(2**60)), 1.5, "nan", "inf", None, True, "x"],
+        ["2024-01-02", "2024-01-02T03:04:00", "1.10", "<3 bytes>", "00000000-0000-0000-0000-000000000001"],
+        [[1, [str(2**60)]], {"k": "-inf"}],
+    ]
+    plain = [[1, "a", None, 2.5, False]]
+    assert jsonable(plain) is plain  # nothing to change: no copy
+
+
 def test_a_pasted_body_is_capped_like_a_push(tmp_path: Path) -> None:
     with make_client(tmp_path, max_push_body_bytes=1024) as c:
         response = c.post("/datasets/p/paste", content=b"a\tb\n" + b"1\t2\n" * 1000, headers=AUTH)
