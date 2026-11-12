@@ -70,6 +70,31 @@ The goal, per workspace, without panning:
     refreshes the open grid), never by being framed in one page.
 13. **The grid page is for the grid and analysis only.** No SQL box or transformations panel on it
     (they move to the notebook, decision 12), which gives the grid the whole page.
+14. **Connections are saved Python, kept by SAG** (the owner, 2026-11-12). A connection store, so
+    code is written once instead of retyped into every script. **Anything can be a connection**: the
+    user highlights code in the notebook and presses **Save as connection** on its toolbar (until the
+    notebook exists, pastes it into the page's form). The save screen names it, marks it a **SQL
+    connection** (with its dialect) or **other** (an API client, a file path, any setup), names the
+    variable it produces (found automatically: the last name the code assigns), and optionally **adds it
+    to the catalog** with a SQL or Python command that returns the catalog table.
+    `conn = sag.connect("Warehouse")` in any Python runs the saved code there and returns that variable;
+    in the notebook a connection drags in as that line. Saved under `~/.swissarmygrid/connections/`,
+    shared by every workspace on the machine. The agent never reads or writes a connection's code.
+15. **Secrets live in the operating system's vault** (Windows Credential Manager, macOS Keychain) through
+    `keyring` (new dependency, approved). Connection code says `secret("password")`; the file never
+    holds the value.
+16. **Refresh runs on the SAG server**, on the user's click: the connection's code and catalog query run
+    in a child process of the server's own Python (the uv tool environment, the one marimo uses), never
+    inside the server and never for the agent. Drivers are added to that environment
+    (`uv tool install --with pyodbc ...`; the installer can offer the common ones). The locked DuckDB
+    database is untouched: only the catalog's rows come back.
+17. **A catalog is names and types only, never data.** `sag.load(table, name=...)` takes a table with
+    schema, table, column and type (any `INFORMATION_SCHEMA.COLUMNS` result works as it is) and makes a
+    searchable explorer: Schema -> table/view -> column -> type. Catalogs live in memory (Refresh or
+    `sag.load` brings them back after a restart). The agent reads them at every privacy level through
+    `catalog_*` tools, to write SQL against the source in its dialect.
+18. **The connections and catalog navigation sits left of the notebook** in the notebook's own tab
+    (decision 12). Until phase 2 it is its own page, `/catalog`, the same component.
 
 ## Groundwork (done)
 
@@ -183,6 +208,41 @@ With the notebook built in, the direction reverses (decision 11):
   `swissarmygrid convert <file>`.
 - Tested on made-up scripts with reassignment, functions, a `__main__` block, comments, a syntax error
   (one cell and a plain message), and round trips through `.ipynb`.
+
+## Connections and the catalog explorer (decisions 14-18)
+
+**Part 1 (now, release 1.1.0; needs no notebook):**
+- Engine `engine/catalog.py`: normalize a loaded table (column names matched case-insensitively:
+  `table_schema`/`schema`/`owner`, `table_name`/`table`, `column_name`/`column`, `data_type`/`type`,
+  optional `table_catalog`/`database`, `table_type`/`kind`, `is_nullable`, `ordinal_position`,
+  `description`/`comment`/`remarks`); one DuckDB table per catalog in the locked database, hidden from
+  grids and the SQL box; tree queries (schemas, tables of a schema, columns of a table) and search
+  (every word in schema.table.column; `a.b` matches schema.table or table.column; exact before
+  starts-with before contains). Limits in `Settings`.
+- Connection store `server/connections.py`: one JSON file per connection (name, kind `sql` or `other`,
+  dialect, code, the variable it produces, and the optional catalog command: SQL run on that variable
+  through DB-API, or Python whose `catalog` variable or last expression is the table); secrets through
+  `keyring`; a starting catalog query per dialect (INFORMATION_SCHEMA, SQLite's pragmas, Oracle's
+  ALL_TAB_COLUMNS).
+- Refresh `server/connection_runner.py`: a child process (`python -I`) gets the code and secrets on
+  stdin, runs the code, takes its variable, runs the catalog command, and returns rows as JSON; a time
+  limit, plain errors.
+- Routes `server/routes_catalog.py`: `/catalogs` (list, load, tree, search, remove) and `/connections`
+  (list, get, save, remove, refresh, python). Connection routes refuse the agent.
+- Client: `sag.load(table, name, dialect=None)`, `sag.connect(name)` (runs the saved Python in the
+  caller's Python, secrets fetched from the server), `sag.connections()`.
+- MCP: `catalog_list`, `catalog_schemas`, `catalog_tables`, `catalog_columns` (with a SELECT quoted in
+  the source's dialect), `catalog_search`. Results are names and types, wrapped as untrusted data.
+- Page `/catalog` (its own tab): Connections (new, edit, refresh, copy `sag.connect`, remove; drag
+  gives the `sag.connect` line) above Catalog (picker, search, keyboard tree, column details; drag gives
+  the quoted name). The grid page links to it.
+- Done when: a SQLite connection saved in the page refreshes into a searchable catalog, `sag.connect`
+  returns a working connection in a fresh Python, `sag.load(information_schema_frame, name=...)` shows
+  a 500,000-column catalog instantly, and the agent finds a column and gets a correct SELECT.
+
+**Part 2 (with phase 2):** the same navigation left of the notebook; **Save as connection** on the
+notebook's toolbar takes the highlighted code into the save screen; drag a connection into a cell
+(`conn = sag.connect(...)`), a table (a SQL cell over the connection), a column (its quoted name).
 
 ## Phase 3: save and open a workspace
 
