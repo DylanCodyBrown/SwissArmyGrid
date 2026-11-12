@@ -75,6 +75,7 @@
 
 .blade-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* a long name is cut with "...", never wider than the rail */
   gap: 2px;
   max-height: 34vh;
   margin: 0;

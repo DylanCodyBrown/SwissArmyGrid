@@ -25,7 +25,11 @@ export function h<K extends keyof HTMLElementTagNameMap>(
     } else if (key === "dataset" && typeof value === "object") {
       Object.assign(element.dataset, value);
     } else if (key === "style" && typeof value === "object") {
-      Object.assign(element.style, value);
+      // setProperty for custom properties (--share): Object.assign drops them silently.
+      for (const [name, css] of Object.entries(value as Record<string, string>)) {
+        if (name.startsWith("--")) element.style.setProperty(name, css);
+        else Object.assign(element.style, { [name]: css });
+      }
     } else if (value === true) {
       element.setAttribute(key, "");
     } else {

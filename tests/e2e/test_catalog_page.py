@@ -469,3 +469,17 @@ def test_the_save_screen_changes_a_setting_in_the_code(
     assert 'host="db07.corp.local"' in call(server, "GET", "/blades/Orders%20DB")["code"]
     assert page.errors == []  # type: ignore[attr-defined]
     page.close()
+
+
+def test_a_long_blade_name_never_hides_the_blade_buttons(
+    browser: Browser, server: dict[str, Any], warehouse: str
+) -> None:
+    for name in ("Quarterly finance extract for the regional managers", "Warehouse"):
+        call(server, "POST", "/blades", {"name": name, "kind": "other", "code": "x = 1\n"})
+    page = open_page(browser, warehouse)
+    listing = page.locator(".blade-list")
+    expect(listing.locator(".blade-item")).to_have_count(2)
+    assert listing.evaluate("e => e.scrollWidth <= e.clientWidth")
+    for item in listing.locator(".blade-item").all():
+        expect(item.get_by_role("button", name="Copy the sag.blade line")).to_be_in_viewport()
+    page.close()
