@@ -444,6 +444,12 @@ def _typed_literal(column: Column, value: Any) -> str:
         except ValueError as error:
             raise StepError(None, f"{value!r} is not an ISO date.") from error
         cast = "DATE" if family == "date" else "TIMESTAMP"
+        if isinstance(parsed, datetime) and parsed.tzinfo is not None:
+            # CAST(... AS TIMESTAMP) drops an offset (11:00+05:00 became 11:00); TIMESTAMPTZ keeps
+            # the instant. A column with no time zone has no instant to compare with.
+            if not column.type.upper().startswith(("TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ")):
+                raise StepError(None, f"{column.name} has no time zone; give the time without an offset.")
+            cast = "TIMESTAMPTZ"
         return f"CAST({literal(parsed.isoformat())} AS {cast})"
     if family == "boolean":
         if not isinstance(value, bool):
