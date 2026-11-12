@@ -38,7 +38,9 @@ that haven't been folded back into it yet.
   validation is simple and the server can aggregate before drawing. The server then builds
   the Vega-Lite.
 - **Generated code verification** runs only this package's own generated code, in process,
-  with an import allowlist checked on the syntax tree. It is not a sandbox (that is M9).
+  with an import allowlist checked on the syntax tree. It is not a sandbox (that is M9). Since
+  2026-11-12 it runs the code exactly as copied, in a namespace holding only the user's table
+  (see "Copied code is one DuckDB query" below).
 - **The approval endpoint trusts the browser.** Any process running as the same Windows user
   can read the connection file and approve its own request. The gate stops an agent that only
   has the MCP tools.
@@ -116,6 +118,43 @@ that haven't been folded back into it yet.
   route uses the latter). Worth switching; left alone to keep this change to the "+" tab.
 - Open: a closed "+" tab's Monaco editor isn't disposed (panes.ts has no pane-closed hook). Small,
   but it grows with every query tab closed in one page session.
+
+## Copied code is one DuckDB query over the user's table (2026-11-12, confirm or change)
+
+The owner's report: copied SQL and Python "never was the actual transformation script that would
+work to transform the source table back in the ENV". Reproduced: the DuckDB copy only defined
+`transform(con, rel)` (pyarrow, a `__sag_ord` column, a table registered as `source`), so pasting
+it computed nothing and calling it on the user's DataFrame failed; the pandas and plain copies
+also only defined `transform()` with helpers and imports. Verification ran them against an Arrow
+relation, not the user's variable, so they were marked verified anyway.
+
+- **The DuckDB copy is the default for every source**, and is the query itself: one statement over
+  the table by its variable name (the dataset name). Copy as SQL gives the query; Copy as Python
+  gives `import duckdb` and `orders_view = duckdb.sql("""...""").df()` (`.pl()` for Polars,
+  `.to_arrow_table()` for Arrow, the relation for DuckDB, `.df()` otherwise). This is the plan's
+  "Grids pushed from outside" bullet under Code-behind.
+- **Built from the engine's own step pieces** (engine/steps.py helpers), not a translation. Row
+  order without the hidden column: DuckDB's order preservation, plus `row_number() OVER ()` as the
+  last sort key, because ORDER BY is not stable (docs/verified.md). Remove duplicates numbers its
+  input in a subquery (`_row`), the one helper column, inside the query only.
+- **Verification runs exactly the copied text** with `exec` in a fresh namespace holding only the
+  user's variable, rebuilt as what was pushed, and reads back `<name>_view`. It is in process (a
+  fresh interpreter per check took about 0.6 s, too slow for the golden suite); the tests also run
+  every case in a fresh `python -I` (tests/test_copied_code.py). `duckdb.sql` uses DuckDB's default
+  connection, so the server locks that connection down on first use (no file system, no extension
+  downloads, no spilling, memory limit, then lock_configuration) and runs one check at a time.
+- **pandas is not a server dependency**, so in an installed server `.df()` and the pandas
+  translation could not be run. The DuckDB check then runs the same query over an Arrow table and
+  says the final `.df()` was not run; the pandas translation reports "Not verified". Open: add
+  pandas to the `[server]` extra (a dependency decision for the owner).
+- **pandas and plain Python stay as secondary targets** ("longer translation" in the picker), and
+  now end with `orders_view = transform(orders)` so they too transform the user's variable. The
+  plain one reads a list of dicts, so it cannot run on a pushed DataFrame; the tab says what each
+  option reads.
+- Open: a pandas frame pushed with a non-default index arrives with that index as a column
+  (`reset_index()` in the push client), which the user's own frame does not have, so the copy's
+  `SELECT *` shows one column fewer than the grid. A list of dicts, a file or the clipboard has no
+  variable DuckDB can read; the copy expects a DataFrame of that name and says so.
 
 ## Next: grid tabs, split view and compare (to plan)
 

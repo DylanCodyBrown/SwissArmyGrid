@@ -23,6 +23,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import pandas as pd
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect, sync_playwright
@@ -321,15 +322,52 @@ def test_profile_click_value_adds_a_filter(browser: Browser, orders_url: str) ->
     expect(page.locator("dialog table.small")).to_contain_text("unit_price")
 
 
-def test_copy_as_python_is_verified(browser: Browser, orders_url: str) -> None:
+def test_copy_as_sql_and_python_run_on_the_users_own_table(
+    browser: Browser, server: dict[str, Any], orders_url: str
+) -> None:
+    grid = grid_of(orders_url)
+    steps = [
+        {"kind": "filter", "params": {"column": "quantity", "op": "gt", "value": 10}},
+        {"kind": "sort", "params": {"keys": [["unit_price", "desc"]]}},
+        {
+            "kind": "sql",
+            "params": {"sql": "SELECT order_id, region, quantity * unit_price AS total FROM orders"},
+        },
+        {"kind": "limit", "params": {"n": 40}},
+    ]
+    call(server, "POST", f"/grids/{grid}/steps", {"steps": steps})
     page = open_grid(browser, orders_url)
-    page.get_by_role("button", name="Copy transformations as Python").click()
+    page.evaluate("() => { navigator.clipboard.writeText = async (text) => { window.__copied = text; }; }")
+    page.get_by_role("button", name="Copy transformations as SQL or Python").click()
+    view = page.locator(".code-view")
+    expect(view).to_contain_text("Verified identical", timeout=30000)
+    expect(view.locator("pre")).to_contain_text('import duckdb\n\norders_view = duckdb.sql("""')
+    expect(page.locator(".steps-panel")).to_contain_text("Reads a pandas DataFrame named orders")
+
+    view.get_by_role("button", name="Copy as SQL").click()
+    page.wait_for_function("window.__copied !== undefined")
+    sql = page.evaluate("window.__copied")
+    page.evaluate("() => { window.__copied = undefined; }")
+    view.get_by_role("button", name="Copy as Python").click()
+    page.wait_for_function("window.__copied !== undefined")
+    code = page.evaluate("window.__copied")
+    assert code.startswith("import duckdb\n") and "__sag" not in code and sql.strip() in code
+
+    # Pasted where the user works: only their table, by its name.
+    orders = demo_frame()
+    namespace: dict[str, Any] = {"orders": orders}
+    exec(compile(code, "<pasted>", "exec"), namespace)  # noqa: S102 (the copied code under test)
+    pasted = namespace["orders_view"]
+    grid_rows = call(server, "GET", f"/grids/{grid}/rows?start=0&end=100")["rows"]
+    assert pasted["order_id"].tolist() == [r[0] for r in grid_rows]
+    assert pasted["total"].round(6).tolist() == [round(r[2], 6) for r in grid_rows]
+    relation = duckdb.sql(sql)  # "Copy as SQL" is the same one query
+    assert relation is not None and relation.df()["order_id"].tolist() == pasted["order_id"].tolist()
+
+    # The longer pandas translation is still there, second.
+    view.locator("select").select_option("pandas")
+    expect(page.locator(".code-view pre")).to_contain_text("orders_view = transform(orders)", timeout=30000)
     expect(page.locator(".code-view")).to_contain_text("Verified identical", timeout=30000)
-    expect(page.locator(".code-view pre")).to_contain_text(
-        "def transform(orders: pd.DataFrame) -> pd.DataFrame"
-    )
-    page.locator(".code-view select").select_option("duckdb")
-    expect(page.locator(".code-view pre")).to_contain_text("duckdb.DuckDBPyRelation", timeout=30000)
 
 
 def test_steps_panel_is_right_of_the_grid_and_collapses(browser: Browser, orders_url: str) -> None:

@@ -553,14 +553,16 @@ def cancel(a: dict[str, Any]) -> Any:
 
 @command(
     "steps_python",
-    "The Python that reproduces the grid's steps, verified against the grid (Copy transformations as Python). "
-    "Not available at privacy level 0.",
+    "The grid's steps as code for the user's own Python, verified against the grid (Copy as SQL / Copy as "
+    "Python). `sql` is one DuckDB query over the user's table by its variable name; with target duckdb, "
+    "`code` is `import duckdb` plus one line running it. Not available at privacy level 0.",
     req("grid", "Grid id."),
-    opt("target", "duckdb (default), pandas or python."),
+    opt("target", "duckdb (default), or the longer pandas or plain Python translations."),
 )
 def grid_code(a: dict[str, Any]) -> Any:
     result = api.call("GET", f"/grids/{_q(a['grid'])}/code", params={"target": a.get("target") or "duckdb"})
-    keep = ("target", "verified", "rows_checked", "reason", "code")  # "difference" can quote cells
+    # "difference" can quote cells, so it stays out.
+    keep = ("target", "verified", "note", "rows_checked", "reads", "reason", "sql", "code")
     return {k: result.get(k) for k in keep if k in result}
 
 
