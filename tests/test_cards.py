@@ -175,23 +175,106 @@ def test_notes_tables_updates_and_removal(client: TestClient) -> None:
     assert "error" in {c["id"]: c for c in cards(client, grid)}[bad]
 
 
-def test_altair_code(client: TestClient) -> None:
-    grid = grid_id(push(client, "o", big_table(10)))
-    card = add(
-        client,
-        grid,
+def run_copied_chart(code: str, frame: Any) -> tuple[Any, list[tuple[str, tuple[Any, ...], dict[str, Any]]]]:
+    """Run the copied Altair code as the user would, in a fresh namespace, with a stand-in for
+    altair (not installed here) that records the chart it is asked to draw. Returns the frame
+    handed to alt.Chart and every call made on altair."""
+    import sys
+    import types
+    from unittest.mock import patch
+
+    calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+
+    class Recorder:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *args: Any, **kwargs: Any) -> Recorder:
+            calls.append((self.name, args, kwargs))
+            return Recorder(f"{self.name}()")
+
+        def __getattr__(self, attribute: str) -> Recorder:
+            return Recorder(f"{self.name}.{attribute}")
+
+    fake = types.ModuleType("altair")
+    fake.__getattr__ = lambda attribute: Recorder(f"alt.{attribute}")  # type: ignore[method-assign]
+    with patch.dict(sys.modules, {"altair": fake}):
+        namespace: dict[str, Any] = {}
+        exec(compile(code, "<copied>", "exec"), namespace)  # noqa: S102 (code this package generated)
+        namespace["chart"](frame)
+    data = next(args[0] for name, args, _ in calls if name == "alt.Chart")
+    return data, calls
+
+
+def _plain(value: Any) -> Any:
+    """A point's value as the card's JSON has it, from what DuckDB's .df() gives."""
+    import math
+
+    if hasattr(value, "isoformat"):
+        return value.isoformat()[:10]
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        {"mark": "bar", "x": {"field": "col:on"}, "y": {"aggregate": "sum", "field": 'q"uote'}},
+        {"mark": "bar", "x": {"field": "a.b"}, "y": {"aggregate": "count"}, "color": {"field": "col:on"}},
         {
-            "kind": "chart",
-            "spec": {
-                "mark": "bar",
-                "x": {"field": "region"},
-                "y": {"aggregate": "sum", "field": "qty"},
-            },
+            "mark": "line",
+            "x": {"field": "day", "time_unit": "month"},
+            "y": {"aggregate": "mean", "field": "a.b"},
         },
-    ).json()["card"]
+        {"mark": "area", "x": {"field": "a.b"}, "y": {"aggregate": "max", "field": 'q"uote'}},
+        {
+            "mark": "point",
+            "x": {"field": "col:on"},
+            "y": {"aggregate": "min", "field": "a.b"},
+            "title": 'It\'s "x"',
+        },
+        {"mark": "heatmap", "x": {"field": "col:on"}, "y": {"field": "a.b", "aggregate": "count"}},
+        {"mark": "histogram", "x": {"field": 'q"uote', "bins": 7}},
+        {"mark": "bar", "x": {"field": "id"}, "y": {"aggregate": "count"}},  # over the 5,000 cap
+    ],
+)
+def test_the_copied_altair_code_draws_the_cards_points(client: TestClient, spec: dict[str, Any]) -> None:
+    # The copy put column names into Altair's shorthand ("col:on:N" is a syntax error there, a
+    # quote ended the string, a dot reads a nested field) and handed Altair the whole frame,
+    # which it refuses over 5,000 rows. It now aggregates with the grid's own query first.
+    rows = 6000
+    table = pa.table(
+        {
+            "id": pa.array(range(rows), pa.int64()),
+            "col:on": pa.array([("a", "b", None)[i % 3] for i in range(rows)]),
+            "a.b": pa.array([i % 7 for i in range(rows)], pa.int64()),
+            'q"uote': pa.array([(i * 37) % 101 / 4 for i in range(rows)]),
+            "day": pa.array([date(2026, 1, 1) + timedelta(days=i % 90) for i in range(rows)]),
+        }
+    )
+    grid = grid_id(push(client, "o", table))
+    card = add(client, grid, {"kind": "chart", "spec": spec}).json()["card"]
+    shown = cards(client, grid)[0]
     code = client.get(f"/cards/{card}/code", headers=AUTH).json()["code"]
-    assert 'alt.Chart(df).mark_bar(tooltip=True).encode(x="region:N", y="sum(qty):Q")' in code
-    compile(code, "<altair>", "exec")
+    data, calls = run_copied_chart(code, table.to_pandas())
+    assert len(data) == shown["points"] <= 5000
+    expected = shown["vega_lite"]["data"]["values"]
+    got = [{k: _plain(v) for k, v in row.items()} for row in data.to_dict("records")]
+    if spec["x"]["field"] == "id":  # the 5,000 largest of 6,000 equal groups: any 5,000 of them
+        assert len({r["x"] for r in got}) == 5000
+    else:
+        # Groups that tie on y may come in either order.
+        want = [{k: _plain(v) for k, v in row.items()} for row in expected]
+        assert sorted(map(repr, got)) == sorted(map(repr, want))
+        if spec["mark"] in ("line", "area"):
+            assert got == want  # in x order
+    vl_mark = {"histogram": "bar", "heatmap": "rect"}.get(spec["mark"], spec["mark"])
+    assert f"alt.Chart().mark_{vl_mark}" in {name for name, _, _ in calls}
+    if "title" in spec:
+        assert next(kwargs for name, _, kwargs in calls if name == "alt.Chart")["title"] == spec["title"]
 
 
 def test_bar_series_differ_by_dash_too(client: TestClient) -> None:

@@ -274,7 +274,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
             def make(cur: duckdb.DuckDBPyConnection) -> str:
                 columns = ctx.compiled(cur, grid, info).columns
-                return altair_code(validate(card["spec"], columns), columns, info.name)
+                spec = validate(card["spec"], columns)
+                return altair_code(spec, columns, info.name, ctx.settings.max_chart_points)
 
             return json_response({"code": await ctx.grid_query(grid, None, BACKGROUND, make)})
         except Exception as error:

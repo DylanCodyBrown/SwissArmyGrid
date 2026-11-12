@@ -23,6 +23,7 @@ from typing import Any
 
 import duckdb
 
+from swissarmygrid.codegen.duckdb_code import python_string, variable_name
 from swissarmygrid.engine.datasets import Column, quote
 from swissarmygrid.engine.steps import type_family
 
@@ -143,7 +144,6 @@ def aggregate(
 
     y = spec.get("y", {})
     color = spec.get("color")
-    x_expr = f"CAST(date_trunc('{x['time_unit']}', {xf}) AS DATE)" if "time_unit" in x else xf
 
     if mark == "point" and y.get("aggregate") is None:
         yf = quote(y["field"])
@@ -162,45 +162,95 @@ def aggregate(
         keys = ["x", "y", "color"] if color else ["x", "y"]
         return {"values": [dict(zip(keys, r, strict=True)) for r in rows], "note": note}
 
-    agg = y["aggregate"]
-    y_expr = "count(*)" if agg == "count" else f"{_SQL_AGG[agg]}({quote(y['field'])})"
-    group = [x_expr]
-    projection = [f"{x_expr} AS x"]
-    if mark == "heatmap":
-        second = quote(y["field"]) if agg == "count" else None
-        if second is None:
-            raise ChartError("A heatmap counts rows by x.field and y.field; use aggregate count.")
-        group.append(second)
-        projection.append(f"{second} AS y2")
-    elif color:
-        group.append(quote(color["field"]))
-        projection.append(f"{quote(color['field'])} AS color")
-    projection.append(f"{y_expr} AS y")
+    projection, group, order = _grouped(spec)
     groups_row = cursor.execute(
         f"SELECT count(*) FROM (SELECT 1 FROM {v} GROUP BY {', '.join(group)})"
     ).fetchone()
     groups = int(groups_row[0]) if groups_row else 0
-    order = {
-        "x": "x ASC NULLS LAST",
-        "-x": "x DESC NULLS LAST",
-        "y": "y ASC NULLS LAST",
-        "-y": "y DESC NULLS LAST",
-    }
-    sort = x.get("sort", "x" if mark in ("line", "area") or "time_unit" in x else "-y")
-    limit = ""
     if groups > max_points:
-        limit = f" LIMIT {max_points}"
         note = f"Showing the {max_points:,} largest of {groups:,} groups."
         top = (
             f"SELECT {', '.join(projection)} FROM {v} GROUP BY {', '.join(group)} "
-            f"ORDER BY y DESC NULLS LAST{limit}"
+            f"ORDER BY y DESC NULLS LAST LIMIT {max_points}"
         )
-        sql = f"SELECT * FROM ({top}) ORDER BY {order[sort]}"
+        sql = f"SELECT * FROM ({top}) ORDER BY {order}"
     else:
-        sql = f"SELECT {', '.join(projection)} FROM {v} GROUP BY {', '.join(group)} ORDER BY {order[sort]}"
+        sql = f"SELECT {', '.join(projection)} FROM {v} GROUP BY {', '.join(group)} ORDER BY {order}"
     result = cursor.execute(sql)
     names = [d[0] for d in result.description or []]
     return {"values": [dict(zip(names, r, strict=True)) for r in result.fetchall()], "note": note}
+
+
+_ORDER = {
+    "x": "x ASC NULLS LAST",
+    "-x": "x DESC NULLS LAST",
+    "y": "y ASC NULLS LAST",
+    "-y": "y DESC NULLS LAST",
+}
+
+
+def _x_expression(x: dict[str, Any]) -> str:
+    xf = quote(x["field"])
+    return f"CAST(date_trunc('{x['time_unit']}', {xf}) AS DATE)" if "time_unit" in x else xf
+
+
+def _grouped(spec: dict[str, Any]) -> tuple[list[str], list[str], str]:
+    """An aggregated chart's select list, GROUP BY list and final ORDER BY."""
+    x, y, color = spec["x"], spec["y"], spec.get("color")
+    agg = y["aggregate"]
+    x_expr = _x_expression(x)
+    y_expr = "count(*)" if agg == "count" else f"{_SQL_AGG[agg]}({quote(y['field'])})"
+    group = [x_expr]
+    projection = [f"{x_expr} AS x"]
+    if spec["mark"] == "heatmap":
+        if agg != "count":
+            raise ChartError("A heatmap counts rows by x.field and y.field; use aggregate count.")
+        group.append(quote(y["field"]))
+        projection.append(f"{quote(y['field'])} AS y2")
+    elif color:
+        group.append(quote(color["field"]))
+        projection.append(f"{quote(color['field'])} AS color")
+    projection.append(f"{y_expr} AS y")
+    sort = x.get("sort", "x" if spec["mark"] in ("line", "area") or "time_unit" in x else "-y")
+    return projection, group, _ORDER[sort]
+
+
+def chart_query(spec: dict[str, Any], source: str, max_points: int) -> str:
+    """The chart's points from `source` (a table name) as ONE DuckDB query, for the copied code.
+    The same points aggregate() gives; it runs its own count first only to word its note."""
+    x = spec["x"]
+    xf = quote(x["field"])
+    if spec["mark"] == "histogram":
+        bins = x.get("bins", 20)
+        return (
+            f"WITH v AS (\n    SELECT CAST({xf} AS DOUBLE) AS value FROM {source}\n"
+            f"    WHERE {xf} IS NOT NULL AND isfinite(CAST({xf} AS DOUBLE))\n),\n"
+            "r AS (\n    SELECT min(value) AS low,\n"
+            "    CASE WHEN max(value) > min(value)\n"
+            f"    THEN max(value) / {bins} - min(value) / {bins} ELSE 1.0 END AS width\n    FROM v\n),\n"
+            "b AS (\n    SELECT\n"
+            f"    greatest(0, least(CAST(floor(value / width - low / width) AS BIGINT), {bins - 1}))\n"
+            "    AS bin,\n"
+            "    count(*) AS count\n    FROM v, r GROUP BY 1\n)\n"
+            "SELECT low + bin * width AS bin_start, low + (bin + 1) * width AS bin_end, count\n"
+            "FROM b, r\nORDER BY bin"
+        )
+    y = spec["y"]
+    color = spec.get("color")
+    if spec["mark"] == "point" and y.get("aggregate") is None:
+        yf = quote(y["field"])
+        select = f"{xf} AS x, {yf} AS y" + (f", {quote(color['field'])} AS color" if color else "")
+        return (
+            f"SELECT * FROM (\n    SELECT {select} FROM {source}\n"
+            f"    WHERE {xf} IS NOT NULL AND {yf} IS NOT NULL\n)\n"
+            f"USING SAMPLE reservoir({max_points} ROWS) REPEATABLE (42)"
+        )
+    projection, group, order = _grouped(spec)
+    return (
+        f"SELECT * FROM (\n    SELECT {', '.join(projection)}\n    FROM {source}\n"
+        f"    GROUP BY {', '.join(group)}\n    ORDER BY y DESC NULLS LAST\n    LIMIT {max_points}\n)\n"
+        f"ORDER BY {order}"
+    )
 
 
 def _x_type(spec: dict[str, Any], columns: tuple[Column, ...]) -> str:
@@ -284,8 +334,13 @@ def vega_lite(spec: dict[str, Any], data: dict[str, Any], columns: tuple[Column,
             "type": "quantitative",
             "title": y_title if y.get("aggregate") else y.get("field"),
             # Headroom above the highest value, so a line never sits on the plot's top edge;
-            # zero stays the floor (a pixel padding would push the axis below zero).
-            "scale": _headroom(data["values"]),
+            # zero stays the floor (a pixel padding would push the axis below zero). A blank x
+            # has no place on a date or number axis, so its value does not stretch the axis.
+            "scale": _headroom(
+                data["values"]
+                if x_type == "nominal"
+                else [v for v in data["values"] if v.get("x") is not None]
+            ),
         },
     }
     vl_mark: dict[str, Any] = {"type": mark, "tooltip": True}
@@ -307,39 +362,74 @@ def vega_lite(spec: dict[str, Any], data: dict[str, Any], columns: tuple[Column,
     return base | {"mark": vl_mark, "encoding": encoding}
 
 
-def altair_code(spec: dict[str, Any], columns: tuple[Column, ...], dataset: str) -> str:
-    """The same chart as Altair code over the grid's output DataFrame (no data embedded)."""
+def altair_code(spec: dict[str, Any], columns: tuple[Column, ...], dataset: str, max_points: int) -> str:
+    """The same chart as Altair code over the grid's output DataFrame (no data embedded).
+
+    DuckDB turns the frame into the chart's points first, with the query the grid uses, so the
+    chart holds at most `max_points` rows (Altair refuses a frame over 5,000 rows) and Altair
+    only encodes plain columns named x, y, y2, color, bin_start and bin_end. Column names reach
+    the code only inside that SQL, quoted, and every title is a Python string literal, so a
+    name with a colon, a dot or a quote (which Altair's shorthand reads as syntax) still works.
+    """
     mark = spec["mark"]
     x = spec["x"]
+    y = spec.get("y", {})
+    variable = variable_name(dataset)
+    query = chart_query(spec, "df", max_points)
+    title = spec.get("title")
+    x_title = x["field"] + (f" ({x['time_unit']})" if "time_unit" in x else "")
+    if mark == "histogram":
+        vl_mark = "mark_bar(tooltip=True)"
+        encodings = [
+            f'x=alt.X("bin_start", type="quantitative", bin="binned", title={x["field"]!r})',
+            'x2=alt.X2("bin_end")',
+            'y=alt.Y("count", type="quantitative", title="rows")',
+        ]
+    elif mark == "heatmap":
+        vl_mark = "mark_rect(tooltip=True)"
+        encodings = [
+            f'x=alt.X("x", type="nominal", title={x_title!r})',
+            f'y=alt.Y("y2", type="nominal", title={y["field"]!r})',
+            'color=alt.Color("y", type="quantitative", title="rows")',
+        ]
+    else:
+        vl_mark = f"mark_{mark}(tooltip=True{', point=True' if mark in ('line', 'area') else ''})"
+        y_title = (
+            "rows"
+            if y.get("aggregate") == "count"
+            else f"{y.get('aggregate', '')} {y.get('field', '')}".strip()
+        )
+        axis = f", axis=alt.Axis(format={_TIME_FORMATS[x['time_unit']]!r})" if "time_unit" in x else ""
+        encodings = [
+            f'x=alt.X("x", type={_x_type(spec, columns)!r}, title={x_title!r}, sort=None{axis})',
+            f'y=alt.Y("y", type="quantitative", title={y_title if y.get("aggregate") else y["field"]!r})',
+        ]
+        if "color" in spec:
+            series = f'"color", type="nominal", title={spec["color"]["field"]!r}'
+            encodings.append(f"color=alt.Color({series})")
+            if mark == "line":
+                encodings.append(f"strokeDash=alt.StrokeDash({series})")  # never color alone
+            if mark == "point":
+                encodings.append(f"shape=alt.Shape({series})")
+            if mark == "bar":
+                encodings.append('xOffset=alt.XOffset("color", type="nominal")')
+    chart = f"alt.Chart(data{f', title={title!r}' if title else ''})"
     lines = [
-        f"# Generated by SwissArmyGrid: the chart over dataset '{dataset}'.",
-        "# Pass the grid's output (see Copy as Python for the transform).",
+        f"# Generated by SwissArmyGrid: the chart over dataset {dataset!r}.",
+        f"# chart({variable}_view) draws it from the grid's output (Copy as Python gives {variable}_view).",
+        "# DuckDB aggregates the rows first, as the grid does, so the chart holds at most "
+        f"{max_points:,} points.",
         "import altair as alt",
+        "import duckdb",
         "import pandas as pd",
         "",
         "",
         "def chart(df: pd.DataFrame) -> alt.Chart:",
+        "    con = duckdb.connect()",
+        '    con.register("df", df)',
+        f"    data = con.sql({python_string(query)}).df()",
+        f"    return {chart}.{vl_mark}.encode(",
+        *(f"        {e}," for e in encodings),
+        "    )",
     ]
-    if mark == "histogram":
-        enc = f'x=alt.X("{x["field"]}:Q", bin=alt.Bin(maxbins={x.get("bins", 20)})), y="count()"'
-        lines.append(f"    return alt.Chart(df).mark_bar().encode({enc})")
-        return "\n".join(lines) + "\n"
-    y = spec.get("y", {})
-    letter = {"nominal": "N", "quantitative": "Q", "temporal": "T"}[_x_type(spec, columns)]
-    x_enc = f'"{x["time_unit"]}({x["field"]}):T"' if "time_unit" in x else f'"{x["field"]}:{letter}"'
-    if mark == "heatmap":
-        enc = f'x={x_enc}, y="{y["field"]}:N", color="count():Q"'
-        lines.append(f"    return alt.Chart(df).mark_rect().encode({enc})")
-        return "\n".join(lines) + "\n"
-    agg = y.get("aggregate")
-    y_enc = '"count()"' if agg == "count" else (f'"{agg}({y["field"]}):Q"' if agg else f'"{y["field"]}:Q"')
-    enc = f"x={x_enc}, y={y_enc}"
-    if "color" in spec:
-        c = spec["color"]["field"]
-        enc += f', color="{c}:N"'
-        if mark == "line":
-            enc += f', strokeDash="{c}:N"'
-        if mark == "point":
-            enc += f', shape="{c}:N"'
-    lines.append(f"    return alt.Chart(df).mark_{mark}(tooltip=True).encode({enc})")
     return "\n".join(lines) + "\n"

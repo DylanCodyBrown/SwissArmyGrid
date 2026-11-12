@@ -129,3 +129,13 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   it is refused now. DuckDB 2.0.0's ORDER BY over a very wide result is slow whatever the row
   count: `SELECT <4,000 columns> FROM t ORDER BY rowid` takes 2.4 s on 3 rows (SELECT * without
   the ORDER BY 0.09 s), and 16,390 columns took 47 s for every view request (rows and exports).
+- (2026-11-12) Copy as Python (Altair), Altair 6.3.0 with vl-convert, pandas, DuckDB 1.4 in a
+  clean virtual environment: the copy put column names into Altair's shorthand (`"col:on:N"` is a
+  syntax error there, `a.b` reads a nested field, a `"` ended the Python string) and handed Altair
+  the whole frame, which it refuses over 5,000 rows (MaxRowsError). It now runs the grid's own
+  chart query over the frame with DuckDB (`charts.spec.chart_query`) and encodes the plain columns
+  x, y, y2, color, bin_start and bin_end. All 24 chart kinds and options of the probe table (dates,
+  time zones, 1850-9999, nulls, unicode, HUGEINT sums, +-1e300) ran and rendered to SVG, from a
+  DuckDB `.df()` frame and from `pd.read_parquet` (dates as objects); on a 1,000,000-row frame a
+  900-bar chart took 0.7 s and a scatter 0.2 s (5,000 sampled points). The tests run the copy with
+  a recording stand-in for altair (not a dependency) and compare its points with the card's.
