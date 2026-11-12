@@ -18,6 +18,7 @@ browser, so every script, notebook and agent reaches the one server the extensio
 
 from __future__ import annotations
 
+import http.client
 import inspect
 import io
 import json
@@ -65,14 +66,23 @@ def _read_info() -> dict[str, Any] | None:
 
 
 def _healthy(info: dict[str, Any]) -> bool:
+    port, token = info.get("port"), info.get("token")
+    # A half-written or hand-edited file: no server to talk to (and no InvalidURL for the user).
+    if (
+        isinstance(port, bool)
+        or not isinstance(port, int)
+        or not 0 < port < 65536
+        or not isinstance(token, str)
+    ):
+        return False
     request = urllib.request.Request(
-        f"http://127.0.0.1:{info.get('port')}/health",
-        headers={"Authorization": f"Bearer {info.get('token')}"},
+        f"http://127.0.0.1:{port}/health",
+        headers={"Authorization": f"Bearer {token}"},
     )
     try:
         with urllib.request.urlopen(request, timeout=2) as response:  # noqa: S310 (fixed http://127.0.0.1 URL)
             return bool(response.status == 200)
-    except (urllib.error.URLError, OSError):
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return False
 
 
@@ -143,28 +153,145 @@ def _source_kind(data: object) -> str:
     )
 
 
+SUPPORTED: str = (
+    "push accepts a pandas DataFrame or Series, a Polars DataFrame, a PyArrow table or record batch, "
+    "a DuckDB relation, anything that speaks the Arrow C stream interface, a dict of columns, "
+    "or a list of dicts"
+)
+
+
 def _to_arrow(data: object) -> Any:
     """Any supported input as a pyarrow Table. Raises ImportError without pyarrow."""
     import pyarrow as pa
 
     kind = _source_kind(data)
+    table: Any
     if kind == "pandas":
-        frame: Any = data
-        if not _has_default_index(frame):
-            frame = frame.reset_index()
-        return pa.Table.from_pandas(frame, preserve_index=False)
-    if kind == "records":
-        return pa.Table.from_pylist(data)
-    if kind == "duckdb":
-        return data.to_arrow_table()  # type: ignore[attr-defined]
-    if isinstance(data, pa.Table):
-        return data
-    if hasattr(type(data), "__arrow_c_stream__"):
+        table = _pandas_to_arrow(_prepared_frame(data))
+    elif kind == "records":
+        table = _records_to_arrow(data)  # type: ignore[arg-type]
+    elif kind == "duckdb":
+        table = data.to_arrow_table()  # type: ignore[attr-defined]
+    elif isinstance(data, pa.Table):
+        table = data
+    elif isinstance(data, pa.RecordBatch):
+        table = pa.Table.from_batches([data])
+    elif hasattr(type(data), "__arrow_c_stream__"):
         # Read the stream directly. pa.table() would treat a tuple subclass that speaks Arrow (a
         # query client's NamedTuple result, say) as a list of arrays and fail before it looked for the stream.
-        return pa.RecordBatchReader.from_stream(data).read_all()
-    # Polars and anything else pyarrow can turn into a table.
-    return pa.table(data)
+        table = pa.RecordBatchReader.from_stream(data).read_all()
+    else:
+        # Polars, a dict of columns, and anything else pyarrow can turn into a table.
+        try:
+            table = pa.table(data)
+        except (TypeError, ValueError, pa.ArrowException) as error:
+            raise TypeError(f"{SUPPORTED}; this is a {type(data).__name__}.") from error
+    if table.num_columns == 0:
+        raise ValueError("The table has no columns, so there is nothing to show.")
+    return table
+
+
+_ARROW_REFUSED_NAMES = ("ArrowInvalid", "ArrowTypeError", "ArrowNotImplementedError")
+
+
+def _unique_names(names: list[str], taken: set[str] | None = None) -> list[str]:
+    """`names` with repeats suffixed .1, .2 (as pandas.read_csv does). Case is ignored, as DuckDB
+    ignores it: "ID" and "id" are the same column there."""
+    seen = set() if taken is None else taken
+    unique: list[str] = []
+    for name in names:
+        candidate, n = name, 0
+        while candidate.casefold() in seen:
+            n += 1
+            candidate = f"{name}.{n}"
+        seen.add(candidate.casefold())
+        unique.append(candidate)
+    return unique
+
+
+def _prepared_frame(data: Any) -> Any:
+    """A pandas object as a DataFrame the grid can hold: a Series as one column; a meaningful index
+    as columns; flattened MultiIndex columns; unique text names (the real columns keep theirs, an
+    index that clashes takes the suffix); periods as text (Arrow would keep only their ordinals)."""
+    import pandas as pd
+
+    if isinstance(data, pd.Series):
+        data = data.to_frame(name="value" if data.name is None else data.name)
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(f"{SUPPORTED}; this is a pandas {type(data).__name__}.")
+    if isinstance(data.columns, pd.MultiIndex):
+        names = ["_".join(str(part) for part in key if str(part) != "") for key in data.columns]
+    else:
+        names = [str(name) for name in data.columns]
+    names = _unique_names(names)
+    # A shallow copy: never the caller's frame (its names change below), and no data copied, on
+    # pandas 2 as on 3 (set_axis copies the data on pandas 2 unless copy-on-write is on).
+    frame: Any = data.copy(deep=False)
+    frame.columns = names
+    if not _has_default_index(frame):
+        levels = list(frame.index.names)
+        index_names = [
+            str(level) if level is not None else ("index" if len(levels) == 1 else f"level_{i}")
+            for i, level in enumerate(levels)
+        ]
+        index_names = _unique_names(index_names, {n.casefold() for n in names})
+        frame = frame.reset_index(allow_duplicates=True)
+        frame.columns = index_names + names
+    for position, dtype in enumerate(frame.dtypes):
+        if isinstance(dtype, pd.PeriodDtype):
+            column = frame.iloc[:, position]
+            frame.isetitem(position, column.astype(str).where(column.notna(), None))
+    return frame
+
+
+def _pandas_to_arrow(frame: Any) -> Any:
+    """A prepared frame as Arrow. A column Arrow refuses (an object column mixing numbers and text,
+    complex numbers) goes as text, so one odd column never stops the push of the others."""
+    import pyarrow as pa
+
+    try:
+        return pa.Table.from_pandas(frame, preserve_index=False)
+    except pa.ArrowException as error:
+        if type(error).__name__ not in _ARROW_REFUSED_NAMES:
+            raise
+    arrays: dict[str, Any] = {}
+    for position, name in enumerate(frame.columns):
+        column = frame.iloc[:, position]
+        try:
+            arrays[name] = pa.Table.from_pandas(column.to_frame(name=name), preserve_index=False).column(0)
+        except pa.ArrowException:
+            arrays[name] = pa.array([None if _blank(v) else str(v) for v in column], type=pa.string())
+    return pa.table(arrays)
+
+
+def _records_to_arrow(rows: list[Any]) -> Any:
+    """A list of dicts as Arrow, every key a column (pyarrow's from_pylist reads the first row's keys
+    only, and dropped the rest). A key missing from a row is blank; a mixed column goes as text."""
+    import pyarrow as pa
+
+    if not all(isinstance(row, dict) for row in rows):
+        raise TypeError("A list to push must be a list of dicts, one per row ({column: value}).")
+    names = list(dict.fromkeys(str(key) for row in rows for key in row))
+    unique = _unique_names(names)
+    texts = [{str(k): v for k, v in row.items()} for row in rows]
+    arrays: dict[str, Any] = {}
+    for name, column in zip(unique, names, strict=True):
+        values = [row.get(column) for row in texts]
+        try:
+            arrays[name] = pa.array(values)
+        except pa.ArrowException:
+            arrays[name] = pa.array([None if v is None else str(v) for v in values], type=pa.string())
+    return pa.table(arrays)
+
+
+def _blank(value: Any) -> bool:
+    import pandas as pd
+
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    return missing is True or (type(missing).__name__ == "bool_" and bool(missing))
 
 
 def _has_default_index(frame: Any) -> bool:
@@ -223,7 +350,9 @@ def push(
             raise ImportError(
                 "Install pyarrow to push anything other than a pandas DataFrame or a list of dicts."
             )
-        frame: Any = data if _has_default_index(data) else data.reset_index()  # type: ignore[attr-defined]
+        frame: Any = _prepared_frame(data)
+        if frame.shape[1] == 0:
+            raise ValueError("The table has no columns, so there is nothing to show.")
         body = frame.to_json(orient="split", date_format="iso", default_handler=str).encode()
         content_type = "application/json"
 
@@ -250,9 +379,16 @@ def push(
         if error.code == 409 and _follow:
             raise TableNotOpenError(message) from error
         raise RuntimeError(f"SwissArmyGrid refused the push ({error.code}): {message}") from error
-    except urllib.error.URLError as error:
+    except TimeoutError as error:
         raise ServerNotRunningError(
-            f"No SwissArmyGrid server at port {info['port']} ({error.reason}): it stopped while "
+            f"The SwissArmyGrid server at port {info['port']} did not answer within "
+            f"{_TIMEOUT_SECONDS:.0f} seconds."
+        ) from error
+    except (urllib.error.URLError, http.client.HTTPException, OSError) as error:
+        # Refused, reset, or closed without a reply (RemoteDisconnected): the server went away.
+        reason = getattr(error, "reason", None) or error
+        raise ServerNotRunningError(
+            f"No SwissArmyGrid server at port {info['port']} ({reason}): it stopped while "
             "this push was on its way. Click SwissArmyGrid in VS Code's status bar to start it again."
         ) from error
     return str(result.get("grid_url") or "")  # a refresh of a table whose tab was closed has none
