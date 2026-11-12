@@ -1,0 +1,160 @@
+# Ideas and open notes
+
+Out-of-scope ideas (plan section 0, rule 4), plus notes from the 2026-10-21 review of the plan
+that haven't been folded back into it yet.
+
+## Decisions made while building M0 and M1 (confirm or change)
+
+- **Web framework: Starlette + uvicorn**, plus `websockets` for uvicorn's WebSocket support. The
+  plan names no framework. The official MCP Python library is built on Starlette, which should
+  help with M5.
+- **Type checker: mypy strict.** The pip build of pyright downloads its engine from npm on first
+  run, and the plan asks for no network calls beyond installing packages.
+- **The grid page shell and static files need no token.** The plan says "token required on every
+  request". A browser can't attach a header when it loads a page, so `/g/<id>` and `/static/` are
+  public: they hold no data, only the page and the vendored library. The token goes in the URL
+  fragment (`#token=`), which browsers never send to a server, and the page attaches it to every
+  data request. Host and Origin are still checked on those paths.
+- **WebSocket token as a subprotocol**, not a query parameter, so it never appears in the
+  server's access log.
+- **A request with no Origin header is allowed** (the push client never sends one); a request
+  with a foreign Origin gets 403.
+- **Separate caps for request body size and dataset size.** The plan's 6a measures the loaded
+  Arrow size but also says to refuse on Content-Length. JSON is several times bigger than the
+  same data in Arrow, so `max_push_body_bytes` (400 MiB) is separate from `max_dataset_bytes`.
+- **Rows come back with the row count** (no separate `/count` route yet), and sort is a `sort=`
+  query parameter. Both move to the step model in M3.
+- **No thousands separators in grid numbers**, so identifier columns don't look like amounts.
+
+## Decisions made while building M1-M8 (confirm or change)
+
+- **Dependencies added under "build it out as robust as the plan":** sqlglot, mcp and
+  xlsxwriter (the plan asked to check xlsxwriter first: BSD-2-Clause, and its in_memory mode is
+  used so nothing goes to a temp folder); Monaco, Vega, Vega-Lite and vega-embed in the page
+  (MIT and BSD-3, loaded only when first used); Playwright and openpyxl for tests only.
+- **The step engine was built before M2**, since profiling, SQL, export and code generation
+  all read the step view. Every grid change (header sort, chart click, agent edit) is a step.
+- **Charts use a small declarative spec, not raw Vega-Lite** (charts/spec.py): strict
+  validation is simple and the server can aggregate before drawing. The server then builds
+  the Vega-Lite.
+- **Generated code verification** runs only this package's own generated code, in process,
+  with an import allowlist checked on the syntax tree. It is not a sandbox (that is M9).
+- **The approval endpoint trusts the browser.** Any process running as the same Windows user
+  can read the connection file and approve its own request. The gate stops an agent that only
+  has the MCP tools.
+- **Group-by output is sorted by its keys** (blanks last), which matches pandas `sort=True`.
+- **Header sort is the last word:** new steps go before the header-sort step.
+- **The analysis panel starts collapsed in windows narrower than 1,100px** (VS Code's side
+  browser, a laptop split).
+- **The MCP server ships as a wheel in the plugin**, run with `uvx --from <wheel>`, so
+  teammates need uv on their PATH.
+
+## Decisions made on 2026-10-22 (confirm or change)
+
+- **`%` is the only wildcard** (it was `*` and `?` in plan section 7), so a filter reads like SQL
+  LIKE; `*`, `?` and `_` are literal.
+- **Selection is Excel's, not checkboxes.** A header click now selects its column, so sorting
+  moved to the arrow button in each header and to the ribbon's Column group.
+- **Copy includes the header row** for whole rows, columns or everything, and not for a block of
+  cells (Excel copies only cells; a header line helps when the whole table goes elsewhere).
+  Copy stops at 200,000 rows and points to Export.
+- **A SQL step reads only the table entering it**, never another dataset, so its generated
+  Python needs no other data; joins stay a Pin-as-new-grid job. It names that table by the
+  dataset's own name (2026-10-24, so the SQL pastes into the user's Python unchanged, where the
+  table is a variable of that name) or `grid` (kept for older steps and recipes). In the SQL box
+  a dataset name, the grid's own included, reads the rows as loaded, like the Python variable
+  (0.6.0 briefly read the grid's view there instead, so Apply kept the box's rows; 0.6.1 went
+  back so the box matches the notebook). So with earlier steps, the same text can give the box
+  and the step different rows; with the SQL step first, the box, the step and the pasted Python
+  all agree. A query with no defined order is sorted by every
+  column (`ORDER BY ALL`).
+- **Generated pandas and plain Python run a SQL step in DuckDB** (the plain target then needs
+  duckdb, and says so in its header). There is no faithful pure-Python translation of SQL.
+- **`read_grid` keeps the privacy caps** (20 rows at level 1, 200 at level 2) and the approval
+  click; the agent's `limit` works inside them. Say if level 2 should allow more per read.
+- **The ribbon names what each tool acts on** (Table, Column, Cell, with the target in the
+  caption); a Column or Cell tool is disabled, with the reason in its tooltip, until something
+  it can act on is selected.
+
+## Key Finder decisions (2026-10-22, confirm or change)
+
+- **Both sides are grid views**, each after its own steps, so a grid can be filtered down
+  before looking for its join. The target can be the grid's own dataset (a self-join such as
+  parent_id to id); a column is never paired with itself.
+- **Values compare as normalized text:** 42, 42.0 and '42' meet; a timestamp at midnight meets
+  its date; Trim (on) and Ignore case (off) apply to text. Columns longer than 128 characters,
+  true/false, lists, structs and binary columns are left out and listed with the reason.
+- **Score** = (0.7 x overlap coefficient + 0.3 x the lower of the two percent-found figures) x
+  min(1, log10(shared) / 3). The second term breaks the classic tie between a real reference
+  and an unrelated running counter (an order_id of 1..6,000 contains every customer id of
+  1..2,000, but covers them only a third of the way). The last factor keeps Y/N flags and small
+  code lists below real keys.
+- **Single columns only.** Composite keys (two columns that join only together) are a later
+  step: the same inverted-index join over column pairs, with the candidate count kept small.
+- The Key Finder is a natural companion to compare (below): a found pair can become the
+  compare keys.
+
+## The "+" tab and the window race (2026-10-23, confirm or change)
+
+- **A table name in the "+" tab reads its tab's view**, after that tab's steps (Dylan's choice
+  over the raw rows). Two tabs on one dataset: the name reads the first (oldest) grid, the one a
+  re-push reuses. A dataset with no tab open reads its rows as loaded.
+- **The result is stored, not live.** Run makes a dataset (source kind `sql_result`, with the
+  query kept on `DatasetInfo.query`); a change to a table it reads doesn't rebuild it. Run again
+  does, in place, keeping the tab's own steps.
+- **Run again rebuilds only a table a query made.** `replace` on `POST /datasets/{name}/query`
+  is refused for a pushed or loaded dataset, and without `replace` any name in use is refused, so
+  a "+" tab can never overwrite another table by picking its name. A query can't read the table
+  it builds.
+- **The tray is the base data; the SQL box stays a step.** Both open the same Monaco editor, and
+  each editor now keeps its own autocomplete names.
+- **A push told to open a window holds the next pushes back** until that window connects, or 15
+  seconds, so a script pushing three tables opens one window. The MCP's `open_grid` uses the same
+  rule.
+- Open: the pin path (`CREATE TABLE ... AS` in the SQL box) still fetches with
+  `execute(q).to_arrow_table()`, which copies the rows once more than `cursor.sql(q)` (the "+"
+  route uses the latter). Worth switching; left alone to keep this change to the "+" tab.
+- Open: a closed "+" tab's Monaco editor isn't disposed (panes.ts has no pane-closed hook). Small,
+  but it grows with every query tab closed in one page session.
+
+## Next: grid tabs, split view and compare (to plan)
+
+Asked for on 2026-10-22: grids open as tabs in one window instead of new browser windows (move,
+close, reorder), dragging one tab onto another splits the view into two grids side by side (the
+side panels follow whichever grid was clicked last), and a Compare group on the ribbon lines the
+two grids up by primary keys for an anti join, an outer join or a cross compare. This changes
+the page from one grid per page to several, so it gets its own plan before any code.
+
+## Not built (yet)
+
+- Milestone 9, the agent Python sandbox: the plan says ask first.
+- The VS Code extension ("View in grid" on a file or a debugger variable) and the Jupyter
+  display hook: the plan lists them as extras after M4.
+- A SQL box query that joins another dataset can't be a step (see above); pinning it works,
+  but the pinned grid's Python starts from the pinned result.
+- Splitting an export across several Excel sheets: an export over the row limit is refused
+  with a message instead.
+
+## Known gaps in the first M1 slice (most now closed)
+
+- JSON push loses types: dates arrive as ISO text and decimals as strings. The Arrow push format
+  fixes this and should come next.
+- No `gen` request numbers yet; AG Grid drops stale blocks on its own for now.
+- The dataset (50) and grid (20) count limits, and the 500-character cell truncation, aren't
+  enforced yet.
+- No Content-Security-Policy header on the page. Worth adding; AG Grid's theming API injects
+  style tags, so it needs a nonce or `style-src 'unsafe-inline'`.
+- The bundle registers `AllCommunityModule` (1.1 MB). Register only the modules in use.
+
+## Review notes on the plan itself
+
+- Section 0 rule 7 and the M0 check say "section 12" for the verify list; it is section 17.
+- The push client's size pre-check uses pandas `memory_usage(deep=True)`, which overstates text
+  columns compared with the Arrow size the server measures, so it can refuse frames the server
+  would accept. Measure with pyarrow when it's installed.
+- The push client doesn't validate or escape the dataset name before putting it in the URL, uses
+  a 10-second timeout that a large push can exceed, and reports a stale connection file (left by
+  a crashed server) as a raw connection error.
+- Four implementations per operation (engine + DuckDB, pandas and plain-Python generators) is a
+  lot of work for M4 and M6. Consider shipping the DuckDB generator first and adding pandas only
+  when someone needs it.
