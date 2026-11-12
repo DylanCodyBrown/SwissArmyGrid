@@ -219,6 +219,18 @@ def sweep(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Sweep]:
             if isinstance(v, str) and len(v) >= 8
         )
         assert len(sentinels) > 100
+        # A catalog, as sag.load would send it, for the catalog_* tools: names and types only.
+        probe.user(
+            "PUT",
+            "/catalogs/Sweep%20source?dialect=sqlserver",
+            {
+                "columns": ["table_schema", "table_name", "column_name", "data_type"],
+                "data": [
+                    ["sales", "orders", "order_id", "int"],
+                    ["sales", "orders", "placed_at", "datetime2"],
+                ],
+            },
+        )
         ready = Sweep(port, tmp, grids, sentinels, frozenset(store))
         stop = threading.Event()
 
@@ -262,6 +274,10 @@ def _xlsx_file(s: Sweep) -> str:
 
 
 SENSIBLE: dict[str, Factory] = {
+    "catalog_schemas": lambda s: {"catalog": "Sweep source"},
+    "catalog_tables": lambda s: {"catalog": "Sweep source", "schema": "sales"},
+    "catalog_columns": lambda s: {"catalog": "Sweep source", "schema": "sales", "table": "orders"},
+    "catalog_search": lambda s: {"catalog": "Sweep source", "text": "order"},
     "commands": lambda s: {"match": "steps"},
     "tabs_new_query": lambda s: {"name": s.fresh("q"), "sql": "SELECT cust_key, status_code FROM customers"},
     "tabs_create_grid": lambda s: {"dataset": "products"},

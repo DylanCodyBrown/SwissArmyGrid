@@ -101,7 +101,7 @@ class Package:
         return {"module": self.module, "pip": self.pip, "guessed": self.guessed, "installed": self.installed}
 
 
-def _pip_name(dotted: str) -> tuple[str, bool]:
+def pip_name(dotted: str) -> tuple[str, bool]:
     parts = dotted.split(".")
     for end in range(len(parts), 0, -1):
         known = PIP_NAMES.get(".".join(parts[:end]))
@@ -124,7 +124,7 @@ def needed(code: str) -> list[Package]:
     for dotted in found.imports:
         if dotted.split(".")[0] in _PROVIDED:
             continue
-        pip, guessed = _pip_name(dotted)
+        pip, guessed = pip_name(dotted)
         if pip not in packages:
             packages[pip] = Package(dotted, pip, guessed, _installed(dotted))
     for call in found.calls:
@@ -142,7 +142,7 @@ def install_command(pips: list[str], python: str | None = None) -> str:
 
 def missing_module_hint(module: str) -> str:
     """The sentence for an ImportError: what to install, and the command that does it."""
-    pip, _ = _pip_name(module)
+    pip, _ = pip_name(module)
     return (
         f"This blade needs {pip}, which is not installed in this Python. "
         f"Install it with: {install_command([pip])}"

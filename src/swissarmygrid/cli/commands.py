@@ -978,6 +978,84 @@ def add_erd(a: dict[str, Any]) -> Any:
     return {"card": card["card"], "tables": drawn["tables"]}
 
 
+# ===== catalog: a source database's tables and columns (names and types, never values) =====
+
+CATALOG_NOTE = (
+    "Names and types the user loaded from a source database (a blade's Refresh or sag.load), to write SQL "
+    "against that source. Never values."
+)
+
+
+@command("catalog_list", "Every loaded catalog: name, SQL dialect, and its schema, table and column counts.")
+def catalog_list(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/catalogs")
+
+
+@command(
+    "catalog_schemas",
+    "A catalog's schemas, with how many tables and views each holds. " + CATALOG_NOTE,
+    req("catalog", "Catalog name (catalog_list)."),
+    values=True,
+)
+def catalog_schemas(a: dict[str, Any]) -> Any:
+    return api.call("GET", f"/catalogs/{_q(a['catalog'])}/schemas")
+
+
+@command(
+    "catalog_tables",
+    "The tables and views in one schema of a catalog, with column counts, paged.",
+    req("catalog", "Catalog name."),
+    req("schema", "Schema name; empty text for a source without schemas."),
+    opt("database", "Database, when the catalog spans more than one."),
+    opt("offset", "Skip this many tables (paging).", "int"),
+    opt("limit", "At most this many tables (default 1000, at most 5000).", "int"),
+    values=True,
+)
+def catalog_tables(a: dict[str, Any]) -> Any:
+    return api.call(
+        "GET",
+        f"/catalogs/{_q(a['catalog'])}/tables",
+        params={
+            "schema": a["schema"],
+            "database": a.get("database"),
+            "offset": a.get("offset"),
+            "limit": a.get("limit"),
+        },
+    )
+
+
+@command(
+    "catalog_columns",
+    "A table's columns and types in the source, with a first SELECT quoted for the source's SQL dialect.",
+    req("catalog", "Catalog name."),
+    req("schema", "Schema name; empty text for none."),
+    req("table", "Table or view name."),
+    opt("database", "Database, when the catalog spans more than one."),
+    values=True,
+)
+def catalog_columns(a: dict[str, Any]) -> Any:
+    return api.call(
+        "GET",
+        f"/catalogs/{_q(a['catalog'])}/columns",
+        params={"schema": a["schema"], "table": a["table"], "database": a.get("database")},
+    )
+
+
+@command(
+    "catalog_search",
+    "Find tables and columns by name. Every word must appear in schema.table.column; `a.b` means "
+    "schema.table or table.column. Exact names first, then names that start with the text.",
+    req("catalog", "Catalog name."),
+    req("text", "What to look for, such as `customer id` or `sales.orders`."),
+    opt("limit", "At most this many tables and this many columns (default 50).", "int"),
+    values=True,
+)
+def catalog_search(a: dict[str, Any]) -> Any:
+    return api.call(
+        "GET", f"/catalogs/{_q(a['catalog'])}/search", params={"q": a["text"], "limit": a.get("limit")}
+    )
+
+
 @command(
     "compare_create",
     "Line two grids up on key columns (the page's split compare). Counts only.",
@@ -1346,6 +1424,7 @@ AREAS: tuple[tuple[str, str], ...] = (
     ("key_finder", "Key Finder"),
     ("relationships", "Relationships dialog"),
     ("erd", "ERD tab"),
+    ("catalog", "Catalog explorer: a source database's tables and columns"),
     ("compare", "Compare (two grids side by side)"),
     ("sandbox", "Agent tab: Analysis Sandbox"),
     ("app", "The page itself: snapshots"),

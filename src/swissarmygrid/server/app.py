@@ -5,6 +5,7 @@ Route modules, one per area, like ASP.NET controllers:
   routes_grids.py      rows, steps, profile, SQL, export, code, recipes for one grid
   routes_agent.py      the MCP door: privacy levels and approvals (plan section 12)
   routes_cards.py      side-panel charts and notes (plan section 11)
+  routes_catalog.py    catalogs (a source's names and types) and blades (saved code that loads)
   routes_keyfinder.py  the Key Finder: likely join columns between grids
   routes_compare.py    two grids aligned row for row on key columns
   routes_processes.py  Python sessions offering tables: the Open list (processes.py)
@@ -29,6 +30,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from swissarmygrid.engine.audit import AuditLog
+from swissarmygrid.engine.catalog import CatalogStore
 from swissarmygrid.engine.database import open_database
 from swissarmygrid.engine.datasets import DatasetStore
 from swissarmygrid.engine.views import ViewEngine
@@ -36,6 +38,7 @@ from swissarmygrid.engine.workers import PriorityWorkers
 from swissarmygrid.server import (
     routes_agent,
     routes_cards,
+    routes_catalog,
     routes_compare,
     routes_context,
     routes_datasets,
@@ -45,6 +48,7 @@ from swissarmygrid.server import (
     routes_processes,
     routes_snapshots,
 )
+from swissarmygrid.server.blade_store import BladeStore
 from swissarmygrid.server.context import Context
 from swissarmygrid.server.grids import GridRegistry
 from swissarmygrid.server.live_updates import LiveUpdates
@@ -82,6 +86,8 @@ def create_app(
         audit=AuditLog(settings.state_dir / "audit.log" if audit_log else None),
         on_shutdown=on_shutdown or (lambda: None),
         processes=ProcessRegistry(),
+        catalogs=CatalogStore(connection, settings.max_catalogs, settings.max_catalog_rows),
+        blades=BladeStore(settings.blades_dir),
     )
 
     policy = routes_agent.Policy()  # what an agent may see: one policy, every table
@@ -117,6 +123,10 @@ def create_app(
         # The same page as /g/<id>: it shows every open grid as a tab, opened on the last one.
         return FileResponse(settings.web_root / "index.html", headers={"Cache-Control": "no-store"})
 
+    async def catalog_page(request: Request) -> Response:
+        # Blades and the catalog explorer, in a tab of its own (plan decision 18).
+        return FileResponse(settings.web_root / "catalog.html", headers={"Cache-Control": "no-store"})
+
     async def drop_silent_sessions() -> None:
         # A notebook that closes or crashes just stops reporting; the list notices within a few
         # seconds and tells the pages, so a dead session never lingers in the Open dialog.
@@ -140,6 +150,7 @@ def create_app(
             *routes_context.routes(ctx, policy),
             *routes_models.routes(ctx, relationships),
             *routes_cards.routes(ctx, policy),
+            *routes_catalog.routes(ctx),
             *routes_keyfinder.routes(ctx, policy),
             *routes_compare.routes(ctx, policy),
             *routes_processes.routes(ctx),
@@ -147,6 +158,7 @@ def create_app(
             WebSocketRoute("/ws", live),
             Route("/g/{grid_id}", grid_page),
             Route("/workspace", workspace_page),
+            Route("/catalog", catalog_page),
             Mount("/static", StaticFiles(directory=settings.web_root, check_dir=False)),
         ],
         middleware=[

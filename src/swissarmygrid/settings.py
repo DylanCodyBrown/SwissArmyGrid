@@ -78,6 +78,13 @@ class Settings:
     max_total_bytes: int = field(default_factory=_default_total_budget)
     max_datasets: int = 50
     max_grids: int = 50  # open tabs at once, the same as max_datasets
+    # Catalogs (names and types of a source database, plan decision 17): how many at once, and how
+    # many rows (one per column of the source) each may hold. A large warehouse has a few hundred
+    # thousand columns.
+    max_catalogs: int = 20
+    max_catalog_rows: int = 2_000_000
+    # How long a blade's Refresh or Test may run in its child process before it is stopped.
+    blade_timeout_seconds: float = 300.0
     # Size of a push request body. JSON is several times larger than the same data in
     # memory, so this cap is separate from max_dataset_bytes; otherwise a dataset well under
     # the dataset cap would be refused just for arriving as JSON.
@@ -113,6 +120,11 @@ class Settings:
     state_dir: Path = field(default_factory=_state_dir)
     # Exports requested by an agent (MCP) land only here, never as a browser download.
     export_dir: Path = field(default_factory=lambda: _state_dir() / "exports")
+
+    @property
+    def blades_dir(self) -> Path:
+        """Saved blades, one JSON file each (plan decision 14)."""
+        return self.state_dir / "blades"
 
     @property
     def duckdb_memory_limit(self) -> str:

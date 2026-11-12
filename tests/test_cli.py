@@ -145,6 +145,17 @@ NOT_COMMANDS = {
     "/workspace": "page shell",
     "/static": "page files",
     "/agent/context": "current_table",
+    "/catalog": "page shell",
+    "/catalogs/{}": "PUT loads a catalog (sag.load) and DELETE removes one: the user's, refused to the agent",
+    "/blades": "blades are the user's saved code and secrets: every /blades route refuses the agent",
+    "/blades/{}": "as /blades",
+    "/blades/templates": "as /blades",
+    "/blades/inspect": "as /blades",
+    "/blades/install": "as /blades: installing packages is the user's click",
+    "/blades/{}/secrets": "as /blades",
+    "/blades/{}/refresh": "as /blades: running a blade's code is the user's click",
+    "/blades/{}/test": "as /blades",
+    "/blades/{}/python": "as /blades: sag.blade() in the user's Python",
 }
 
 

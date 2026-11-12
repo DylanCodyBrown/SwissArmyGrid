@@ -34,9 +34,9 @@ from starlette.websockets import WebSocket
 WEBSOCKET_SUBPROTOCOL: str = "swissarmygrid"
 
 # The page shell and its files: prefixes for /g/<id> and /static/..., and the one exact path of
-# the workspace page (a prefix would also let "/workspaceanything" skip the token check).
+# the workspace and catalog pages (a prefix would also let "/workspaceanything" skip the token check).
 _PUBLIC_PREFIXES: tuple[str, ...] = ("/g/", "/static/")
-_PUBLIC_PATHS: frozenset[str] = frozenset({"/workspace"})
+_PUBLIC_PATHS: frozenset[str] = frozenset({"/workspace", "/catalog"})
 
 _MESSAGES: dict[int, str] = {
     401: "Missing or wrong token. Clients read it from the server's connection file.",

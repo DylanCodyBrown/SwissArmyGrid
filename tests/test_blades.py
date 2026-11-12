@@ -96,7 +96,7 @@ def test_secret_falls_back_to_environment_variables(monkeypatch: pytest.MonkeyPa
 def test_a_missing_driver_names_the_package_to_install() -> None:
     with pytest.raises(BladeRunError) as caught:
         run_code("import snowflake.connector\nconn = 1", "conn", {})
-    assert caught.value.missing_module == "snowflake"
+    assert caught.value.missing_module == "snowflake.connector"
     assert "snowflake-connector-python" in missing_module_hint("snowflake.connector")
 
 

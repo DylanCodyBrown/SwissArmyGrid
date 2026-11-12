@@ -23,7 +23,7 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-from swissarmygrid.blades.code import parse
+from swissarmygrid.blades.code import parse, read
 
 
 class BladeRunError(RuntimeError):
@@ -95,7 +95,14 @@ def run_code(
     except BaseException as error:
         if isinstance(error, KeyboardInterrupt | SystemExit):
             raise
-        raise _failure(error, secrets, label) from None
+        failure = _failure(error, secrets, label)
+        if failure.missing_module:
+            # Python names the top level it could not find (`snowflake`); the code's own import says
+            # which package that is (`snowflake.connector`, from snowflake-connector-python).
+            top = failure.missing_module
+            written = [m for m in read(code).imports if m == top or m.startswith(top + ".")]
+            failure.missing_module = max(written, key=len, default=top)
+        raise failure from None
     if variable not in names:
         made = [n for n in names if not n.startswith("_") and n != "secret"]
         raise BladeRunError(

@@ -186,7 +186,7 @@ def test_a_missing_driver_is_named(store: BladeStore) -> None:
     store.save({"name": "Snow", "kind": "sql", "code": "import snowflake.connector\nconn = 1\n"})
     with pytest.raises(RefreshError) as caught:
         asyncio.run(blade_runner.run(payload(store, store.get("Snow"), "test", {}), 30))
-    assert caught.value.missing_module == "snowflake"
+    assert caught.value.missing_module == "snowflake.connector"
 
 
 def test_a_blade_that_hangs_is_stopped(store: BladeStore) -> None:

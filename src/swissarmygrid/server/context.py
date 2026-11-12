@@ -23,6 +23,7 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
 from swissarmygrid.engine.audit import AuditLog
+from swissarmygrid.engine.catalog import CatalogError, CatalogStore
 from swissarmygrid.engine.datasets import (
     DatasetError,
     DatasetInfo,
@@ -36,6 +37,7 @@ from swissarmygrid.engine.sql_guard import SqlRefused
 from swissarmygrid.engine.steps import CompiledView, StepError
 from swissarmygrid.engine.views import ViewEngine
 from swissarmygrid.engine.workers import PriorityWorkers
+from swissarmygrid.server.blade_store import BladeError, BladeStore
 from swissarmygrid.server.grids import Grid, GridLimitError, GridRegistry, StaleRequestError
 from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.masking import Origins, trace
@@ -64,6 +66,9 @@ class Context:
     on_shutdown: Callable[[], None]
     # The Python sessions offering tables to the Open list (processes.py).
     processes: ProcessRegistry
+    # Source databases' names and types (engine/catalog.py) and the saved blades (blade_store.py).
+    catalogs: CatalogStore
+    blades: BladeStore
     # For a table made by a query: each column's origins, the dataset columns it was computed
     # from (masking.py), so a privacy mask on a source column follows the data into it.
     derived_columns: dict[str, dict[str, Origins]] = field(default_factory=dict)
@@ -214,7 +219,9 @@ def error_response(error: Exception) -> Response:
         status = 413
     elif isinstance(error, DatasetLimitError | GridLimitError | StaleRequestError):
         status = 409
-    elif isinstance(error, DatasetError | StepError | SqlRefused | ExportError | ValueError):
+    elif isinstance(
+        error, DatasetError | StepError | SqlRefused | ExportError | CatalogError | BladeError | ValueError
+    ):
         status = 400
     elif isinstance(error, LookupError):
         status = 404
