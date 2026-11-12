@@ -238,10 +238,6 @@ The code button beside Settings opens the notebook (marimo) in a tab of its own,
 
 ![The notebook: blades and the catalog on the left, the marimo notebook on the right with a blade's line dropped into a cell.](images/22-notebook.png)
 
-## The tray icon
-
-While the grid server runs, its icon (the red square with the white cross) sits in the Windows notification area. Click it to open the workspace in your browser. Its menu also has Stop SwissArmyGrid. Data you pushed is held in memory, so it goes when the server stops; push again to bring it back.
-
 ## Limits
 
 - All open tables together can hold 3 GB (never more than half of your computer's memory), and one table up to 1 GB, enough for a full Excel sheet of 1,048,576 rows on most tables.

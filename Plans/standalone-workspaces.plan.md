@@ -161,9 +161,14 @@ One command per platform, from a release:
   the script or notebook.
 - CLI: `swissarmygrid start [--background]`, `open [workspace]` (opens the browser with the token),
   `workspaces`, `stop`.
-- Tray icon (`swissarmygrid tray`): Open, the workspace list, Restart, Start with Windows (a Startup
-  folder shortcut), Stop and quit. A server started by the tray or the command line never stops on its
-  own; one started by VS Code still ends with VS Code.
+- Tray icon (`swissarmygrid tray`; the owner's spec, 2026-11-12): a click opens the last workspace; a
+  **right click shows what is active**: every open workspace by name, with how many tables it holds and
+  whether its notebook is running, each one opening that workspace's tab (and its notebook) when chosen;
+  then **New workspace** (asks for a name, creates it, opens its tab), the blades page, Restart, Start
+  with Windows (a Startup folder shortcut), and Stop and quit. The list is read fresh each time the menu
+  opens. A server started by the tray or the command line never stops on its own; one started by VS Code
+  still ends with VS Code. Not built yet: the user guide described a tray before it existed, and that
+  section was removed until it does.
 - MCP: every tool takes `workspace`; `workspaces_list`, `workspace_create`, `workspace_close`.
 - Done when: two Python processes each `create_workspace()` and push a table named `df`, both grids
   stay correct, each page sees only its own tables, and the agent sees both by workspace.
