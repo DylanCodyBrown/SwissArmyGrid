@@ -36,6 +36,10 @@ from swissarmygrid.engine.steps import type_family
 EXCEL_MAX_ROWS: int = 1_048_576
 EXCEL_MAX_CELL_CHARS: int = 32_767
 EXCEL_EXACT_DIGITS: int = 15
+# Excel's dates start in 1900, and until 1900-03-01 its serial numbers count a 29 February
+# 1900 that never was, so other readers (openpyxl, pandas, LibreOffice) read them as other days.
+# Earlier dates are written as ISO text.
+EXCEL_FIRST_DATE: date = date(1900, 3, 1)
 FORMULA_STARTS: tuple[str, ...] = ("=", "+", "-", "@", "\t", "\r")
 FORMATS: dict[str, tuple[str, str]] = {
     "csv": (".csv", "text/csv"),
@@ -176,7 +180,8 @@ def delimited(
         return encoded
 
     if options.header:
-        writer.writerow([c.name for c in columns])
+        # Column names come from the data too, so the header row is neutralized like text cells.
+        writer.writerow([neutralize(c.name) if options.neutralize_formulas else c.name for c in columns])
     for batch in reader:
         for row in zip(*(col.to_pylist() for col in batch.columns), strict=True):
             writer.writerow([_text_value(v, options, text_columns[i]) for i, v in enumerate(row)])
@@ -242,13 +247,17 @@ def excel(
                     else:
                         sheet.write_number(r, i, float(value))
                 elif isinstance(value, datetime):
-                    if value.tzinfo is not None:
+                    if value.tzinfo is not None or value.date() < EXCEL_FIRST_DATE:
                         # Excel has no time zones; never shift silently, keep the offset as text.
+                        # Nor dates before EXCEL_FIRST_DATE: they read back as another day, or #VALUE!.
                         sheet.write_string(r, i, value.isoformat())
                     else:
                         sheet.write_datetime(r, i, value, datetime_format)
                 elif isinstance(value, date):
-                    sheet.write_datetime(r, i, datetime(value.year, value.month, value.day), date_format)
+                    if value < EXCEL_FIRST_DATE:
+                        sheet.write_string(r, i, value.isoformat())
+                    else:
+                        sheet.write_datetime(r, i, datetime(value.year, value.month, value.day), date_format)
                 else:
                     text = value if isinstance(value, str) else str(value)
                     if len(text) > EXCEL_MAX_CELL_CHARS:
