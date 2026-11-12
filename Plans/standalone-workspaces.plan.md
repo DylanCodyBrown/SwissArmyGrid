@@ -160,6 +160,11 @@ With the notebook built in, the direction reverses (decision 11):
   re-runs it and the grid follows (marimo's reactivity re-runs what depends on it).
 - A step list compiles to one query (SAG's step compiler already produces DuckDB SQL), so "copy" gives
   a single runnable statement: `duckdb.sql("""...""")` over `orders` works in any Python with DuckDB.
+- **Proposed (owner, 2026-11-12; to confirm): retire the grid page's SQL box and Table Transformations
+  panel** once the notebook writes transformations as SQL cells: transforming then lives in the
+  notebook's tab (decision 12), and the grid page keeps analysis (grid, profile, charts, Key Finder,
+  compare, relationships). Until the notebook exists the panel stays, since it is the only way to
+  transform a grid today.
 - Grids pushed from outside (a VS Code notebook, a script) keep server-side steps; their "Copy as SQL"
   becomes that same single query over the source table's name, and "Copy as Python" the one-line
   DuckDB call around it: no imports beyond `duckdb`, nothing else.

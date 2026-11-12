@@ -27,7 +27,7 @@ from typing import Any
 import duckdb
 
 from swissarmygrid.engine.datasets import Column, DatasetInfo, quote
-from swissarmygrid.engine.steps import ORD, CompiledView, Step, ViewSettings, compile_view
+from swissarmygrid.engine.steps import CompiledView, Step, ViewSettings, compile_view
 
 POS: str = "__sag_pos"
 
@@ -117,7 +117,7 @@ class ViewEngine:
             return Window([list(r) for r in rows], info.row_count, compiled.columns_at(upto))
         cached = self._materialize(cursor, info, compiled, steps, settings, upto)
         rows = cursor.execute(
-            f"SELECT {names} FROM {cached.table} WHERE {POS} >= ? AND {POS} < ? ORDER BY {POS}",
+            f"SELECT {names} FROM {cached.table} WHERE rowid >= ? AND rowid < ? ORDER BY rowid",
             [start, end],
         ).fetchall()
         return Window([list(r) for r in rows], cached.row_count, compiled.columns_at(upto))
@@ -151,7 +151,7 @@ class ViewEngine:
         if compiled.applied(upto) == 0:
             return f"SELECT rowid AS {POS}, {names} FROM {info.table}", columns
         cached = self._materialize(cursor, info, compiled, steps, settings, upto)
-        return f"SELECT {POS}, {names} FROM {cached.table}", columns
+        return f"SELECT rowid AS {POS}, {names} FROM {cached.table}", columns
 
     def step_counts(
         self,
@@ -210,11 +210,11 @@ class ViewEngine:
                 if hit is not None:
                     return hit
             table = quote(f"vc_{key}")
-            body = compiled.sql(upto, keep_order_column=True)
-            cursor.execute(
-                f"CREATE OR REPLACE TABLE {table} AS SELECT row_number() OVER (ORDER BY {ORD}) - 1 "
-                f"AS {POS}, * EXCLUDE ({ORD}) FROM ({body})"
-            )
+            # The view's query ends ORDER BY its order column, and a table created from an ordered
+            # query keeps that order, so each row's rowid (dense from 0, docs/verified.md) is its
+            # position in the view. Numbering the rows with row_number() instead meant a second full
+            # sort of the view: on 1,000,000 rows it took a sort step from about 450 ms to over 700.
+            cursor.execute(f"CREATE OR REPLACE TABLE {table} AS {compiled.sql(upto)}")
             count_row = cursor.execute(f"SELECT count(*) FROM {table}").fetchone()
             count = int(count_row[0]) if count_row else 0
             # Estimate: the dataset's bytes scaled by the share of rows the view keeps.
