@@ -602,6 +602,30 @@ def test_add_chart_offers_every_open_table(browser: Browser, orders_url: str, se
     call(server, "DELETE", f"/grids/{grid_of(other)}")
 
 
+def test_thousands_of_bars_stay_bars_with_readable_labels(browser: Browser, server: dict[str, Any]) -> None:
+    # 5,000 bars drew as one black block (each bar's outline was wider than the bar) over a
+    # smear of 5,000 angled labels on top of each other.
+    many = pd.DataFrame({"code": [f"code {i:04d}" for i in range(3000)], "n": range(3000)})
+    url = push_client.push(many, name="many_codes", new_grid=True)
+    grid = grid_of(url)
+    spec = {"mark": "bar", "x": {"field": "code"}, "y": {"aggregate": "sum", "field": "n"}}
+    call(server, "POST", f"/grids/{grid}/cards", {"kind": "chart", "title": "Codes", "spec": spec})
+    page = open_grid(browser, url)
+    open_agent(page)
+    card = page.locator(".card", has_text="Codes")
+    expect(card.locator(".chart svg")).to_be_visible(timeout=20000)
+    widths = card.locator(".mark-rect path").evaluate_all(
+        "paths => paths.map(p => getComputedStyle(p).strokeWidth)"
+    )
+    assert len(widths) == 3000 and set(widths) == {"0px"}
+    shown = card.locator(".role-axis-label text").evaluate_all(
+        "labels => labels.filter(l => getComputedStyle(l).opacity !== '0'"
+        " && l.getAttribute('opacity') !== '0').length"
+    )
+    assert 0 < shown < 300
+    call(server, "DELETE", f"/grids/{grid}")
+
+
 def test_note_markdown_is_rendered_safely(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     grid = orders_url.split("/g/")[1].split("#")[0]
     call(

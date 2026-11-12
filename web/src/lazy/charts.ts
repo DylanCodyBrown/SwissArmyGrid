@@ -140,13 +140,27 @@ function fitLabels(spec: Record<string, unknown>, width: number, fontSize: numbe
   }
   if (!x || x.type !== "nominal" || !width) return withYTicks(spec);
   const labels = [...new Set(values.map((v) => String(v.x)))];
-  const longest = Math.max(0, ...labels.map((l) => l.length));
+  const longest = labels.reduce((most, l) => Math.max(most, l.length), 0);
   const plot = Math.max(120, width - 90);
   const fits = longest * fontSize * 0.6 + 10 <= plot / Math.max(1, labels.length);
+  // Angled labels still need about a line's height of width each. Past that they were drawn on
+  // top of each other (5,000 made one smear): then Vega keeps the ones that fit, and a bar's
+  // tooltip names the rest.
+  const crowded = labels.length * fontSize * 1.1 > plot;
   // Category labels already name what the axis is: its title would only repeat it.
   const base = { ...(x.axis as Record<string, unknown> | undefined), title: null };
-  const axis = fits ? base : { ...base, labelAngle: -35, labelAlign: "right", labelBaseline: "top" };
+  const angled = { ...base, labelAngle: -35, labelAlign: "right", labelBaseline: "top" };
+  const axis = fits ? base : crowded ? { ...angled, labelOverlap: "greedy" } : angled;
   return withYTicks({ ...spec, encoding: { ...encoding, x: { ...x, axis } } });
+}
+
+/** Bars narrower than a few pixels lose their outline: the theme's outline (there so series
+ * differ by more than hue) is wider than such a bar, and 5,000 bars drew as one black block. */
+function thinBars(spec: Record<string, unknown>, width: number): Record<string, unknown> {
+  const mark = spec.mark as { type?: string } | undefined;
+  const bars = ((spec.data as { values?: unknown[] } | undefined)?.values ?? []).length;
+  if (mark?.type !== "bar" || !width || !bars || Math.max(120, width - 90) / bars >= 4) return spec;
+  return { ...spec, mark: { ...mark, strokeWidth: 0 } };
 }
 
 /** At least three labelled values on the y axis. */
@@ -195,7 +209,7 @@ export async function drawChart(
   }
   const narrow = element.clientWidth > 0 && element.clientWidth < 480;
   const fontSize = 12 * (options.large ? 1.3 : 1) * (options.fontScale ?? 1);
-  copy = fitLabels(copy, element.clientWidth, fontSize);
+  copy = thinBars(fitLabels(copy, element.clientWidth, fontSize), element.clientWidth);
   const result = await embed(element, copy as never, {
     actions: false,
     renderer: "svg",
