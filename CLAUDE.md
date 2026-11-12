@@ -55,14 +55,15 @@ src/swissarmygrid/
   server/blade_store.py  saved blades (~/.swissarmygrid/blades, one JSON each), blade folders (.blade.py
                          files found by their header), favourites, description and tags; secrets via keyring;
                          blade_runner (Refresh/Test in a child process), blade_templates (35 starters),
-                         routes_catalog (/catalogs for everyone, /blades refuses the agent)
+                         routes_catalog (/catalogs for everyone, /blades refuses the agent); the agent's
+                         own door is routes_agent's /agent/blades (list, and propose: saved on the user's Allow)
   server/notebook.py     the notebook: marimo started on first use (child process, token on stdin),
                          NotebookControl joins the open notebook as a kiosk to add cells (imports, drops);
                          routes_notebook serves it at /marimo (HTTP + websockets, notebook cookie)
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (92 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (95 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco and Vega;
                          catalogRail.ts (blades + catalog navigation) is shared by the blades page

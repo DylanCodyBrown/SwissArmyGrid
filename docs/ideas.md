@@ -157,6 +157,23 @@ relation, not the user's variable, so they were marked verified anyway.
   `SELECT *` shows one column fewer than the grid. A list of dicts, a file or the clipboard has no
   variable DuckDB can read; the copy expects a DataFrame of that name and says so.
 
+## The agent makes blades (2026-11-12, the owner's request; confirm or change)
+
+"Make it possible for the agents through MCP to create blades for you." Three commands:
+`blades_list`, `blades_templates` and `blades_create`.
+
+- **A proposal, saved on Allow.** It uses the same approval window as an agent export, now also on the
+  blades page and the notebook tab. The window shows the blade's whole `.blade.py` file (the code
+  included), what it imports that isn't installed, and that its code runs whenever the blade is used.
+  Saving runs nothing. An unanswered request is declined after 3 minutes.
+- **What the agent still can't do:** read an existing blade's code, catalog command or secret status
+  (`blades_list` gives names, kinds, descriptions, tags and the `sag.blade` line); send a secret's value
+  (refused; the code says `secret("password")`); choose a blade folder (ignored, so a blade lands in the
+  app); replace, change, remove, refresh, test or run a blade. A taken name is refused before the user is
+  asked.
+- **Open:** letting the agent edit a blade it made (behind the same Allow) and offering "save into a blade
+  folder" in the approval window.
+
 ## Portable blades (2026-11-12, the owner's requests; confirm or change)
 
 "A way to import a blade ... a format to make them portable", "blade folders that the app could search",

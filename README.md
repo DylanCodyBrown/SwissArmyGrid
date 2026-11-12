@@ -245,8 +245,14 @@ conn = psycopg.connect(host="db.example", user="reader", password=secret("passwo
 - **Favourites:** the star pins a blade to the top. Kept on this computer, never in the file.
 
 The agent reads catalogs with `catalog_list`, `catalog_schemas`, `catalog_tables`, `catalog_columns`
-(with a first SELECT quoted for the source) and `catalog_search`. It never sees a blade's code or any
-secret: every blade route refuses it.
+(with a first SELECT quoted for the source) and `catalog_search`.
+
+**The agent can make blades for you.** `blades_create` proposes one: a window opens on the page with
+the blade's whole file, code included, and it is saved only if you press **Allow** (the blades page,
+the notebook tab and the grid page all show it). `blades_list` gives it your blades' names,
+descriptions and tags (so it can reuse one) and `blades_templates` the starters. It never sees an
+existing blade's code or any secret, never sends a password (it writes `secret("password")` and you
+type the value), and cannot change, remove or run a blade.
 
 ## The notebook
 
@@ -273,7 +279,7 @@ The agent never reaches the notebook: it runs code, so it is yours alone.
 
 ## The agent commands: `sag` and the MCP server
 
-Every action the page has is a named command in one registry (`swissarmygrid/cli/commands.py`), 88 of
+Every action the page has is a named command in one registry (`swissarmygrid/cli/commands.py`), 95 of
 them. A command is named for the part of the app it works on, then the action, so a flat list sorts
 into the app's layout: `tabs_new_query` (the + tab), `table_filter` and `table_group_by` (the ribbon's
 Table row), `column_keep` and `column_bucket` (the Column row), `cell_exclude` (the Cell row),
@@ -285,7 +291,7 @@ run it:
 - `swissarmygrid-mcp` is a stdio MCP server that registers one typed tool per command, generated from
   the registry, so the model sees `steps_add(grid, kind, params, index?)` with its real arguments
   rather than composing a generic call. Descriptions are one line each and the schemas are slimmed, so
-  the whole tool list is about 5,000 tokens for 92 tools (a test holds it under a budget). `guide` and
+  the whole tool list is about 5,000 tokens for 95 tools (a test holds it under a budget). `guide` and
   `commands` (the catalog) carry the detail. A command added
   to the registry becomes a tool with no change to the MCP server.
 - `sag` is the same commands in a terminal (standard library only, in the plain wheel):

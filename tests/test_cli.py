@@ -779,3 +779,35 @@ def test_sag_saves_a_snapshot_to_a_file_and_prints_where(
     saved = Path(json.loads(capsys.readouterr().out)["saved"])
     assert saved.read_bytes() == png and saved.suffix == ".png"
     saved.unlink()
+
+
+# ===== blades: the agent proposes, the user allows =====
+
+
+def test_blades_create_waits_for_the_users_allow_and_then_lists_it(live: Live) -> None:
+    def allow() -> None:
+        for _ in range(200):
+            pending = live.user("GET", "/agent/approvals")["pending"]
+            if pending:
+                live.user("POST", f"/agent/approvals/{pending[0]['id']}", {"approve": True})
+                return
+            time.sleep(0.05)
+
+    starters = run("blades_templates")["templates"]
+    sqlite = next(t for t in starters if t["dialect"] == "sqlite")
+    code = run("blades_templates", id=sqlite["id"])["code"]
+    helper = threading.Thread(target=allow)
+    helper.start()
+    made = run(
+        "blades_create",
+        name="Bakery DB",
+        kind="sql",
+        dialect="sqlite",
+        code=code,
+        tags=["bakery"],
+        template=sqlite["id"],
+    )
+    helper.join()
+    assert made["saved"] == "Bakery DB" and made["use"].endswith('= sag.blade("Bakery DB")')
+    [listed] = run("blades_list")["blades"]
+    assert listed["name"] == "Bakery DB" and listed["tags"] == ["bakery"] and "code" not in listed

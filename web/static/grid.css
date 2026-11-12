@@ -1026,7 +1026,7 @@ table.small td.num {
 .approval pre {
   margin: 0;
   padding: 6px 8px;
-  max-height: 140px;
+  max-height: 45vh; /* a new blade's whole file: read it before Allow */
   overflow: auto;
   border-radius: 6px;
   background: var(--bg);

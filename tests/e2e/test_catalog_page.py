@@ -366,3 +366,34 @@ def test_a_blade_folder_lists_its_blade_files_and_the_save_screen_exports(
     finally:
         call(server, "PUT", "/blades/folders", {"folders": []})
         page.close()
+
+
+def test_a_blade_the_agent_proposes_shows_its_code_here_and_is_saved_on_allow(
+    browser: Browser, server: dict[str, Any], warehouse: str
+) -> None:
+    import threading
+
+    page = open_page(browser, warehouse)
+    answers: list[Any] = []
+    blade = {
+        "name": "Agent orders DB",
+        "kind": "other",
+        "code": "import json\norders = json.loads('[1, 2]')\n",
+        "description": "Made-up orders the agent wired up",
+        "tags": ["orders-function-app"],
+    }
+    asking = threading.Thread(
+        target=lambda: answers.append(call(server, "POST", "/agent/blades", blade, agent=True))
+    )
+    asking.start()
+    request = page.locator("section.approval")
+    expect(request).to_contain_text("The agent wants to save the new blade Agent orders DB")
+    expect(request.locator("pre")).to_contain_text("orders = json.loads('[1, 2]')")
+    expect(request.locator("pre")).to_contain_text('tags = ["orders-function-app"]')
+    request.get_by_role("button", name="Allow").click()
+    asking.join(timeout=30)
+    assert answers and answers[0]["saved"] == "Agent orders DB"
+    expect(blade_item(page, "Agent orders DB")).to_have_count(1)
+    expect(page.locator("section.approval")).to_have_count(0)
+    assert page.errors == []  # type: ignore[attr-defined]
+    page.close()

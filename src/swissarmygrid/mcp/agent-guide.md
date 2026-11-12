@@ -157,9 +157,26 @@ dialect.
 - The source is not in the grid's DuckDB: its tables cannot be queried with `agent_query`. Write the
   SQL for the user to run in their Python (`conn = sag.blade("<name>")` gives them the connection).
 
+## Blades: making a connection for the user
+
+A blade is the user's saved Python that loads something from outside Python (a database connection, a
+file, an API, a vault); in any Python, `conn = sag.blade("Warehouse")` runs it there.
+
+- `blades_list`: the user's blades (name, kind, description, tags, and the `sag.blade` line). Reuse one
+  before making another. You never see a blade's code or its secrets.
+- `blades_templates`: starters for 21 databases, files and vaults; `blades_templates(id=...)` gives one's
+  code and catalog query. Start from the closest one.
+- `blades_create`: propose a new blade. The user sees its whole file, code included, and it is saved only
+  if they click Allow (they have 3 minutes; a page of SwissArmyGrid must be open). Write
+  `secret("password")` where a password goes and never put a value in the code: the user types it on
+  the blade's save screen. Give it a description and tags (the app it serves, say) so the user can
+  find it. A taken name is refused: you cannot change or remove the user's blades.
+- After it is saved, tell the user which secrets to type (`secrets_to_type`) and which packages are
+  missing (`packages_missing`); a catalog query lets them press Refresh to load its catalog.
+
 ## What you can't do
 
-Read, change or run a blade (the user's saved connection code and its secrets), resolve an approval, shut the server down, read the audit log, push table contents (pass a path to `datasets_load`), or open a table from a
+Read, change or run a blade (you may propose a new one), resolve an approval, shut the server down, read the audit log, push table contents (pass a path to `datasets_load`), or open a table from a
 user's Python session. The server refuses these for an agent, and they have no command. Page-only
 preferences (zoom, column widths, panel layout, theme) live in the user's browser, so no command
 reaches them.

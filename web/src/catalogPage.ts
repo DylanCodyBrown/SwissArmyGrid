@@ -5,6 +5,7 @@
  * the blade save screen, or a welcome. Dragging gives plain text: a blade its `sag.blade(...)` line,
  * a table or column its quoted name.
  */
+import { handleAgentNotice, loadApprovals } from "./agentAccess";
 import { connect, onNotice, openedWith, token } from "./api";
 import { type BladeKind, editBlade, showTemplatePicker } from "./bladeEditor";
 import { mountRail, tableDetails, watchTheme } from "./catalogRail";
@@ -83,8 +84,10 @@ showWelcome();
 void rail.loadBlades().then(() => rail.loadCatalogs(openedWith.get("catalog") ?? undefined));
 connect((live) => {
   if (liveNote) liveNote.textContent = live ? "" : "Not connected to the server";
+  if (live) void loadApprovals(); // an agent's request (a new blade, say) asks here too
 }, { catalog: "1" });
 onNotice((notice) => {
+  handleAgentNotice(notice);
   if (notice.type === "catalogs_changed") void rail.loadCatalogs();
   if (notice.type === "blades_changed") void rail.loadBlades();
 });

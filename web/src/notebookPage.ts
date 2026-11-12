@@ -10,6 +10,7 @@
  * - Save as blade: highlight code in a cell, press the button, and the blade save screen opens with
  *   that code, its kind and dialect guessed from its imports.
  */
+import { handleAgentNotice, loadApprovals } from "./agentAccess";
 import { ApiError, api, connect, onNotice, token } from "./api";
 import { type BladeKind, type Template, editBlade, showTemplatePicker } from "./bladeEditor";
 import { DROP_TYPE, mountRail, tableDetails, watchTheme } from "./catalogRail";
@@ -211,8 +212,10 @@ void start();
 void rail.loadBlades().then(() => rail.loadCatalogs());
 connect((live) => {
   if (liveNote) liveNote.textContent = live ? "" : "Not connected to the server";
+  if (live) void loadApprovals(); // an agent's request (a new blade, say) asks here too
 }, { notebook: "1" });
 onNotice((notice) => {
+  handleAgentNotice(notice);
   if (notice.type === "catalogs_changed") void rail.loadCatalogs();
   if (notice.type === "blades_changed") void rail.loadBlades();
 });

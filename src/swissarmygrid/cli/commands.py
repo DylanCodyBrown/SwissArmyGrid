@@ -958,6 +958,49 @@ def add_erd(a: dict[str, Any]) -> Any:
 
 # ===== catalog: a source database's tables and columns (names and types, never values) =====
 
+# ===== blades: the user's saved code that loads from outside Python =====
+
+
+@command(
+    "blades_list",
+    "The user's blades (name, kind, description, tags, sag.blade line), never their code or secrets",
+)
+def blades_list(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/agent/blades")
+
+
+@command(
+    "blades_templates",
+    "Starter blades for databases, files and vaults; give an id for one's full code",
+    opt("id", "A starter's id, for its code and catalog query."),
+)
+def blades_templates(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/agent/blade-templates", params={"id": a.get("id")})
+
+
+@command(
+    "blades_create",
+    "Propose a new blade: the user reads its code, and it is saved only if they click Allow",
+    req("name", "A new name (blades_list shows the taken ones)."),
+    req("kind", "sql, other, vault or secret."),
+    opt("code", 'Python ending in the variable it makes; secret("name") where a password goes.'),
+    opt("variable", "The variable sag.blade returns (default: the last one assigned)."),
+    opt("dialect", "For sql: sqlserver, postgres, mysql, sqlite, duckdb, snowflake, oracle, trino or other."),
+    opt("description", "What it loads, and for which app."),
+    opt("tags", "Words to find it by.", "list"),
+    opt("catalog", '{"language": "sql" or "python", "command": "..."}: lists the source\'s columns.', "json"),
+    opt("vault_mapping", 'For vault: [{"env": "VAR", "secret": "name in the vault"}].', "json"),
+    opt("env_names", "For secret: the environment variable names.", "list"),
+    opt("template", "The starter it came from (blades_templates)."),
+)
+def blades_create(a: dict[str, Any]) -> Any:
+    keys = ("name", "kind", "code", "variable", "dialect", "description", "tags", "catalog")
+    body = {
+        key: a[key] for key in (*keys, "vault_mapping", "env_names", "template") if a.get(key) is not None
+    }
+    return api.call("POST", "/agent/blades", body)  # waits for the user's Allow (3 minutes at most)
+
+
 CATALOG_NOTE = (
     "Names and types the user loaded from a source database (a blade's Refresh or sag.load), to write SQL "
     "against that source. Never values."
@@ -1399,6 +1442,7 @@ AREAS: tuple[tuple[str, str], ...] = (
     ("key_finder", "Key Finder"),
     ("relationships", "Relationships dialog"),
     ("erd", "ERD tab"),
+    ("blades", "Blades: the user's saved code that loads from outside Python"),
     ("catalog", "Catalog explorer: a source database's tables and columns"),
     ("compare", "Compare (two grids side by side)"),
     ("sandbox", "Agent tab: Analysis Sandbox"),

@@ -80,7 +80,10 @@ The goal, per workspace, without panning:
     to the catalog** with a SQL or Python command that returns the catalog table.
     `conn = sag.blade("Warehouse")` in any Python runs the saved code there and returns that variable;
     in the notebook a blade drags in as that line. Saved under `~/.swissarmygrid/blades/`,
-    shared by every workspace on the machine. The agent never reads or writes a blade's code.
+    shared by every workspace on the machine. The agent never reads a blade's code. **It may propose a
+    new blade** (the owner, 2026-11-12: "make it possible for the agents through MCP to create blades"):
+    `blades_create` shows the user the blade's whole file and saves it only on their Allow; it never
+    sends a secret's value and never changes, removes or runs a blade (`blades_list`, `blades_templates`).
 15. **Secrets live in the operating system's vault** (Windows Credential Manager, macOS Keychain) through
     `keyring` (new dependency, approved). Blade code says `secret("password")`; the file never
     holds the value.

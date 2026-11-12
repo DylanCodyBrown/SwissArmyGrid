@@ -218,7 +218,7 @@ The key button beside Settings opens the blades page in a tab of its own, so it 
 - **Find a blade:** the search box above the blades matches names, descriptions and tags, and the tag chips under it narrow the list. Give a blade a description and tags on its save screen (tag it with the app it serves, and searching for that app finds it). The star pins a favourite to the top.
 - **Share a blade:** **Export** on its save screen downloads it as one `.blade.py` file (its code under a short header; passwords never go in it). The download arrow above the blades exports them all as a zip. To bring blades in, press the up arrow or drop the files on the blades: you see each blade's code first, and choose what happens when a name is taken. Importing runs nothing.
 - **Blade folders:** the folder button lists folders to search for `.blade.py` files (a team's Git repository, say). Only files that start with the blade header count. A blade from a folder shows **file**; saving it writes its file.
-- Your agent can read the catalog to write SQL against the source. It never sees a blade's code or its secrets.
+- Your agent can read the catalog to write SQL against the source, and **make a blade for you**: a window shows you the blade's whole file, and it is saved only if you press **Allow**. It never sees your blades' code or any password; you type passwords on the blade's save screen.
 
 ![The blades page: three blades (a vault, a SQL connection and a secret blade) above the catalog tree, opened at sales.orders.customer_id, with the table's columns and a first SELECT on the right.](images/20-catalog.png)
 
