@@ -26,11 +26,21 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
+from swissarmygrid.server.context import (
+    BodyTooLargeError,
+    Context,
+    actor,
+    error_response,
+    json_response,
+    read_body,
+    read_json,
+)
 
 # The page areas an agent may ask for: what the page's own elements are called.
 AREAS: tuple[str, ...] = ("app", "ribbon", "grid", "steps", "sandbox")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# The page's reason it could not draw: a sentence, cut to 300 characters for the agent.
+MAX_REASON_BYTES: int = 64 * 1024
 
 Answer = asyncio.Future[tuple[bytes, dict[str, str]]]
 
@@ -103,8 +113,9 @@ def routes(ctx: Context) -> list[BaseRoute]:
             return Response(
                 "No snapshot is waiting for that answer (it finished or timed out).", status_code=404
             )
-        data = await request.body()
-        if len(data) > settings.max_snapshot_bytes:
+        try:  # refused past the limit while it arrives, not after it was read whole
+            data = await read_body(request, settings.max_snapshot_bytes)
+        except BodyTooLargeError:
             return Response(
                 f"That picture is larger than the {settings.max_snapshot_bytes:,}-byte limit; "
                 "ask for scale 1 or a smaller area.",
@@ -113,6 +124,8 @@ def routes(ctx: Context) -> list[BaseRoute]:
         if not data.startswith(PNG_SIGNATURE):
             return Response("That is not a PNG.", status_code=400)
         meta = {k: v for k in ("width", "height") if (v := request.query_params.get(k, "")).isdigit()}
+        if waiting.done():  # it timed out (or another answer won) while this one was arriving
+            return Response("That snapshot request is over (it timed out or was answered).", status_code=409)
         waiting.set_result((data, meta))
         return json_response({"received": len(data)})
 
@@ -123,7 +136,13 @@ def routes(ctx: Context) -> list[BaseRoute]:
         waiting = waiting_for(request)
         if waiting is None:
             return Response("No snapshot is waiting for that answer.", status_code=404)
-        reason = (await request.body()).decode("utf-8", "replace")[:300] or "no reason given"
+        try:
+            raw = await read_body(request, MAX_REASON_BYTES)
+        except BodyTooLargeError:
+            raw = b"the page's reason was too long to pass on"
+        reason = raw.decode("utf-8", "replace")[:300] or "no reason given"
+        if waiting.done():
+            return Response("That snapshot request is over (it timed out or was answered).", status_code=409)
         waiting.set_exception(SnapshotFailed(reason))
         return json_response({"failed": True})
 
