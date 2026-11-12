@@ -259,3 +259,12 @@ def test_the_os_vault_template_reads_the_keyring(monkeypatch: pytest.MonkeyPatch
         assert run_vault(template.code, template.variable, mapping, {}) == {
             "WAREHOUSE_PASSWORD": "rye-bread-42"
         }
+
+
+def test_the_sqlite_template_never_makes_an_empty_database_for_a_wrong_path(tmp_path: Path) -> None:
+    template = BY_ID["sqlite"]
+    missing = tmp_path / "no_such.sqlite"
+    code = re.sub(r'r"[^"]*"', lambda _: repr(str(missing)), template.code, count=1)
+    with pytest.raises(BladeRunError, match="unable to open database"):
+        run_code(code, template.variable, {}, template.label)
+    assert not missing.exists() and list(tmp_path.iterdir()) == []

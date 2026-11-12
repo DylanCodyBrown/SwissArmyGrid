@@ -2,7 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SwissArmyGrid blades</title>
+    <!-- The icon inline (a red square with a white cross), so the browser never requests
+         /favicon.ico, which would need the token. -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23D52B1E'/%3E%3Cpath fill='%23fff' d='M42 23h16v19h19v16H58v19H42V58H23V42h19z'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/static/grid.css" />
+    <link rel="stylesheet" href="/static/catalog.css" />
   </head>
-  <body></body>
+  <body class="catalog-page">
+    <!-- Blades and the catalog explorer (plan decisions 14-18). Its own tab, never the grid page.
+         The rail is the same component that will sit left of the notebook. -->
+    <header class="cat-top">
+      <h1>Blades <span class="hint">and the catalog</span></h1>
+      <span class="cat-live" aria-live="polite"></span>
+    </header>
+    <div class="cat-layout">
+      <aside class="cat-rail" aria-label="Blades and catalog">
+        <section class="rail-section" id="blades" aria-labelledby="blades-title"></section>
+        <section class="rail-section grow" id="catalog" aria-labelledby="catalog-title"></section>
+      </aside>
+      <main class="cat-main" id="detail" tabindex="-1"></main>
+    </div>
+    <script type="module" src="/static/build/catalog.js"></script>
+  </body>
 </html>

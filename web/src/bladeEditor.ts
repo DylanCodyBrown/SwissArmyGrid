@@ -1,0 +1,703 @@
+/**
+ * bladeEditor.ts: the blade save screen, its templates, and running a blade (Refresh, Test). [VIEW]
+ *
+ * A blade is saved Python that reaches outside Python to load something (plan decisions 14-16).
+ * The save screen names it, marks its kind (SQL connection, other, vault, secret), shows what the
+ * code makes and asks for (read by the server, never run), which packages it needs and which are
+ * missing, its secrets (kept in the operating system's vault; typed here, never shown again), a
+ * vault's secret-to-variable map, a secret blade's variable names, and an optional catalog command.
+ */
+import { api, ApiError } from "./api";
+import { button, clear, h, openDialog, toast } from "./dom";
+
+// ===== shapes the server sends (server/routes_catalog.py) =====
+
+export type BladeKind = "sql" | "other" | "vault" | "secret";
+
+export interface BladeSummary {
+  name: string;
+  kind: BladeKind;
+  dialect: string;
+  variable: string | null;
+  has_catalog: boolean;
+  catalog_loaded: boolean;
+  template: string | null;
+  secrets: Record<string, boolean>;
+  vaults: string[];
+  typed: Record<string, string>;
+  env_names: string[];
+}
+
+interface CatalogCommand {
+  language: "sql" | "python";
+  command: string;
+}
+
+interface BladeDetail extends BladeSummary {
+  code: string;
+  catalog: CatalogCommand | null;
+  vault_mapping: { env: string; secret: string }[];
+  inspect?: Inspection;
+}
+
+interface Package {
+  module: string;
+  pip: string;
+  guessed: boolean;
+  installed: boolean;
+}
+
+interface Inspection {
+  variable: string | null;
+  assigned: string[];
+  secrets: string[];
+  imports: string[];
+  import_lines: string[];
+  packages: Package[];
+  install_here: string | null;
+  install_yours: string | null;
+  error?: string;
+}
+
+export interface Template {
+  id: string;
+  label: string;
+  group: string;
+  kind: BladeKind;
+  dialect: string;
+  code: string;
+  variable: string;
+  catalog: CatalogCommand | null;
+  vault_mapping: { env: string; secret: string }[];
+  note: string;
+}
+
+export const DIALECTS: [string, string][] = [
+  ["sqlserver", "SQL Server / Azure SQL"],
+  ["postgres", "PostgreSQL / Redshift"],
+  ["mysql", "MySQL / MariaDB"],
+  ["oracle", "Oracle"],
+  ["sqlite", "SQLite"],
+  ["duckdb", "DuckDB"],
+  ["snowflake", "Snowflake"],
+  ["trino", "Trino / Presto"],
+  ["other", "Other"],
+];
+
+const KIND_LABELS: Record<BladeKind, string> = {
+  sql: "SQL connection",
+  other: "Other",
+  vault: "Vault",
+  secret: "Secret",
+};
+
+export function kindLabel(kind: BladeKind): string {
+  return KIND_LABELS[kind];
+}
+
+const path = (name: string): string => `/blades/${encodeURIComponent(name)}`;
+
+let templatesCache: Promise<Template[]> | null = null;
+export function templates(): Promise<Template[]> {
+  templatesCache ??= api<{ templates: Template[] }>("/blades/templates").then((r) => r.templates);
+  return templatesCache;
+}
+
+/** The line a blade drops into a script: `conn = sag.blade("Warehouse")`. */
+export function bladeLine(blade: { name: string; kind: BladeKind; variable: string | null }): string {
+  const call = `sag.blade(${JSON.stringify(blade.name)})`;
+  return blade.kind === "vault" || blade.kind === "secret" || !blade.variable ? call : `${blade.variable} = ${call}`;
+}
+
+// ===== running a blade =====
+
+/** Ask for the values a secret blade holds, for this one run (never kept). */
+function askTyped(needs: Record<string, string>, action: string): Promise<Record<string, string> | null> {
+  return new Promise((resolve) => {
+    const { body, foot, close, dialog } = openDialog(`Values for this ${action}`);
+    const inputs = new Map<string, HTMLInputElement>();
+    body.append(h("p", { class: "hint" }, "Typed for this run only. SwissArmyGrid never keeps them."));
+    for (const [env, source] of Object.entries(needs)) {
+      const input = h("input", { type: "password", autocomplete: "off", "aria-label": env });
+      inputs.set(env, input);
+      body.append(h("label", { class: "field" }, h("span", {}, `${env} `, h("span", { class: "hint" }, `(${source})`)), input));
+    }
+    let answered = false;
+    const finish = (values: Record<string, string> | null): void => {
+      answered = true;
+      close();
+      resolve(values);
+    };
+    dialog.addEventListener("close", () => {
+      if (!answered) resolve(null);
+    });
+    foot.append(
+      button("Cancel", () => finish(null), { class: "ghost" }),
+      button("Run", () => {
+        const values: Record<string, string> = {};
+        for (const [env, input] of inputs) {
+          if (!input.value) {
+            input.focus();
+            toast(`Type ${env}.`, "error");
+            return;
+          }
+          values[env] = input.value;
+        }
+        finish(values);
+      }, { class: "primary" }),
+    );
+    inputs.values().next().value?.focus();
+  });
+}
+
+interface RunFailure {
+  error?: string;
+  missing?: string;
+  install_here?: string;
+  needs?: Record<string, string>;
+}
+
+function failureOf(error: unknown): RunFailure | null {
+  if (!(error instanceof ApiError) || (error.status !== 409 && error.status !== 422)) return null;
+  try {
+    return JSON.parse(error.message) as RunFailure;
+  } catch {
+    return null;
+  }
+}
+
+/** Run a blade on the server (Refresh: its catalog; Test: does it work). Asks for secret-blade
+ * values when needed, and offers to install a missing driver. Returns the answer, or null. */
+export async function runBlade<T>(name: string, action: "refresh" | "test"): Promise<T | null> {
+  let env: Record<string, string> = {};
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await api<T>(`${path(name)}/${action}`, "POST", { env });
+    } catch (error) {
+      const failure = failureOf(error);
+      if (failure?.needs) {
+        const typed = await askTyped(failure.needs, action === "refresh" ? "refresh" : "test");
+        if (!typed) return null;
+        env = { ...env, ...typed };
+        continue;
+      }
+      if (failure?.error) {
+        showRunError(name, failure);
+        return null;
+      }
+      toast((error as Error).message, "error");
+      return null;
+    }
+  }
+  return null;
+}
+
+function showRunError(name: string, failure: RunFailure): void {
+  const { body, foot, close } = openDialog(`${name} did not run`, true);
+  body.append(h("pre", { class: "code-box" }, failure.error ?? ""));
+  if (failure.missing) {
+    body.append(
+      h("p", {}, `It needs ${failure.missing}, which is not installed in SwissArmyGrid's Python (where Refresh runs).`),
+      h("pre", { class: "code-box" }, failure.install_here ?? ""),
+    );
+    foot.append(
+      button(`Install ${failure.missing}`, () => {
+        close();
+        void install([failure.missing ?? ""]);
+      }, { class: "primary" }),
+    );
+  }
+  foot.append(button("Close", close, { class: "ghost" }));
+}
+
+/** Install packages into SwissArmyGrid's own Python, on the user's click. */
+export async function install(packages: string[]): Promise<boolean> {
+  toast(`Installing ${packages.join(", ")}... this can take a minute.`);
+  try {
+    const result = await api<{ ok: boolean; output: string }>("/blades/install", "POST", { packages });
+    toast(`Installed ${packages.join(", ")}.`);
+    return result.ok;
+  } catch (error) {
+    let message = (error as Error).message;
+    try {
+      const parsed = JSON.parse(message) as { output?: string; command?: string };
+      message = `${parsed.output ?? ""}\n\nRun it yourself: ${parsed.command ?? ""}`;
+    } catch {
+      // plain text already
+    }
+    const { body, foot, close } = openDialog("The install failed", true);
+    body.append(h("pre", { class: "code-box" }, message));
+    foot.append(button("Close", close));
+    return false;
+  }
+}
+
+// ===== the template picker =====
+
+/** "New blade": templates by group, a blank one, and a secret blade. */
+export async function showTemplatePicker(host: HTMLElement, onPick: (template: Template | null, kind: BladeKind) => void): Promise<void> {
+  clear(host, h("h2", {}, "New blade"), h("p", { class: "hint" }, "Loading templates..."));
+  let all: Template[];
+  try {
+    all = await templates();
+  } catch (error) {
+    toast((error as Error).message, "error");
+    return;
+  }
+  const groups = new Map<string, Template[]>();
+  for (const template of all) {
+    const list = groups.get(template.group) ?? [];
+    list.push(template);
+    groups.set(template.group, list);
+  }
+  const column = (title: string, items: HTMLElement[]): HTMLElement => h("section", {}, h("h3", {}, title), h("ul", {}, ...items.map((item) => h("li", {}, item))));
+  const pick = (template: Template): HTMLElement =>
+    button(template.label, () => onPick(template, template.kind), { title: template.note || template.label });
+  clear(
+    host,
+    h("h2", {}, "New blade"),
+    h(
+      "p",
+      { class: "hint" },
+      "A blade is any Python that reaches outside Python to load something: a database, a file, an API, a vault. Start from a template, or paste your own code.",
+    ),
+    h(
+      "div",
+      { class: "row-actions" },
+      button("Paste my own code", () => onPick(null, "other"), { icon: "code", class: "primary" }),
+      button("Secret blade (typed each session)", () => onPick(null, "secret"), { icon: "key" }),
+    ),
+    h(
+      "div",
+      { class: "template-groups" },
+      ...[...groups.entries()].map(([group, list]) => column(group, list.map(pick))),
+    ),
+  );
+}
+
+// ===== the save screen =====
+
+interface Draft {
+  name: string;
+  kind: BladeKind;
+  dialect: string;
+  code: string;
+  variable: string;
+  catalogOn: boolean;
+  catalogLanguage: "sql" | "python";
+  catalogCommand: string;
+  mapping: { env: string; secret: string }[];
+  envNames: string;
+  template: string | null;
+}
+
+function draftFrom(detail: BladeDetail | null, template: Template | null, kind: BladeKind): Draft {
+  if (detail) {
+    return {
+      name: detail.name,
+      kind: detail.kind,
+      dialect: detail.dialect,
+      code: detail.code,
+      variable: detail.variable ?? "",
+      catalogOn: detail.catalog !== null,
+      catalogLanguage: detail.catalog?.language ?? "sql",
+      catalogCommand: detail.catalog?.command ?? "",
+      mapping: detail.vault_mapping.length ? detail.vault_mapping : [{ env: "", secret: "" }],
+      envNames: detail.env_names.join("\n"),
+      template: detail.template,
+    };
+  }
+  return {
+    name: template?.label ?? "",
+    kind: template?.kind ?? kind,
+    dialect: template?.dialect ?? "other",
+    code: template?.code ?? "",
+    variable: template?.variable ?? "",
+    catalogOn: template?.catalog !== null && template?.catalog !== undefined,
+    catalogLanguage: template?.catalog?.language ?? (template?.kind === "sql" ? "sql" : "python"),
+    catalogCommand: template?.catalog?.command ?? "",
+    mapping: template?.vault_mapping.length ? template.vault_mapping.map((m) => ({ ...m })) : [{ env: "", secret: "" }],
+    envNames: "",
+    template: template?.id ?? null,
+  };
+}
+
+/** Open the save screen for a saved blade (`name`), or a new one from a template. Calls `onSaved`
+ * with the saved name, or `onClosed` when the user leaves without saving. */
+export async function editBlade(
+  host: HTMLElement,
+  name: string | null,
+  template: Template | null,
+  kind: BladeKind,
+  onSaved: (name: string) => void,
+  onClosed: () => void,
+): Promise<void> {
+  let detail: BladeDetail | null = null;
+  if (name) {
+    try {
+      detail = await api<BladeDetail>(path(name));
+    } catch (error) {
+      toast((error as Error).message, "error");
+      return;
+    }
+  }
+  const draft = draftFrom(detail, template, kind);
+  const typedSecrets = new Map<string, string>();
+  let inspection: Inspection | null = detail?.inspect ?? null;
+  const status = h("div", { class: "status-line", role: "status", "aria-live": "polite" });
+  const say = (text: string, kindOf: "" | "error" | "ok" = ""): void => {
+    status.textContent = text;
+    status.className = `status-line ${kindOf}`;
+  };
+
+  // ----- fields that stay put while the rest re-renders -----
+  const nameInput = h("input", { type: "text", value: draft.name, maxlength: "64", "aria-label": "Blade name", spellcheck: "false" });
+  nameInput.addEventListener("input", () => (draft.name = nameInput.value));
+  const codeBox = h("textarea", { class: "code-box", rows: "12", spellcheck: "false", "aria-label": "Blade code" }) as HTMLTextAreaElement;
+  codeBox.value = draft.code;
+  const madeHost = h("div", {});
+  const secretsHost = h("div", {});
+  const packagesHost = h("div", {});
+  const kindHost = h("div", {});
+  const sections = h("div", { class: "editor" });
+
+  let inspectTimer = 0;
+  codeBox.addEventListener("input", () => {
+    draft.code = codeBox.value;
+    window.clearTimeout(inspectTimer);
+    inspectTimer = window.setTimeout(() => void inspect(), 400);
+  });
+  codeBox.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || event.shiftKey) return;
+    event.preventDefault(); // a Tab in code is four spaces, not a jump out of the box
+    codeBox.setRangeText("    ", codeBox.selectionStart, codeBox.selectionEnd, "end");
+    draft.code = codeBox.value;
+  });
+
+  async function inspect(): Promise<void> {
+    if (!draft.code.trim()) {
+      inspection = null;
+      renderInspection();
+      return;
+    }
+    try {
+      inspection = await api<Inspection>("/blades/inspect", "POST", { code: draft.code });
+    } catch (error) {
+      say((error as Error).message, "error");
+      return;
+    }
+    if (inspection.variable && (!draft.variable || !inspection.assigned.includes(draft.variable))) {
+      draft.variable = inspection.variable;
+    }
+    renderInspection();
+  }
+
+  function renderInspection(): void {
+    const found = inspection;
+    if (found?.error) {
+      clear(madeHost, h("span", { class: "warning-text" }, found.error));
+      clear(secretsHost);
+      clear(packagesHost);
+      return;
+    }
+    // What the code makes: the variable sag.blade() hands back.
+    const names = found?.assigned ?? [];
+    const select = h("select", { "aria-label": "The variable it makes" });
+    for (const n of names) select.append(h("option", { value: n, selected: n === draft.variable }, n));
+    select.addEventListener("change", () => (draft.variable = select.value));
+    clear(
+      madeHost,
+      names.length
+        ? h("label", {}, h("span", {}, draft.kind === "vault" ? "The function that reads a secret" : "It makes (what sag.blade gives back)"), select)
+        : h("span", { class: "hint" }, "The code makes nothing yet: end it with an assignment, such as conn = ..."),
+    );
+    // Secrets: typed here, kept in the operating system's vault.
+    const secretNames = found?.secrets ?? [];
+    clear(secretsHost);
+    if (secretNames.length) {
+      secretsHost.append(h("p", { class: "hint" }, "Kept in this computer's vault (Windows Credential Manager or macOS Keychain), never in the blade. An environment variable of the same name (from a vault or secret blade) works too."));
+      for (const secret of secretNames) {
+        const saved = detail?.secrets[secret] === true;
+        const input = h("input", {
+          type: "password",
+          autocomplete: "new-password",
+          placeholder: saved ? "saved (type to replace)" : "not saved",
+          "aria-label": `secret ${secret}`,
+        });
+        input.value = typedSecrets.get(secret) ?? "";
+        input.addEventListener("input", () => typedSecrets.set(secret, input.value));
+        const forget = saved && name
+          ? button("Forget", () => {
+              void api(`${path(name)}/secrets`, "PUT", { [secret]: null }).then(() => {
+                if (detail) detail.secrets[secret] = false;
+                renderInspection();
+                say(`Forgot ${secret}.`, "ok");
+              }, (error: Error) => say(error.message, "error"));
+            }, { class: "ghost" })
+          : null;
+        secretsHost.append(h("label", {}, h("span", {}, `secret("${secret}")`), h("div", { class: "row-actions" }, input, forget)));
+      }
+    }
+    // Packages the code needs, and which are missing from SwissArmyGrid's Python.
+    clear(packagesHost);
+    const packages = found?.packages ?? [];
+    if (packages.length) {
+      const missing = packages.filter((p) => !p.installed).map((p) => p.pip);
+      packagesHost.append(
+        h(
+          "div",
+          { class: "chips" },
+          ...packages.map((p) =>
+            h(
+              "span",
+              { class: `chip ${p.installed ? "installed" : "missing"}`, title: p.guessed ? "A guess: installed under its import name" : p.module },
+              `${p.pip}${p.installed ? " ✓" : " missing"}`,
+            ),
+          ),
+        ),
+        h(
+          "div",
+          { class: "row-actions" },
+          missing.length
+            ? button(`Install ${missing.join(", ")} into SwissArmyGrid`, () => {
+                void install(missing).then((ok) => ok && void inspect());
+              }, { class: "primary", icon: "plus" })
+            : h("span", { class: "hint" }, "Everything it imports is installed where Refresh runs."),
+          found?.install_yours
+            ? button("Copy the install command for your Python", () => {
+                void navigator.clipboard.writeText(found.install_yours ?? "").then(() => toast("Copied."));
+              }, { icon: "copy", class: "ghost" })
+            : null,
+        ),
+      );
+    }
+  }
+
+  function renderKind(): void {
+    clear(kindHost);
+    const isCode = draft.kind !== "secret";
+    codeFieldset.hidden = !isCode;
+    if (draft.kind === "sql") {
+      const dialect = h("select", { "aria-label": "SQL dialect" });
+      for (const [value, label] of DIALECTS) dialect.append(h("option", { value, selected: value === draft.dialect }, label));
+      dialect.addEventListener("change", () => (draft.dialect = dialect.value));
+      kindHost.append(h("label", {}, h("span", {}, "SQL dialect (how the agent quotes names)"), dialect));
+    }
+    if (draft.kind === "vault") kindHost.append(mappingEditor());
+    if (draft.kind === "secret") kindHost.append(secretNamesEditor());
+    if (draft.kind === "sql" || draft.kind === "other") kindHost.append(catalogEditor());
+  }
+
+  function mappingEditor(): HTMLElement {
+    const rows = h("div", { class: "list-editor" });
+    const render = (): void => {
+      clear(rows);
+      draft.mapping.forEach((row, index) => {
+        const env = h("input", { type: "text", value: row.env, placeholder: "WAREHOUSE_PASSWORD", "aria-label": `variable ${index + 1}`, spellcheck: "false" });
+        const secret = h("input", { type: "text", value: row.secret, placeholder: "warehouse-password", "aria-label": `secret in the vault ${index + 1}`, spellcheck: "false" });
+        env.addEventListener("input", () => (row.env = env.value.trim()));
+        secret.addEventListener("input", () => (row.secret = secret.value.trim()));
+        rows.append(
+          h(
+            "div",
+            { class: "mapping-row" },
+            env,
+            h("span", { class: "hint" }, "←"),
+            secret,
+            button("Remove", () => {
+              draft.mapping.splice(index, 1);
+              if (!draft.mapping.length) draft.mapping.push({ env: "", secret: "" });
+              render();
+            }, { icon: "trash", iconOnly: true, class: "ghost" }),
+          ),
+        );
+      });
+    };
+    render();
+    return h(
+      "fieldset",
+      {},
+      h("legend", {}, "Secrets in the vault → environment variables"),
+      h("p", { class: "hint" }, "Running the vault (sag.blade, or before a blade that needs one of these) reads each secret live and sets the variable. The values are never kept."),
+      h("div", { class: "mapping-row hint" }, h("span", {}, "Environment variable"), h("span", {}), h("span", {}, "Secret's name in the vault"), h("span", {})),
+      rows,
+      h("div", {}, button("Add a secret", () => {
+        draft.mapping.push({ env: "", secret: "" });
+        render();
+      }, { icon: "plus", class: "ghost" })),
+    );
+  }
+
+  function secretNamesEditor(): HTMLElement {
+    const box = h("textarea", { class: "code-box", rows: "5", spellcheck: "false", "aria-label": "Environment variable names" }) as HTMLTextAreaElement;
+    box.value = draft.envNames;
+    box.addEventListener("input", () => (draft.envNames = box.value));
+    return h(
+      "fieldset",
+      {},
+      h("legend", {}, "Environment variables, one per line"),
+      h("p", { class: "hint" }, "Only the names are saved. sag.blade() asks for each value this Python does not have yet, so after the kernel restarts you type them again. A Refresh that needs them asks here."),
+      box,
+    );
+  }
+
+  function catalogEditor(): HTMLElement {
+    const on = h("input", { type: "checkbox", checked: draft.catalogOn });
+    const body = h("div", { class: "editor" });
+    const command = h("textarea", { class: "code-box", rows: "8", spellcheck: "false", "aria-label": "Catalog command" }) as HTMLTextAreaElement;
+    command.value = draft.catalogCommand;
+    command.addEventListener("input", () => (draft.catalogCommand = command.value));
+    const language = h("div", { class: "segmented", role: "group", "aria-label": "Catalog command language" });
+    const renderLanguage = (): void => {
+      clear(
+        language,
+        ...(["sql", "python"] as const).map((value) =>
+          button(value === "sql" ? "SQL on the connection" : "Python", () => {
+            draft.catalogLanguage = value;
+            renderLanguage();
+          }, { pressed: draft.catalogLanguage === value }),
+        ),
+      );
+    };
+    renderLanguage();
+    const starter = button("Starter query for this dialect", () => {
+      void templates().then((all) => {
+        const match = all.find((t) => t.kind === "sql" && t.dialect === draft.dialect && t.catalog?.language === "sql");
+        if (!match?.catalog) {
+          toast("No starter query for this dialect: write a SELECT that returns schema, table, column and type.", "error");
+          return;
+        }
+        draft.catalogLanguage = "sql";
+        draft.catalogCommand = command.value = match.catalog.command;
+        renderLanguage();
+      });
+    }, { class: "ghost", icon: "sql" });
+    body.append(
+      h("div", { class: "row-actions" }, language, draft.kind === "sql" ? starter : null),
+      h("p", { class: "hint" }, "Returns one row per column of the source: its table and column, and its schema and type. An INFORMATION_SCHEMA.COLUMNS query works as it is. Python: end with the table (a frame or a list of dicts), or set `catalog`."),
+      command,
+    );
+    body.hidden = !draft.catalogOn;
+    on.addEventListener("change", () => {
+      draft.catalogOn = on.checked;
+      body.hidden = !on.checked;
+    });
+    return h("fieldset", {}, h("legend", {}, h("label", { class: "check" }, on, "Add to the catalog")), body);
+  }
+
+  // ----- the kind switch, the code, the buttons -----
+  const kinds = h("div", { class: "segmented", role: "group", "aria-label": "Kind of blade" });
+  const renderKinds = (): void => {
+    clear(
+      kinds,
+      ...(Object.keys(KIND_LABELS) as BladeKind[]).map((value) =>
+        button(KIND_LABELS[value], () => {
+          draft.kind = value;
+          renderKinds();
+          renderKind();
+          renderInspection();
+        }, { pressed: draft.kind === value }),
+      ),
+    );
+  };
+  const codeFieldset = h(
+    "fieldset",
+    {},
+    h("legend", {}, "Code"),
+    h("p", { class: "hint" }, "Python that reaches outside to load something. Write secret(\"password\") where a password goes."),
+    codeBox,
+    madeHost,
+    secretsHost,
+    packagesHost,
+  );
+
+  function body(): Record<string, unknown> {
+    const out: Record<string, unknown> = { name: draft.name.trim(), kind: draft.kind, template: draft.template };
+    if (draft.kind === "secret") {
+      out.env_names = draft.envNames.split(/[\s,]+/).filter(Boolean);
+      return out;
+    }
+    out.code = draft.code;
+    out.variable = draft.variable;
+    if (draft.kind === "sql") out.dialect = draft.dialect;
+    if (draft.kind === "vault") out.vault_mapping = draft.mapping.filter((m) => m.env || m.secret);
+    if ((draft.kind === "sql" || draft.kind === "other") && draft.catalogOn && draft.catalogCommand.trim()) {
+      out.catalog = { language: draft.catalogLanguage, command: draft.catalogCommand };
+    }
+    const secrets = Object.fromEntries([...typedSecrets].filter(([, value]) => value));
+    if (Object.keys(secrets).length) out.secrets = secrets;
+    return out;
+  }
+
+  let savedName = name;
+  async function save(then: "close" | "refresh" | "test"): Promise<void> {
+    say("Saving...");
+    try {
+      const saved = await api<BladeSummary>(savedName ? path(savedName) : "/blades", savedName ? "PUT" : "POST", body());
+      savedName = saved.name;
+      typedSecrets.clear();
+      say(`Saved ${saved.name}.`, "ok");
+      if (then === "refresh") {
+        say(`Saved. Refreshing ${saved.name}'s catalog...`);
+        const answer = await runBlade<{ catalog: { columns: number; tables: number } }>(saved.name, "refresh");
+        if (answer) say(`Refreshed: ${answer.catalog.tables} tables, ${answer.catalog.columns} columns.`, "ok");
+        else say("Saved, but the refresh did not finish.", "error");
+      }
+      if (then === "test") {
+        say(`Saved. Testing ${saved.name}...`);
+        const answer = await runBlade<{ ok: boolean; type?: string; variables?: string[] }>(saved.name, "test");
+        if (answer?.variables) say(`It works: it sets ${answer.variables.join(", ")}.`, "ok");
+        else if (answer?.type) say(`It works: it makes a ${answer.type}.`, "ok");
+        else say("Saved, but the test did not pass.", "error");
+      }
+      onSaved(saved.name);
+    } catch (error) {
+      say((error as Error).message, "error");
+    }
+  }
+
+  async function remove(): Promise<void> {
+    if (!savedName) return;
+    const target = savedName;
+    const { body: dialogBody, foot, close } = openDialog(`Remove ${target}?`);
+    dialogBody.append(h("p", {}, "The blade and its saved secrets are removed. Its catalog stays until you remove it."));
+    foot.append(
+      button("Cancel", close, { class: "ghost" }),
+      button("Remove", () => {
+        close();
+        void api(path(target), "DELETE").then(() => {
+          toast(`Removed ${target}.`);
+          onClosed();
+        }, (error: Error) => toast(error.message, "error"));
+      }, { class: "danger" }),
+    );
+  }
+
+  renderKinds();
+  clear(
+    host,
+    h("h2", {}, name ? `Blade: ${name}` : "Save as blade"),
+    template?.note ? h("p", { class: "hint" }, template.note) : null,
+    sections,
+  );
+  sections.append(
+    h("label", {}, h("span", {}, "Name"), nameInput),
+    h("div", {}, h("div", { class: "hint" }, "Kind"), kinds),
+    codeFieldset,
+    kindHost,
+    h(
+      "div",
+      { class: "row-actions" },
+      button("Save", () => void save("close"), { class: "primary", icon: "save" }),
+      button("Save and refresh the catalog", () => void save("refresh"), { icon: "play" }),
+      button("Save and test", () => void save("test"), { icon: "check" }),
+      button("Cancel", onClosed, { class: "ghost" }),
+      name ? button("Remove", () => void remove(), { class: "danger", icon: "trash" }) : null,
+    ),
+    status,
+  );
+  renderKind();
+  if (draft.code && !inspection) await inspect();
+  else renderInspection();
+  nameInput.focus();
+}

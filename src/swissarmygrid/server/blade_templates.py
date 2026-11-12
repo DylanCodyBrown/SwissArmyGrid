@@ -251,8 +251,11 @@ conn = oracledb.connect(
         "SQLite",
         "sqlite",
         """import sqlite3
+from pathlib import Path
 
-conn = sqlite3.connect(r"C:\\data\\my_database.sqlite")""",
+path = Path(r"C:\\data\\my_database.sqlite")
+# Read-only: a wrong path fails plainly instead of quietly making a new, empty database.
+conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)""",
         SQLITE,
     ),
     _db(

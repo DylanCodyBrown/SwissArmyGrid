@@ -32,7 +32,7 @@ import { handleAgentNotice, loadApprovals } from "./agentAccess";
 import { handleNotice, mountAiPanel, refreshPanel } from "./aiPanel";
 import { mountErd } from "./erdView";
 import { mountBottomBar, setLive } from "./bottomBar";
-import { $, clear, h, toast } from "./dom";
+import { $, button, clear, h, toast } from "./dom";
 import { renderKeyFinder } from "./keyFinder";
 import { settingsButton } from "./settingsWindow";
 import { openCompareDialog } from "./compareDialog";
@@ -181,7 +181,7 @@ async function start(): Promise<void> {
     // The browser tab always reads SwissArmyGrid; the tab bar names the grids.
     document.title = "SwissArmyGrid";
   });
-  $(".tabbar-start").append(settingsButton());
+  $(".tabbar-start").append(settingsButton(), bladesButton());
   mountRibbon($(".ribbon"), openColumnProfile);
   mountPanes($(".tabs-row"), $(".panes"), () => refreshPanel());
   // A new split opens the key picker with the Key Finder already run; Close keeps it key-less.
@@ -239,3 +239,13 @@ window.addEventListener("unhandledrejection", (event: PromiseRejectionEvent) => 
 start().catch((e: unknown) => {
   document.body.append(h("p", { class: "status-error", style: { padding: "16px" } }, `Could not open this grid: ${(e as Error).message}`));
 });
+
+/** Blades and the catalog, always in a tab of their own (plan decision 18), never in this page.
+ * The window's name brings an open one forward instead of opening a second. */
+function bladesButton(): HTMLButtonElement {
+  return button(
+    "Blades and catalog",
+    () => window.open(`/catalog#token=${encodeURIComponent(token)}`, "swissarmygrid-catalog")?.focus(),
+    { icon: "key", iconOnly: true, class: "ghost prefs-btn", title: "Blades and the catalog (opens in its own tab)" },
+  );
+}
