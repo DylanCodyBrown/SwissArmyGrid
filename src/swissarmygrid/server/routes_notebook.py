@@ -4,6 +4,7 @@
   POST /notebook/session         start marimo if needed; give this page the cookie the frame uses
   POST /notebook/imports         add missing imports to the open notebook, in a new cell at the top
   POST /notebook/drop            code dragged from the rail: into the cell it was dropped on, or after it
+  POST /grids/{id}/notebook-cell a grid's steps as one marimo SQL cell in the notebook (code-behind)
   *    /marimo/...               marimo itself (HTTP and websockets), with marimo's token added here
 
 A frame cannot put SAG's token in its requests' headers, so /marimo/ is reached with a cookie instead:
@@ -19,12 +20,22 @@ import http.client
 from collections.abc import AsyncIterator
 from typing import Any
 
+import duckdb
 from starlette.requests import Request
 from starlette.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import BaseRoute, Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json_object
+from swissarmygrid.codegen.generate import generate_code
+from swissarmygrid.engine.workers import BACKGROUND
+from swissarmygrid.server.context import (
+    Context,
+    actor,
+    error_response,
+    json_response,
+    read_json,
+    read_json_object,
+)
 from swissarmygrid.server.notebook import BASE_URL, DEFAULT_NOTEBOOK, NotebookControl, NotebookError
 
 NOTEBOOK_COOKIE: str = "sag_notebook"
@@ -46,6 +57,17 @@ _HOP: frozenset[str] = frozenset(
     }
 )
 _IMPORT_LINE_MAX: int = 300
+
+
+def sql_cell(variable: str, sql: str) -> str:
+    """A marimo SQL cell, `variable = mo.sql(\"\"\"...\"\"\")`, which marimo shows as one of its own SQL
+    cells. The quotes are whichever triple quotes the query does not hold, raw when it holds a backslash
+    (a LIKE escape) so Python leaves it alone; a query holding both kinds goes as one plain string."""
+    quote = '"""' if '"""' not in sql else "'''" if "'''" not in sql else None
+    if quote is None or (quote and "\\" in sql and sql.endswith("\\")):
+        return f"{variable} = mo.sql({sql!r})"
+    prefix = "r" if "\\" in sql else ""
+    return f"{variable} = mo.sql(\n    {prefix}{quote}\n{sql}\n{quote}\n)"
 
 
 def _check_imports(lines: Any, allow_empty: bool = False) -> list[str]:
@@ -121,6 +143,48 @@ def routes(ctx: Context) -> list[BaseRoute]:
                 raise ValueError("cell is a cell id.")
             _check_file(file)
             return json_response(await control.drop(file, code, checked, cell))
+        except NotebookError as error:
+            return Response(str(error), status_code=409)
+        except Exception as error:
+            return error_response(error)
+
+    async def grid_cell(request: Request) -> Response:
+        """Code-behind (plan phase 2): this grid's steps, as one DuckDB query over its table's own
+        variable, written into the notebook as a marimo SQL cell and run. Only code the server ran and
+        matched against the grid goes in (the same rule as the Copy buttons)."""
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            grid, info = ctx.grid_and_info(request.path_params["grid_id"])
+
+            def make(cur: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+                result: dict[str, Any] = generate_code(
+                    cur,
+                    ctx.views,
+                    info,
+                    grid.steps,
+                    grid.settings,
+                    "duckdb",
+                    ctx.settings.duckdb_memory_limit,
+                )
+                return result
+
+            result = await ctx.grid_query(grid, None, BACKGROUND, make)
+            if not result["verified"]:
+                return Response(
+                    "This grid's steps could not be checked as SQL, so they were not written to the "
+                    "notebook: "
+                    f"{result.get('difference') or result.get('note') or 'the copy did not match the grid'}",
+                    status_code=409,
+                )
+            variable = result.get("result_variable") or f"{info.name}_view"
+            code = sql_cell(str(variable), str(result["sql"]))
+            body = await read_json(request) if int(request.headers.get("content-length") or 0) else {}
+            file: Any = body.get("file") if isinstance(body, dict) and body.get("file") else DEFAULT_NOTEBOOK
+            _check_file(file)
+            kept = await control.keep(str(file), f"grid:{grid.id}", code, ["import marimo as mo"])
+            ctx.audit.write("user", "notebook_cell", info.name)
+            return json_response(kept | {"variable": variable, "code": code})
         except NotebookError as error:
             return Response(str(error), status_code=409)
         except Exception as error:
@@ -231,6 +295,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
         Route("/notebook/session", session, methods=["POST"]),
         Route("/notebook/imports", imports, methods=["POST"]),
         Route("/notebook/drop", drop, methods=["POST"]),
+        Route("/grids/{grid_id}/notebook-cell", grid_cell, methods=["POST"]),
         Route(BASE_URL, bare, methods=methods),
         Route(BASE_URL + "/{path:path}", proxy, methods=methods),
         WebSocketRoute(BASE_URL + "/{path:path}", websocket_proxy),

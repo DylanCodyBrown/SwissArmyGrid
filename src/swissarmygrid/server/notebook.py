@@ -210,6 +210,7 @@ class NotebookControl:
 
     def __init__(self, server: NotebookServer) -> None:
         self.server = server
+        self._kept: dict[str, str] = {}  # a grid's id -> the cell that holds its steps as SQL
 
     def _post(self, route: str, body: object, session: str) -> object:
         import json
@@ -292,6 +293,31 @@ class NotebookControl:
         Returns the lines added (none when the notebook already has them all)."""
         async with self._joined(file) as (session, ids, codes):
             return await self._imports(file, session, ids, codes, lines)
+
+    async def keep(self, file: str, key: str, code: str, imports: list[str]) -> dict[str, object]:
+        """The one cell SAG keeps for `key` (a grid's steps, as SQL): its code replaced while the cell is
+        still in the notebook, else a new cell at the end. Then the imports it needs, at the top, and
+        the cell is run, so its result is ready (and, being a table, can open as a grid)."""
+        async with self._joined(file) as (session, ids, codes):
+            cell = self._kept.get(key)
+            if cell is not None and cell in ids:
+                await self._change(session, [{"type": "set-code", "cellId": cell, "code": code}])
+            else:
+                cell = "sag" + secrets.token_hex(3)
+                await self._change(session, [_create(cell, code, after=ids[-1] if ids else None)])
+                self._kept[key] = cell
+            added = await self._imports(file, session, ids, codes, imports)
+            owner = await asyncio.to_thread(self._owner, file, session)
+            ran = False
+            if owner is not None:
+                try:
+                    await asyncio.to_thread(
+                        self._post, "/api/kernel/run", {"cellIds": [cell], "codes": [code]}, owner
+                    )
+                    ran = True
+                except NotebookError:
+                    pass  # written but not run (no notebook tab open to run it in): it runs when opened
+            return {"cell": cell, "added": added, "ran": ran}
 
     async def drop(self, file: str, code: str, imports: list[str], target: str | None) -> dict[str, object]:
         """What was dragged from the rail and dropped on cell `target`: into that cell when it is empty,

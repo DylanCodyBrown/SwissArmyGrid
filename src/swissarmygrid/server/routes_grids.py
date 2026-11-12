@@ -95,6 +95,8 @@ def describe_grid(
         "row_count": info.row_count,
         "source_kind": info.source_kind,
         "query": info.query,
+        # Pushed by the notebook tab: its steps are written back there as a SQL cell (code-behind).
+        "notebook": ctx.processes.from_notebook(info.name),
         "source_columns": [{"name": c.name, "type": c.type} for c in info.columns],
         "columns": [{"name": c.name, "type": c.type} for c in compiled.columns],
         # Columns after each step (index 0 = the source), for previewing a step.

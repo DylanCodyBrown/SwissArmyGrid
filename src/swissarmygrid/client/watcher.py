@@ -463,12 +463,12 @@ def _main_namespace() -> dict[str, Any]:
     return vars(main) if main is not None else {}
 
 
-def start(namespace: Callable[[], dict[str, Any]] | None = None) -> Watcher:
+def start(namespace: Callable[[], dict[str, Any]] | None = None, label: str | None = None) -> Watcher:
     """Start watching this process (once; calling it again returns the same watcher)."""
     global _watcher
     with _guard:
         if _watcher is None or not _watcher.alive():
-            _watcher = Watcher(namespace or _main_namespace)
+            _watcher = Watcher(namespace or _main_namespace, label)
             _watcher.start()
         return _watcher
 
@@ -518,6 +518,9 @@ def autostart() -> None:
         return
     marimo = _marimo_namespace()
     if marimo is not None:
-        start(marimo)  # the notebook tab's tables become grids (plan, phase 2)
+        # The notebook tab's tables become grids (plan, phase 2). The label tells the server these come
+        # from the notebook, so a grid's steps go back to it as a SQL cell (server/processes.py).
+        file = marimo().get("__file__")
+        start(marimo, label=f"notebook {os.path.basename(file)}" if isinstance(file, str) else "notebook")
     elif mode == "1" or _in_ipython():
         start()

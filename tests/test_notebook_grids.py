@@ -37,9 +37,12 @@ class Live:
             method=method,
             headers=AUTH | (headers or {}),
         )
-        with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 (loopback)
-            raw = response.read()
-            return json.loads(raw) if raw else None
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 (loopback)
+                raw = response.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as error:
+            raise AssertionError(f"{method} {path}: {error.code} {error.read().decode()[:600]}") from None
 
 
 @pytest.fixture(scope="module")
@@ -87,7 +90,7 @@ def wait_for(check: Callable[[], Any], seconds: float = 60) -> Any:
     raise AssertionError("timed out")
 
 
-def test_a_notebook_table_opens_as_a_grid_and_follows_its_cell(live: Live) -> None:
+def test_a_notebook_table_opens_as_a_grid_follows_its_cell_and_its_steps_go_back(live: Live) -> None:
     live.call("POST", "/notebook/session")
 
     def run(session: str, ids: list[str], codes: list[str]) -> None:
@@ -107,30 +110,65 @@ def test_a_notebook_table_opens_as_a_grid_and_follows_its_cell(live: Live) -> No
                 return int(dataset["rows"])
         return None
 
-    async def scenario() -> tuple[str, int, int]:
+    def notebook_rows(name: str) -> int | None:
+        for session in live.call("GET", "/processes")["processes"]:
+            for table in session["tables"]:
+                if table["name"] == name:
+                    return int(table.get("rows") or 0) or None
+        return None
+
+    def grid_steps() -> dict[str, Any]:
+        """Everything after the notebook is open: open the table, follow its cell, write its steps back."""
+        found: dict[str, Any] = {}
+        process = wait_for(lambda: process_with("loaves"))
+        live.call("POST", f"/processes/{process}/open", {"name": "loaves"})
+        found["first"] = wait_for(lambda: rows_of("loaves"))
+        # Run the cell again with more rows: the open grid follows its variable.
+        more = (
+            "import pandas as pd\n"
+            "loaves = pd.DataFrame({'loaf': ['rye', 'spelt', 'oat'], 'grams': [800, 650, 500]})"
+        )
+        run("s-grid-owner", ["sagdf1"], [more])
+        found["second"] = wait_for(lambda: rows_of("loaves") == 3 and 3)
+        # Code-behind: a step on the notebook's grid goes back to the notebook as one SQL cell, run in the
+        # kernel over the notebook's own variable, so its result is one more table there.
+        grid = next(d["grids"][0] for d in live.call("GET", "/datasets")["datasets"] if d["name"] == "loaves")
+        found["linked"] = live.call("GET", f"/grids/{grid}")["notebook"]
+        heavy = {"steps": [{"kind": "filter", "params": {"column": "grams", "op": "gt", "value": 600}}]}
+        live.call("POST", f"/grids/{grid}/steps", heavy)
+        found["kept"] = live.call("POST", f"/grids/{grid}/notebook-cell")
+        found["view"] = wait_for(lambda: notebook_rows("loaves_view"))
+        # A second change updates the same cell rather than adding another.
+        heavier = {"steps": [{"kind": "filter", "params": {"column": "grams", "op": "gt", "value": 700}}]}
+        live.call("POST", f"/grids/{grid}/steps", heavier)
+        found["again"] = live.call("POST", f"/grids/{grid}/notebook-cell")
+        found["view_after"] = wait_for(lambda: notebook_rows("loaves_view") == 1 and 1)
+        return found
+
+    async def scenario() -> dict[str, Any]:
         url = f"ws://127.0.0.1:{live.port}/marimo/ws?session_id=s-grid-owner&file=workspace.py"
-        async with websockets.connect(url, additional_headers=AUTH, max_size=None) as owner:
+        async with websockets.connect(
+            url, additional_headers=AUTH, max_size=None
+        ) as owner:  # the notebook tab
             ids, codes = await _cells(owner)
             loaves = (
                 "import pandas as pd\nloaves = pd.DataFrame({'loaf': ['rye', 'spelt'], 'grams': [800, 650]})"
             )
             # Run the starter cell (it imports swissarmygrid, which starts the watcher) and a table cell.
             await asyncio.to_thread(run, "s-grid-owner", [ids[0], "sagdf1"], [codes[0], loaves])
-            process = await asyncio.to_thread(wait_for, lambda: process_with("loaves"))
-            await asyncio.to_thread(live.call, "POST", f"/processes/{process}/open", {"name": "loaves"})
-            first = await asyncio.to_thread(wait_for, lambda: rows_of("loaves"))
-            # Run the cell again with more rows: the open grid follows its variable.
-            more = loaves.replace(
-                "['rye', 'spelt'], 'grams': [800, 650]", "['rye', 'spelt', 'oat'], 'grams': [800, 650, 500]"
-            )
-            await asyncio.to_thread(run, "s-grid-owner", ["sagdf1"], [more])
-            second = await asyncio.to_thread(wait_for, lambda: rows_of("loaves") == 3 and 3)
-            return process, first, second
+            return await asyncio.to_thread(grid_steps)
 
-    process, first, second = asyncio.run(scenario())
-    assert (first, second) == (2, 3)
-    label = next(p["label"] for p in live.call("GET", "/processes")["processes"] if p["id"] == process)
-    assert label  # the session is named (its notebook)
+    found = asyncio.run(scenario())
+    assert (found["first"], found["second"]) == (2, 3)
+    assert found["linked"] is True
+    kept = found["kept"]
+    assert kept["ran"] and kept["variable"] == "loaves_view"
+    assert kept["code"] == (
+        'loaves_view = mo.sql(\n    """\n-- 1. Keep rows where grams is greater than 600\n'
+        'SELECT *\nFROM loaves\nWHERE "grams" > 600\n"""\n)'
+    )
+    assert found["view"] == 2  # rye and spelt are over 600 grams; oat is not
+    assert found["again"]["cell"] == kept["cell"] and found["view_after"] == 1
 
 
 def test_outside_marimo_the_watcher_namespace_is_main() -> None:

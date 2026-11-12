@@ -30,6 +30,10 @@ _PROCESS_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _KIND = re.compile(r"[a-z_]{1,24}")
 
 
+# The label a watcher in SwissArmyGrid's own notebook (marimo) reports itself with.
+NOTEBOOK_LABEL: str = "notebook"
+
+
 @dataclass
 class _Session:
     id: str
@@ -182,6 +186,11 @@ class ProcessRegistry:
         return taken
 
     # ===== what a session keeps current =====
+
+    def from_notebook(self, name: str) -> bool:
+        """True when the notebook tab's kernel pushed `name` (its watcher's label starts "notebook"), so
+        the grid's steps belong in the notebook as a SQL cell (plan phase 2, code-behind)."""
+        return any(s.label.startswith(NOTEBOOK_LABEL) and name in s.loaded for s in self._sessions.values())
 
     def note_loaded(self, process_id: str, name: str) -> bool:
         """The session pushed `name` as a dataset. It now owns the name: another session that had
