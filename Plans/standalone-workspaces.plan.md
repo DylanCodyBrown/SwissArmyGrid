@@ -71,7 +71,8 @@ The goal, per workspace, without panning:
 13. **The grid page is for the grid and analysis only.** No SQL box or transformations panel on it
     (they move to the notebook, decision 12), which gives the grid the whole page.
 14. **Blades: saved Python, kept by SAG** (the owner, 2026-11-12). A blade is a fold-out tool on the Swiss Army knife (the owner named them): a store of saved code, so
-    code is written once instead of retyped into every script. **Anything can be a blade**: the
+    code is written once instead of retyped into every script. **Any time Python reaches outside itself to
+    load something, that is a blade** (the owner's words): a database, an API, a CSV, a workbook. **Anything can be a blade**: the
     user highlights code in the notebook and presses **Save as blade** on its toolbar (until the
     notebook exists, pastes it into the page's form). The save screen names it, marks it a **SQL
     connection** (with its dialect) or **other** (an API client, a file path, any setup), names the
@@ -224,6 +225,21 @@ With the notebook built in, the direction reverses (decision 11):
   through DB-API, or Python whose `catalog` variable or last expression is the table); secrets through
   `keyring`; a starting catalog query per dialect (INFORMATION_SCHEMA, SQLite's pragmas, Oracle's
   ALL_TAB_COLUMNS).
+- Starter blades `server/blade_templates.py` (the owner, 2026-11-12): "New blade from a template" for the
+  20 most used databases (SQL Server, PostgreSQL, MySQL, MariaDB, Oracle, SQLite, DuckDB, Snowflake,
+  BigQuery, Redshift, Databricks, Azure SQL / Synapse, Db2, Teradata, Trino/Presto, ClickHouse,
+  Sybase/SAP ASE, SAP HANA, Vertica, Access via ODBC) and common file patterns (a CSV file, an Excel
+  workbook, a Parquet file, a folder of files). Each fills in the driver import, placeholders,
+  `secret("password")`, the variable, and a catalog command: the dialect's catalog query, or for files
+  Python that lists sheets or files as tables and their headers as columns. Templates are a starting
+  point the user edits; the driver note says what to install.
+- Packages a blade needs `server/blade_packages.py` (the owner, 2026-11-12): the save screen reads the
+  code's imports (and calls that pull in an extra package, such as `read_excel` -> openpyxl), maps each
+  import to its pip name (`snowflake.connector` -> `snowflake-connector-python`, `psycopg` ->
+  `psycopg[binary]`, ...), and says which are missing from SAG's environment. **Install** adds them there
+  on the user's click (`uv pip install --python <SAG's Python>`, never for the agent); a copy button gives
+  the same `uv pip install ...` for the user's own environment. `sag.blade()` turns an ImportError into
+  that exact command.
 - Refresh `server/blade_runner.py`: a child process (`python -I`) gets the code and secrets on
   stdin, runs the code, takes its variable, runs the catalog command, and returns rows as JSON; a time
   limit, plain errors.
@@ -241,7 +257,10 @@ With the notebook built in, the direction reverses (decision 11):
   a 500,000-column catalog instantly, and the agent finds a column and gets a correct SELECT.
 
 **Part 2 (with phase 2):** the same navigation left of the notebook; **Save as blade** on the
-notebook's toolbar takes the highlighted code into the save screen; drag a blade into a cell
+notebook's toolbar takes the highlighted code into the save screen. Dropping a blade into a script
+**adds any import it needs at the top when the script does not have it yet** (the owner, 2026-11-12):
+`import swissarmygrid as sag` for the `sag.blade(...)` line, or the blade's own imports when its code is
+dropped in full; an import already there (in any form) is never repeated. Drag a blade into a cell
 (`conn = sag.blade(...)`), a table (a SQL cell over the blade's connection), a column (its quoted name).
 
 ## Phase 3: save and open a workspace
