@@ -53,6 +53,7 @@ from swissarmygrid.server.context import (
 )
 from swissarmygrid.server.grids import Grid
 from swissarmygrid.server.info_file import info_file_path
+from swissarmygrid.server.level_zero import query_classes, value_use_refusal
 from swissarmygrid.server.masking import Origins
 from swissarmygrid.server.routes_agent import Policy, pivot_refused
 
@@ -111,6 +112,10 @@ async def store_table(
         ctx.derived_columns.pop(name, None)
     else:
         ctx.derived_columns[name] = origins
+    if who == "agent":
+        ctx.agent_made.add(name)
+    else:
+        ctx.agent_made.discard(name)
     ctx.views.forget_dataset(name)
     existing = ctx.grids.first_for(name)
     if follow and existing is None:
@@ -277,6 +282,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             return Response("No such dataset.", status_code=404)
         ctx.views.forget_dataset(name)
         ctx.derived_columns.pop(name, None)
+        ctx.agent_made.discard(name)
         for grid in ctx.grids.for_dataset(name):
             ctx.grids.close(grid.id)
         await ctx.live.broadcast({"type": "dataset_closed", "dataset": name})
@@ -336,6 +342,13 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 raise ValueError('Send {"sql": "SELECT ... FROM <table>"}.')
             if (refused := pivot_refused(request, policy, text)) is not None:
                 return refused
+            if actor(request) == "agent" and policy.level == 0:
+                tables = await ctx.workers.run(
+                    BACKGROUND,
+                    lambda: query_classes(ctx, ctx.store.cursor(), None, None, datasets_as_tabs=True),
+                )
+                if (why := value_use_refusal(text, tables, returns_rows=False)) is not None:
+                    return Response(why, status_code=403)
             existing = ctx.store.get(name)
             if existing is not None and not (body.get("replace") is True and existing.query is not None):
                 raise DatasetError(f"A dataset named {name!r} already exists; pick a new name.")

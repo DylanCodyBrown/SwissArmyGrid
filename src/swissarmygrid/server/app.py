@@ -140,7 +140,7 @@ def create_app(
             *routes_context.routes(ctx, policy),
             *routes_models.routes(ctx, relationships),
             *routes_cards.routes(ctx, policy),
-            *routes_keyfinder.routes(ctx),
+            *routes_keyfinder.routes(ctx, policy),
             *routes_compare.routes(ctx, policy),
             *routes_processes.routes(ctx),
             *routes_snapshots.routes(ctx),
@@ -152,7 +152,7 @@ def create_app(
         middleware=[
             Middleware(LocalOnlyGuard, port=port, token=token),
             # Inside the guard: only requests that passed it reach a route and get an error back.
-            Middleware(EngineErrorRedaction, level=lambda: policy.level),
+            Middleware(EngineErrorRedaction, shown=policy.engine_errors_shown),
         ],
         lifespan=lifespan,
     )

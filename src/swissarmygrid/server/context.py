@@ -18,6 +18,7 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 import duckdb
+import sqlglot
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
@@ -66,6 +67,9 @@ class Context:
     # For a table made by a query: each column's origins, the dataset columns it was computed
     # from (masking.py), so a privacy mask on a source column follows the data into it.
     derived_columns: dict[str, dict[str, Origins]] = field(default_factory=dict)
+    # Datasets an agent made (loaded, pasted, or built by a query), whose values the agent chose:
+    # at privacy level 0 they are not compared against the user's data (server/level_zero.py).
+    agent_made: set[str] = field(default_factory=set)
 
     def grid_url(self, grid: Grid, with_token: bool = True) -> str:
         """The grid's page. The fragment carries the token to the page without ever sending it to
@@ -216,6 +220,10 @@ def error_response(error: Exception) -> Response:
         status = 404
     elif isinstance(error, duckdb.Error):
         return PlainTextResponse(f"DuckDB: {error}", status_code=400)
+    elif isinstance(error, sqlglot.errors.SqlglotError):  # SQL that could not be read: the sender's
+        return PlainTextResponse(
+            f"Could not read the SQL: {str(error).splitlines()[0][:300]}", status_code=400
+        )
     message = "A newer request replaced this one." if isinstance(error, StaleRequestError) else str(error)
     return PlainTextResponse(message or type(error).__name__, status_code=status)
 

@@ -156,6 +156,28 @@ relation, not the user's variable, so they were marked verified anyway.
   `SELECT *` shows one column fewer than the grid. A list of dicts, a file or the clipboard has no
   variable DuckDB can read; the copy expects a DataFrame of that name and says so.
 
+## Agent privacy hardening (2026-11-12, confirm or change)
+
+- **Approved agent exports are masked.** The file follows `/agent/read`: masks traced to the source
+  columns, level 1 text masking, the level's per-read row cap (20 / 200), and level 0 exports only
+  `scope=profile`. One click is one read's worth of rows, since the agent can read the file back.
+- **Step values at level 0.** Every agent view of steps (tabs_get, view-state, context, the step
+  commands' answers) shows the same redacted form (server/step_privacy.py). Chosen over refusing
+  the steps_* commands at level 0: the server applies one change by index or id
+  (`POST /grids/{id}/step-ops`), so the commands never read values back. A redacted list posted back
+  unchanged keeps the user's values; a half-edited one is refused.
+- **Level 0 SQL rule** (server/level_zero.py): a non-number column (text, date, boolean, list,
+  struct, JSON, anything untraced) may only be counted, grouped by without being returned, tested
+  with IS NULL, or passed through. Functions, casts, comparisons, sorts, set operations and
+  PIVOT/UNPIVOT on it are refused in agent SQL, steps, table cards and charts. Number-ness follows
+  the data: a number the user computed from text (`length(client)`) is not a number column.
+- **Open, by choice:** sort steps on text are allowed at level 0 (they change only what the user
+  sees; with a limit step they reveal row order, not values), though `ORDER BY text` in agent SQL
+  is refused. `table_matching` switches change how the user's own hidden filter values match, so the
+  row count can move. The Key Finder's "longest value is N characters" equals the profile's
+  `longest`, which level 0 already shows. Key Finder and compare skip agent-made tables and grids
+  with an agent SQL, bucket or categorize step, since they can hold values the agent chose.
+
 ## Next: grid tabs, split view and compare (to plan)
 
 Asked for on 2026-10-22: grids open as tabs in one window instead of new browser windows (move,

@@ -44,6 +44,7 @@ from swissarmygrid.engine.datasets import Column, DatasetInfo
 from swissarmygrid.engine.workers import INTERACTIVE
 from swissarmygrid.server.context import Context, actor, error_response, json_response, query_int, read_json
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.level_zero import probe_refusal
 from swissarmygrid.server.routes_agent import Policy, agent_may_see_raw_values, raw_values_refused
 
 
@@ -137,6 +138,16 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             raise LookupError("No such compare; it may have been stopped or the server restarted.")
         return cmp
 
+    def probe_refused(request: Request, left: str, right: str) -> Response | None:
+        """At level 0, an agent's compare of a table it made (values it chose) against the user's:
+        the matched counts would tell whether the user's data has those values. Checked on every
+        count, since a compare recounts after either grid changes."""
+        if actor(request) != "agent" or policy.level != 0:
+            return None
+        grids = [g for g in (ctx.grids.get(left), ctx.grids.get(right)) if g is not None]
+        why = probe_refusal(ctx, *grids)
+        return None if why is None else Response(why, status_code=403)
+
     async def run(fn: Any) -> Any:
         return await ctx.workers.run(INTERACTIVE, lambda: fn(ctx.store.cursor()))
 
@@ -147,6 +158,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 raise ValueError('Send {"left": grid id, "right": grid id, "keys": [[left col, right col]]}.')
             if body["left"] == body["right"]:
                 raise ValueError("Compare two different grids.")
+            if (refused := probe_refused(request, body["left"], body["right"])) is not None:
+                return refused
             spec = CompareSpec.from_json(body)
             cmp = Compare(secrets.token_hex(4), body["left"], body["right"], spec)
             await run(lambda cur: ensure(cur, cmp))
@@ -161,6 +174,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     async def read(request: Request) -> Response:
         try:
             cmp = get(request)
+            if (refused := probe_refused(request, cmp.left, cmp.right)) is not None:
+                return refused
             await run(lambda cur: ensure(cur, cmp))
             return json_response(describe(cmp, request))
         except Exception as error:
@@ -169,6 +184,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     async def change(request: Request) -> Response:
         try:
             cmp = get(request)
+            if (refused := probe_refused(request, cmp.left, cmp.right)) is not None:
+                return refused
             body = await read_json(request)
             if not isinstance(body, dict):
                 raise ValueError("Send the fields to change: keys, mode, anti_side.")
@@ -280,6 +297,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     async def set_focus(request: Request) -> Response:
         try:
             cmp = get(request)
+            if (refused := probe_refused(request, cmp.left, cmp.right)) is not None:
+                return refused
             body = await read_json(request)
             picked = body.get("side") if isinstance(body, dict) else None
             position = body.get("position") if isinstance(body, dict) else None

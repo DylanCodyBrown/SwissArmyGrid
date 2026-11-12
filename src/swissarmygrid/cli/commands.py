@@ -605,8 +605,14 @@ def grid_recipe(a: dict[str, Any]) -> Any:
 )
 def grid_export(a: dict[str, Any]) -> Any:
     fmt = a.get("format") or "csv"
-    approved = api.call("POST", f"/agent/export-approval/{_q(a['grid'])}", params={"format": fmt})
-    params: dict[str, Any] = dict(a.get("options") or {})
+    scope = a.get("scope") or "view"
+    approved = api.call(
+        "POST", f"/agent/export-approval/{_q(a['grid'])}", params={"format": fmt, "scope": scope}
+    )
+    options = a.get("options") or {}
+    if not isinstance(options, dict):
+        raise CommandError('table_export: options must be an object, e.g. {"delimiter": ";"}.')
+    params: dict[str, Any] = dict(options)
     params |= {"format": fmt, "save": "1", "ticket": approved.get("ticket")}
     for key in ("file", "scope", "overwrite"):
         if a.get(key):
@@ -622,17 +628,8 @@ def grid_export(a: dict[str, Any]) -> Any:
 # ===== steps (the Table Transformations panel and the ribbon) =====
 
 
-def _steps_of(grid: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    view = api.call("GET", f"/grids/{_q(grid)}")
-    steps = [{k: v for k, v in step.items() if k != "description"} for step in view["steps"]]
-    return steps, view.get("settings", {})
-
-
-def _apply(grid: str, steps: list[dict[str, Any]], settings: dict[str, Any] | None = None) -> dict[str, Any]:
-    body: dict[str, Any] = {"steps": steps}
-    if settings is not None:
-        body["settings"] = settings
-    described = api.call("POST", f"/grids/{_q(grid)}/steps", body)
+def _summary(grid: str, described: dict[str, Any]) -> dict[str, Any]:
+    """What a step command answers: the step count, any step error, the columns and the row count."""
     return {
         "grid": grid,
         "steps": len(described.get("steps", [])),
@@ -642,23 +639,23 @@ def _apply(grid: str, steps: list[dict[str, Any]], settings: dict[str, Any] | No
     }
 
 
-def _index(steps: list[dict[str, Any]], value: Any, name: str = "index") -> int:
-    i = int(value)
-    if not 0 <= i < len(steps):
-        raise CommandError(f"{name} {i} is out of range: the grid has {len(steps)} step(s), numbered from 0.")
-    return i
+def _post_steps(grid: str, body: dict[str, Any]) -> dict[str, Any]:
+    """POST /grids/{id}/steps: the whole list and/or the settings (either may be left out)."""
+    return _summary(grid, api.call("POST", f"/grids/{_q(grid)}/steps", body))
+
+
+def _step_op(grid: str, body: dict[str, Any]) -> dict[str, Any]:
+    """One change to one step, applied by the server by its index. The command never reads the step
+    list back, so it works at privacy level 0, where tabs_get hides the steps' values."""
+    sent = {k: v for k, v in body.items() if v is not None}
+    described = api.call("POST", f"/grids/{_q(grid)}/step-ops", sent)
+    return {"index": described.get("index")} | _summary(grid, described)
 
 
 def _insert_step(grid: str, kind: str, params: dict[str, Any], index: Any = None) -> dict[str, Any]:
-    """Insert one step and apply the list. It goes before a header-click sort unless `index` is given,
-    so that sort stays the last word, as with the page's buttons."""
-    steps, _ = _steps_of(grid)
-    if index is not None:
-        at = max(0, min(int(index), len(steps)))
-    else:
-        at = next((i for i, s in enumerate(steps) if s["params"].get("header")), len(steps))
-    steps.insert(at, {"kind": kind, "params": params})
-    return {"index": at} | _apply(grid, steps)
+    """Insert one step. It goes before a header-click sort unless `index` is given, so that sort
+    stays the last word, as with the page's buttons."""
+    return _step_op(grid, {"op": "add", "step": {"kind": kind, "params": params}, "index": index})
 
 
 @command(
@@ -669,8 +666,7 @@ def _insert_step(grid: str, kind: str, params: dict[str, Any], index: Any = None
     opt("settings", "case_sensitive, wildcards, trim_spaces, empty_is_blank (booleans).", "json"),
 )
 def put_steps(a: dict[str, Any]) -> Any:
-    steps = _steps_of(a["grid"])[0] if a.get("steps") is None else a["steps"]
-    return _apply(a["grid"], steps, a.get("settings"))
+    return _post_steps(a["grid"], {k: a[k] for k in ("steps", "settings") if a.get(k) is not None})
 
 
 @command(
@@ -693,9 +689,7 @@ def add_step(a: dict[str, Any]) -> Any:
     req("params", "The full new params.", "json"),
 )
 def edit_step(a: dict[str, Any]) -> Any:
-    steps, _ = _steps_of(a["grid"])
-    steps[_index(steps, a["index"])]["params"] = a["params"]
-    return _apply(a["grid"], steps)
+    return _step_op(a["grid"], {"op": "edit", "index": a["index"], "params": a["params"]})
 
 
 @command(
@@ -705,9 +699,7 @@ def edit_step(a: dict[str, Any]) -> Any:
     req("index", "Step index, from 0.", "int"),
 )
 def delete_step(a: dict[str, Any]) -> Any:
-    steps, _ = _steps_of(a["grid"])
-    del steps[_index(steps, a["index"])]
-    return _apply(a["grid"], steps)
+    return _step_op(a["grid"], {"op": "delete", "index": a["index"]})
 
 
 @command(
@@ -718,10 +710,7 @@ def delete_step(a: dict[str, Any]) -> Any:
     opt("enabled", "true/false; omit to flip.", "bool"),
 )
 def toggle_step(a: dict[str, Any]) -> Any:
-    steps, _ = _steps_of(a["grid"])
-    step = steps[_index(steps, a["index"])]
-    step["enabled"] = (step.get("enabled") is False) if a.get("enabled") is None else bool(a["enabled"])
-    return _apply(a["grid"], steps)
+    return _step_op(a["grid"], {"op": "toggle", "index": a["index"], "enabled": a.get("enabled")})
 
 
 @command(
@@ -732,10 +721,7 @@ def toggle_step(a: dict[str, Any]) -> Any:
     req("to", "New index.", "int"),
 )
 def move_step(a: dict[str, Any]) -> Any:
-    steps, _ = _steps_of(a["grid"])
-    step = steps.pop(_index(steps, a["index"]))
-    steps.insert(max(0, min(int(a["to"]), len(steps))), step)
-    return _apply(a["grid"], steps)
+    return _step_op(a["grid"], {"op": "move", "index": a["index"], "to": a["to"]})
 
 
 @command(
@@ -779,9 +765,10 @@ def column_sort(a: dict[str, Any]) -> Any:
     opt("empty_is_blank", "Treat empty text as blank.", "bool"),
 )
 def set_matching(a: dict[str, Any]) -> Any:
-    steps, settings = _steps_of(a["grid"])
+    # Only the switches change; the steps stay on the server as they are (never read back).
+    settings = api.call("GET", f"/grids/{_q(a['grid'])}").get("settings", {})
     settings = {**settings, **{k: a[k] for k in settings if a.get(k) is not None}}
-    return _apply(a["grid"], steps, settings) | {"settings": settings}
+    return _post_steps(a["grid"], {"settings": settings}) | {"settings": settings}
 
 
 @command(

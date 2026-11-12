@@ -58,9 +58,10 @@ def test_engine_errors_never_quote_a_value_to_an_agent_below_level_2(
     set_policy(client, level)
     method, path, extra = _error_routes(gid)[index]
     refused = client.request(method, path, headers=AGENT, **extra)
-    assert refused.status_code == 400
+    # Level 0 refuses a cast of a text column before it runs (level_zero.py); level 1 runs it.
+    assert refused.status_code == (403 if level == 0 else 400)
     assert SECRET not in refused.text
-    assert "hidden" in refused.text
+    assert ("level 0" if level == 0 else "hidden") in refused.text
 
 
 def test_a_failing_view_count_hides_the_value_too(client: TestClient) -> None:
@@ -80,6 +81,18 @@ def test_the_user_and_a_level_2_agent_still_get_the_full_message(client: TestCli
     assert SECRET in client.post(f"/grids/{gid}/sql", json=body, headers=AUTH).text
     set_policy(client, 2)
     assert SECRET in client.post(f"/grids/{gid}/sql", json=body, headers=AGENT).text
+
+
+@pytest.mark.parametrize("how", ["hide", "hash"])
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_at_level_2_with_masks_engine_errors_are_hidden_too(client: TestClient, how: str, index: int) -> None:
+    """A level 2 agent sees DuckDB's error text, which can quote a cell; with a column hidden or
+    hashed that cell may be the masked one (CAST(client AS INT) quoting the client)."""
+    gid = open_grid(client)
+    set_policy(client, 2, auto_rows=True, masks={"client": how})
+    method, path, extra = _error_routes(gid)[index]
+    refused = client.request(method, path, headers=AGENT, **extra)
+    assert refused.status_code == 400 and SECRET not in refused.text and "hidden" in refused.text
 
 
 # ===== an agent export always waits for the user's click, on the server too =====
@@ -446,8 +459,11 @@ def test_the_user_and_a_level_3_agent_may_pivot(client: TestClient) -> None:
     open_grid(client)
     assert client.post("/datasets/pq/query", json={"sql": PIVOT_SQL}, headers=AUTH).status_code == 200
     unpivot = "SELECT * FROM (UNPIVOT clients ON client INTO NAME k VALUE v)"  # names into values: fine
-    set_policy(client, 0)
+    set_policy(client, 1)
     assert client.post("/datasets/up/query", json={"sql": unpivot}, headers=AGENT).status_code == 200
+    # Level 0 refuses it: an UNPIVOT can put a literal the agent chose beside the user's values.
+    set_policy(client, 0)
+    assert client.post("/datasets/up0/query", json={"sql": unpivot}, headers=AGENT).status_code == 403
     set_policy(client, 3)
     assert client.post("/datasets/pq2/query", json={"sql": PIVOT_SQL}, headers=AGENT).status_code == 200
 

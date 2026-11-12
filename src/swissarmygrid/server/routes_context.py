@@ -23,6 +23,7 @@ from starlette.routing import BaseRoute, Route
 from swissarmygrid.engine.workers import AGENT
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
 from swissarmygrid.server.routes_agent import Policy
+from swissarmygrid.server.step_privacy import redact_step
 
 
 def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
@@ -66,9 +67,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 return n, [{"name": c.name, "type": c.type} for c in columns]
 
             row_count, columns = await ctx.grid_query(grid, None, AGENT, describe)
-            steps = [s.to_json() for s in grid.steps]
-            if level == 0:
-                steps = [{"kind": s["kind"], "column": s["params"].get("column")} for s in steps]
+            steps = [redact_step(s) if level == 0 else s.to_json() for s in grid.steps]
             out["active"] = {
                 "grid": grid.id,
                 "dataset": info.name,

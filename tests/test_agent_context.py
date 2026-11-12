@@ -36,9 +36,9 @@ def test_the_agent_hears_which_table_is_in_front(client: TestClient) -> None:
     assert "orders" in text and "2 rows in the view of 3" in text and "region (VARCHAR)" in text
     # Level 0: the step is named, its value (text the user typed) is not.
     client.post("/agent/policy", json={"level": 0}, headers=AUTH)
-    assert client.get("/agent/context", headers=AGENT).json()["active"]["steps"] == [
-        {"kind": "filter", "column": "region"}
-    ]
+    (step,) = client.get("/agent/context", headers=AGENT).json()["active"]["steps"]
+    assert step["kind"] == "filter" and step["params"]["column"] == "region"
+    assert "North" not in json.dumps(step)
 
 
 def test_the_hook_prints_nothing_without_a_table_in_front() -> None:

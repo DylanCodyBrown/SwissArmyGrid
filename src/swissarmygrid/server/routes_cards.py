@@ -26,13 +26,21 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.charts.spec import ChartError, aggregate, altair_code, validate, vega_lite
+from swissarmygrid.engine.datasets import DatasetInfo
 from swissarmygrid.engine.sql_guard import guard
 from swissarmygrid.engine.steps import Step, type_family
 from swissarmygrid.engine.workers import BACKGROUND
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.level_zero import (
+    base_numbers,
+    chart_refusal,
+    query_classes,
+    value_use_refusal,
+    view_classes,
+)
 from swissarmygrid.server.routes_agent import Policy, agent_may_see_raw_values
-from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
+from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN
 
 _TABLE_CARD_ROWS: int = 100
 # A diagram is Mermaid text (an ERD from GET /relationships/erd, or any flowchart), drawn by the page.
@@ -118,12 +126,32 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         if agent_may_see_raw_values(request, policy):
             return shown
         described = [{k: v for k, v in c.items() if k in _CARD_META} for c in shown]
-        if policy.level < ENGINE_ERRORS_SHOWN_FROM_LEVEL:
+        if not policy.engine_errors_shown():
             # Why a card could not draw is often DuckDB's message, which can quote a cell value.
             for card in described:
                 if card.get("error"):
                     card["error"] = ENGINE_ERROR_HIDDEN
         return described
+
+    async def level_zero_refusal(
+        request: Request, grid: Grid, info: DatasetInfo, card: dict[str, Any]
+    ) -> str | None:
+        """Why an agent's card breaks level 0 (a table card's SQL, a chart's spec), or None. A card's
+        rows are hidden from the agent below level 3, but whether it draws, and how many points it
+        has, still come back, so what it computes is held to the agent's SQL rule."""
+        if actor(request) != "agent" or policy.level != 0:
+            return None
+
+        def check(cur: duckdb.DuckDBPyConnection) -> str | None:
+            if card["kind"] == "table":
+                return value_use_refusal(card["sql"], query_classes(ctx, cur, grid, info), returns_rows=False)
+            if card["kind"] == "chart":
+                classes = view_classes(ctx, ctx.compiled(cur, grid, info), info, None, base_numbers(ctx))
+                return chart_refusal(card.get("spec"), classes)
+            return None
+
+        refused: str | None = await ctx.grid_query(grid, None, BACKGROUND, check)
+        return refused
 
     async def list_cards(request: Request) -> Response:
         try:
@@ -172,6 +200,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                     validate(card["spec"], ctx.compiled(cur, grid, info).columns)
 
                 await ctx.grid_query(grid, None, BACKGROUND, check)
+            if (why := await level_zero_refusal(request, grid, info, card)) is not None:
+                return Response(why, status_code=403)
             card |= {
                 "id": secrets.token_hex(4),
                 "grid": grid.id,
@@ -205,6 +235,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                     validate(merged["spec"], ctx.compiled(cur, grid, info).columns)
 
                 await ctx.grid_query(grid, None, BACKGROUND, check)
+            if (why := await level_zero_refusal(request, grid, info, merged)) is not None:
+                return Response(why, status_code=403)
             card.update(merged)
             if "pinned" in body:
                 card["pinned"] = bool(body["pinned"])
@@ -241,6 +273,13 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 return next(c.type for c in columns if c.name == field)
 
             family = type_family(await ctx.grid_query(grid, None, BACKGROUND, column_type))
+            if value is not None and actor(request) == "agent" and policy.level == 0 and family != "number":
+                # A filter on the value clicked, with the row count, would tell the column's values.
+                return Response(
+                    f"At privacy level 0 a click can filter {field} (not a number column) only on its blank "
+                    "bar (omit value). The user can raise the level in Settings.",
+                    status_code=403,
+                )
             if value is None:
                 params: dict[str, Any] = {"column": field, "op": "blank"}
             elif "time_unit" in x:

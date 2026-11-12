@@ -41,6 +41,9 @@ class Grid:
     highlights: list[dict[str, Any]] = field(default_factory=list)
     # How many rows the user has selected (agents may see the count, never the values).
     selected: int = 0
+    # Ids of the steps an agent added or last changed (server/level_zero.py: at level 0 a grid
+    # whose agent steps can hold values the agent chose is not compared against the user's data).
+    agent_steps: set[str] = field(default_factory=set)
     # Cursors running a query for this grid, with the gen they serve.
     _running: dict[int, tuple[str, int, duckdb.DuckDBPyConnection]] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)

@@ -37,6 +37,15 @@ def _v(value: Any) -> str:
 
 
 def describe_step(step: Step) -> str:
+    """One step in words. A step whose params have the wrong shape (saved as sent, so that its
+    error can show) is described by its kind alone, rather than failing every read of the grid."""
+    try:
+        return _describe_step(step)
+    except (AttributeError, TypeError, ValueError):
+        return step.kind
+
+
+def _describe_step(step: Step) -> str:
     p = step.params
     kind = step.kind
     if kind == "filter":
