@@ -6,7 +6,8 @@ tool so `swissarmygrid` is on PATH:
     uv run --no-project --with <wheel> --with pandas --with pyarrow python tools/smoke_install.py
 
 It starts the server with `swissarmygrid start`, pushes the made-up store (examples/sample_store.py), checks that
-all nine tables arrived and that the page's script is served, then stops the server. State goes in a temporary
+all nine tables arrived, that the page's script is served and that blades and catalogs work, then stops the
+server. State goes in a temporary
 folder, so nothing of the machine's own SwissArmyGrid is touched.
 """
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -114,6 +116,45 @@ def main() -> None:
             if page.status != 200 or len(page.read()) < 10_000:
                 sys.exit("The page's script is missing from the install.")
         print("The page's script is served.")
+
+        # Blades: a SQLite blade from its starter, refreshed in the server's own Python (a child
+        # process), run here with sag.blade, and a catalog loaded with sag.load.
+        import sqlite3
+
+        import swissarmygrid as sag
+
+        bakery = state / "bakery.sqlite"
+        with sqlite3.connect(bakery) as setup:
+            setup.execute("CREATE TABLE loaves (loaf_id INTEGER, crust TEXT)")
+        starter = next(t for t in get(info, "/blades/templates")["templates"] if t["id"] == "sqlite")
+        code = re.sub(r'r"[^"]*"', lambda _: repr(str(bakery)), starter["code"], count=1)
+        blade = {
+            "name": "Smoke bakery",
+            "kind": "sql",
+            "dialect": "sqlite",
+            "code": code,
+            "catalog": starter["catalog"],
+        }
+        post(info, "/blades", blade)
+        try:
+            refreshed = post(info, "/blades/Smoke%20bakery/refresh", {"env": {}})
+        except urllib.error.HTTPError as error:
+            sys.exit(f"A blade's Refresh failed: {error.read().decode()[:500]}")
+        if refreshed["catalog"]["columns"] != 2:
+            sys.exit(f"The blade's catalog came back wrong: {refreshed}")
+        conn = sag.blade("Smoke bakery")
+        if conn.execute("SELECT count(*) FROM loaves").fetchall() != [(0,)]:
+            sys.exit("sag.blade did not give a working connection.")
+        sag.load([{"table_name": "loaves", "column_name": "crust", "data_type": "TEXT"}], name="Smoke load")
+        found = get(info, "/catalogs/Smoke%20load/search?q=crust")["columns"]
+        if [c["column"] for c in found] != ["crust"]:
+            sys.exit(f"sag.load's catalog cannot be searched: {found}")
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{info['port']}/static/build/catalog.js", timeout=30
+        ) as page:
+            if page.status != 200 or len(page.read()) < 5_000:
+                sys.exit("The blades page's script is missing from the install.")
+        print("Blades refresh, run with sag.blade, and sag.load fills a catalog.")
     finally:
         subprocess.run([command, "stop"], check=False)
         try:
