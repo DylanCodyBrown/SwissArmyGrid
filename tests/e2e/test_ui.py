@@ -1512,7 +1512,7 @@ def test_an_agent_snapshot_follows_what_the_user_has_done(
     assert before != after, "the picture did not change when the grid did"
 
 
-# ===== hardening: leaks and big tables =====
+# ===== hardening: leaks, big tables, races, the live connection =====
 
 LISTENER_COUNTER = """
 (() => {
@@ -1601,3 +1601,73 @@ def test_the_last_row_scrolls_clear_of_the_sideways_scrollbar(browser: Browser, 
     bottom = viewport.evaluate("v => v.getBoundingClientRect().top + v.clientHeight")
     assert row is not None and strip is not None
     assert row["y"] + row["height"] <= min(bottom, strip["y"]) + 1
+
+
+def test_the_last_tab_clicked_wins_over_a_slow_first_load(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    slow = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+    try:
+        page = open_grid(browser, orders_url)
+        first = grid_of(orders_url)
+        expect(page.locator(f".tab-item[data-grid='{slow}']")).to_be_visible(timeout=10000)
+        page.locator(f".tab-item[data-grid='{first}']").click()
+
+        def delayed(route: Any) -> None:
+            time.sleep(1.5)
+            route.continue_()
+
+        page.route(re.compile(f"/grids/{slow}$"), delayed)
+        # Both clicks inside the page, so the second lands while the first tab's info still loads.
+        page.evaluate(
+            "([slow, first]) => { for (const id of [slow, first])"
+            " document.querySelector(`.tab-item[data-grid='${id}']`).click(); }",
+            [slow, first],
+        )
+        page.wait_for_timeout(2500)
+        expect(page.locator(".tab-item.active")).to_have_attribute("data-grid", first)
+        expect(page.locator(f".pane[data-grid='{first}']")).to_be_visible()
+    finally:
+        call(server, "DELETE", f"/grids/{slow}")
+
+
+SOCKET_KEEPER = """
+(() => {
+  const Native = window.WebSocket;
+  window.__sockets = [];
+  window.WebSocket = class extends Native {
+    constructor(...args) { super(...args); window.__sockets.push(this); }
+  };
+})();
+"""
+
+
+def test_the_page_reconnects_when_its_live_socket_drops(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    context = browser.new_context(viewport={"width": 1600, "height": 900})
+    context.add_init_script(SOCKET_KEEPER)
+    page = context.new_page()
+    page.goto(orders_url)
+    expect(page.locator("#live")).to_have_text(re.compile("^● live"), timeout=15000)
+    page.evaluate("window.__sockets.forEach(s => s.close())")
+    expect(page.locator("#live")).to_contain_text("not live")
+    # A grid opened while the socket is down still arrives once it is back.
+    grid = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
+    try:
+        expect(page.locator("#live")).to_have_text(re.compile("^● live"), timeout=15000)
+        expect(page.locator(f".tab-item[data-grid='{grid}']")).to_be_visible(timeout=10000)
+    finally:
+        call(server, "DELETE", f"/grids/{grid}")
+    expect(page.locator(f".tab-item[data-grid='{grid}']")).to_have_count(0, timeout=10000)
+
+
+def test_the_pop_out_windows_start_without_errors(browser: Browser, orders_url: str) -> None:
+    path, fragment = orders_url.split("#")
+    for panel in ("steps", "keys"):
+        page = browser.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda error, errors=errors: errors.append(str(error)))
+        page.goto(f"{path}?panel={panel}#{fragment}")
+        page.wait_for_timeout(2500)
+        assert errors == [], f"{panel}: {errors}"

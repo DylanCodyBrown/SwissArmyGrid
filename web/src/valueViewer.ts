@@ -124,9 +124,9 @@ export function looksLikeMarkdown(text: string): boolean {
 
 function describe(value: unknown, kind: Kind): string {
   switch (kind) {
-    case "object": return `JSON object · ${formatCount(Object.keys(value as object).length)} keys`;
+    case "object": return `JSON object · ${plural(Object.keys(value as object).length, "key")}`;
     case "table": return `Array of ${formatCount((value as unknown[]).length)} objects`;
-    case "array": return `Array · ${formatCount((value as unknown[]).length)} items`;
+    case "array": return `Array · ${plural((value as unknown[]).length, "item")}`;
     case "markdown": return `Markdown · ${formatCount(String(value).length)} characters`;
     case "text": return `Text · ${formatCount(String(value).length)} characters`;
     case "number": return "Number";
@@ -188,7 +188,7 @@ function cell(value: unknown, label: string, drill: (label: string, inner: unkno
   const inner = parsed(value);
   if (inner === null || inner === undefined) return h("span", { class: "cell-blank" }, "(blank)");
   if (typeof inner === "object") {
-    const summary = Array.isArray(inner) ? `[ ${formatCount(inner.length)} items ]` : `{ ${formatCount(Object.keys(inner).length)} keys }`;
+    const summary = Array.isArray(inner) ? `[ ${plural(inner.length, "item")} ]` : `{ ${plural(Object.keys(inner).length, "key")} }`;
     return h("button", { type: "button", class: "btn small vv-open", title: `Open ${label}`, "aria-label": `Open ${label}: ${summary}`, onclick: () => drill(label, inner) }, summary, " ›");
   }
   const text = String(inner);
@@ -202,6 +202,9 @@ function raw(value: unknown, kind: Kind): HTMLElement {
   if (kind === "markdown") return h("pre", { class: "vv-text mono" }, String(value));
   return h("pre", { class: "vv-json mono" }, ...highlightJson(JSON.stringify(value, null, 2) ?? ""));
 }
+
+/** "1 item", "2 items". */
+const plural = (n: number, word: string): string => `${formatCount(n)} ${word}${n === 1 ? "" : "s"}`;
 
 /** Pretty JSON with keys, strings, numbers and literals marked for colour. */
 function highlightJson(text: string): (Node | string)[] {
