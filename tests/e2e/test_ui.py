@@ -583,6 +583,25 @@ def test_chart_clicks_filter_by_date_by_heatmap_cell_and_never_by_a_whole_line(
     expect(page.locator(".card", has_text="Prices").locator(".card-foot")).not_to_contain_text("click")
 
 
+def test_add_chart_offers_every_open_table(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
+    # Only tables whose tab had been opened were offered (their columns were in the page).
+    other = push_client.push(
+        pd.DataFrame({"shelf": ["A", "B", "A"], "units": [3, 4, 5]}), name="unvisited", new_grid=True
+    )
+    page = open_grid(browser, orders_url)
+    open_agent(page)
+    page.get_by_role("button", name="Add chart").click()
+    dialog = page.locator("dialog")
+    dialog.get_by_label("Table").select_option(label="unvisited")
+    expect(dialog.get_by_label("X axis").locator("option")).to_have_text(["shelf", "units"])
+    dialog.get_by_label("X axis").select_option("shelf")
+    dialog.get_by_role("button", name="Add chart").click()
+    card = page.locator(".card", has=page.locator(".card-table", has_text="unvisited"))
+    expect(card.locator(".chart svg")).to_be_visible(timeout=20000)
+    expect(card.locator(".card-foot")).to_contain_text("2 points")
+    call(server, "DELETE", f"/grids/{grid_of(other)}")
+
+
 def test_note_markdown_is_rendered_safely(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     grid = orders_url.split("/g/")[1].split("#")[0]
     call(

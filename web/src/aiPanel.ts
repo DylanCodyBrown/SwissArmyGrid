@@ -20,7 +20,7 @@
  *          [CARD ACTIONS]    pin / expand (zoom) / image / HTML / Altair / remove
  *          [CARD TABLE]      each card's table name -> read-only, from the card's grid
  */
-import { api, grid, gridId, type Notice } from "./api";
+import { api, grid, gridId, gridPath, type ColumnInfo, type GridInfo, type Notice } from "./api";
 import { contextOf, gridList, onAgentView, viewingAgent } from "./panes";
 import { button, clear, formatCount, h, icon, isDateType, isNumericType, openDialog, recall, remember, toast } from "./dom";
 import { renderMarkdown } from "./markdown";
@@ -393,11 +393,12 @@ async function copyAltair(card: Card): Promise<void> {
 }
 
 function chartDialog(): void {
-  // Which table to chart: any open table, the one in front first.
-  const tables = gridList().filter((g) => contextOf(g.id)?.state.info);
+  // Which table to chart: any open table, the one in front first. Only tables whose tab had been
+  // opened were offered (their columns were in the page); the others' columns come from the server.
+  const tables = gridList();
   const table = h("select", { "aria-label": "Table" });
   for (const g of tables) table.append(h("option", { value: g.id, selected: g.id === gridId }, g.label));
-  let columns = contextOf(table.value)?.state.info?.columns ?? state.info?.columns ?? [];
+  let columns: ColumnInfo[] = [];
   const mark = h("select", { "aria-label": "Chart type" });
   for (const [v, label] of [["bar", "Bar"], ["line", "Line"], ["area", "Area"], ["point", "Scatter"], ["histogram", "Histogram"], ["heatmap", "Heatmap (counts)"]]) mark.append(h("option", { value: v }, label));
   const x = h("select", { "aria-label": "X axis" });
@@ -406,15 +407,19 @@ function chartDialog(): void {
   const agg = h("select", { "aria-label": "Aggregate" });
   const unit = h("select", { "aria-label": "Time unit" });
   const title = h("input", { type: "text", "aria-label": "Title", placeholder: "optional" });
-  const fill = (): void => {
-    columns = contextOf(table.value)?.state.info?.columns ?? [];
+  const fill = async (): Promise<void> => {
+    const id = table.value;
+    const known = contextOf(id)?.state.info?.columns;
+    const found = known ?? (await api<GridInfo>(gridPath(id)).then((info) => info.columns, () => [] as ColumnInfo[]));
+    if (table.value !== id) return; // another table was picked meanwhile
+    columns = found;
     clear(x, ...columns.map((c) => h("option", { value: c.name }, c.name)));
     clear(y, ...columns.map((c) => h("option", { value: c.name }, c.name)));
     clear(color, h("option", { value: "" }, "(none)"), ...columns.map((c) => h("option", { value: c.name }, c.name)));
     const numeric = columns.find((c) => isNumericType(c.type));
     if (numeric) y.value = numeric.name;
+    sync();
   };
-  fill();
   for (const a of ["count", "sum", "mean", "min", "max", "(none: raw points)"]) agg.append(h("option", { value: a.startsWith("(") ? "" : a }, a));
   unit.append(h("option", { value: "" }, "(as is)"), ...["day", "week", "month", "quarter", "year"].map((u) => h("option", { value: u }, u)));
   const field = (label: string, el: HTMLElement): HTMLElement => h("label", { class: "field" }, h("span", {}, label), el);
@@ -424,8 +429,9 @@ function chartDialog(): void {
     y.disabled = mark.value === "histogram" || (agg.value === "count" && mark.value !== "heatmap");
   };
   for (const el of [mark, x, agg]) el.addEventListener("change", sync);
-  table.addEventListener("change", () => { fill(); sync(); });
+  table.addEventListener("change", () => void fill());
   sync();
+  void fill();
   const { body, foot, close } = openDialog("Add a chart");
   const error = h("p", { class: "status-error", role: "alert" });
   body.append(
