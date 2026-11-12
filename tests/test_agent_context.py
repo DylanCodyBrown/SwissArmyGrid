@@ -31,14 +31,11 @@ def test_the_agent_hears_which_table_is_in_front(client: TestClient) -> None:
     active = context["active"]
     assert active["dataset"] == "orders" and active["view_rows"] == 2 and active["dataset_rows"] == 3
     assert [c["name"] for c in active["columns"]] == ["id", "region"]
-    assert active["steps"][0]["params"]["value"] == "North"  # level 3: step values shown
+    assert active["steps"][0]["params"]["value"] == "North"  # step values shown
+    assert "privacy_level" not in context
     text = summary(context)
     assert "orders" in text and "2 rows in the view of 3" in text and "region (VARCHAR)" in text
-    # Level 0: the step is named, its value (text the user typed) is not.
-    client.post("/agent/policy", json={"level": 0}, headers=AUTH)
-    (step,) = client.get("/agent/context", headers=AGENT).json()["active"]["steps"]
-    assert step["kind"] == "filter" and step["params"]["column"] == "region"
-    assert "North" not in json.dumps(step)
+    assert "privacy" not in text
 
 
 def test_the_hook_prints_nothing_without_a_table_in_front() -> None:
@@ -73,8 +70,5 @@ def test_the_commands_get_python_compare_and_close(
     ]
     assert counts == {"matched": 1, "left_only": 1, "right_only": 2}  # the view has ids 1 and 3
     assert client.get("/grids", headers=AUTH).status_code == 200
-    client.post("/agent/policy", json={"level": 0}, headers=AUTH)
-    with pytest.raises(CommandError, match="level 0"):
-        execute("steps_python", {"grid": left})
     execute("tabs_close_grid", {"grid": right})
     assert client.get(f"/grids/{right}", headers=AUTH).status_code == 404

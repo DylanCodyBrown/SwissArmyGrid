@@ -1,9 +1,9 @@
-"""An export the user approved for an agent holds what that agent may read, no more.
+"""An agent export waits for the user's click, and one click writes one file.
 
-The approval click lets the agent write a file into the export folder, and an agent with its own
-file tools can read that file. So the file must follow the same rules as `/agent/read`: hidden
-columns left out, hashed columns hashed, text masked at level 1, the level's row cap, and no rows at
-all at level 0 (only the profile, redacted like `agent_describe`). Made-up data only.
+The click (POST /agent/export-approval) gives a one-time ticket for that grid, and the export route
+writes an agent's file only against one, so skipping the click is refused by the server, not just by
+the command that normally asks. The approved file holds the grid as the user sees it. Made-up data
+only.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ import pyarrow.parquet as pq
 import pytest
 from starlette.testclient import TestClient
 
-from swissarmygrid.server.masking import hash_value, mask_text
 from tests.conftest import AGENT, AUTH, grid_id, push
 
 SECRET = "Acme Secret"
@@ -33,27 +32,22 @@ TABLE = pa.table(
 )
 
 
-def set_policy(client: TestClient, level: int, **extra: Any) -> None:
-    response = client.post("/agent/policy", json={"level": level, **extra}, headers=AUTH)
-    assert response.status_code == 200, response.text
-
-
-def _approve_next(client: TestClient) -> threading.Thread:
-    def approve() -> None:
+def _answer_next(client: TestClient, approve: bool = True) -> threading.Thread:
+    def answer() -> None:
         for _ in range(250):
             pending = client.get("/agent/approvals", headers=AUTH).json()["pending"]
             if pending:
-                client.post(f"/agent/approvals/{pending[0]['id']}", json={"approve": True}, headers=AUTH)
+                client.post(f"/agent/approvals/{pending[0]['id']}", json={"approve": approve}, headers=AUTH)
                 return
             time.sleep(0.02)
 
-    thread = threading.Thread(target=approve)
+    thread = threading.Thread(target=answer)
     thread.start()
     return thread
 
 
 def ticket_for(client: TestClient, gid: str, **params: str) -> str:
-    helper = _approve_next(client)
+    helper = _answer_next(client)
     approved = client.post(f"/agent/export-approval/{gid}", params={"format": "csv"} | params, headers=AGENT)
     helper.join()
     assert approved.status_code == 200, approved.text
@@ -80,99 +74,92 @@ def open_grid(client: TestClient, table: pa.Table = TABLE) -> str:
     return grid_id(push(client, "clients", table))
 
 
-def test_a_hidden_column_is_left_out_of_an_agent_export(client: TestClient) -> None:
+@pytest.mark.parametrize("ticket", [None, "forged"])
+def test_an_agent_export_without_the_users_approval_is_refused(
+    client: TestClient, ticket: str | None
+) -> None:
     gid = open_grid(client)
-    set_policy(client, 2, auto_rows=True, masks={"client": "hide"})
-    rows = saved_csv(agent_export(client, gid, provenance="0"))
-    assert rows[0] == ["balance", "region"]
-    assert SECRET not in str(rows)
+    params = {"format": "csv", "save": "1"} | ({"ticket": ticket} if ticket else {})
+    refused = client.get(f"/grids/{gid}/export", params=params, headers=AGENT)
+    assert refused.status_code == 403
+    assert "approval" in refused.text
 
 
-def test_a_hashed_column_is_hashed_in_an_agent_export(client: TestClient) -> None:
+def test_a_declined_export_gets_no_ticket(client: TestClient) -> None:
     gid = open_grid(client)
-    set_policy(client, 2, masks={"client": "hash"})
-    rows = saved_csv(agent_export(client, gid, provenance="0"))
-    assert rows[0] == ["client", "balance", "region"]
-    assert rows[1][0] == hash_value(SECRET) and SECRET not in str(rows)
+    helper = _answer_next(client, approve=False)
+    declined = client.post(f"/agent/export-approval/{gid}", params={"format": "csv"}, headers=AGENT)
+    helper.join()
+    assert declined.status_code == 403 and "declined" in declined.text
+    assert "ticket" not in declined.text
 
 
-def test_level_1_masks_text_in_an_agent_export(client: TestClient) -> None:
+def test_an_approved_export_is_written_once(client: TestClient) -> None:
     gid = open_grid(client)
-    set_policy(client, 1, masks={"region": "show"})
-    rows = saved_csv(agent_export(client, gid, provenance="0"))
-    assert rows[1] == [mask_text(SECRET), "100.0", "east"]
-    assert SECRET not in str(rows)
+    ticket = ticket_for(client, gid)
+    params = {"format": "csv", "file": "approved", "ticket": ticket}
+    saved = client.get(f"/grids/{gid}/export", params=params, headers=AGENT)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["saved"].endswith("approved.csv")
+    # One click, one export: the same approval does not write a second file.
+    again = client.get(f"/grids/{gid}/export", params=params | {"file": "again"}, headers=AGENT)
+    assert again.status_code == 403
 
 
-def test_a_rename_step_does_not_lift_the_mask_in_an_export(client: TestClient) -> None:
+def test_an_approval_for_one_grid_does_not_export_another(client: TestClient) -> None:
     gid = open_grid(client)
-    step = {"kind": "rename", "params": {"mapping": {"client": "who"}}}
-    assert client.post(f"/grids/{gid}/steps", json={"steps": [step]}, headers=AUTH).status_code == 200
-    set_policy(client, 2, masks={"client": "hide"})
-    rows = saved_csv(agent_export(client, gid, provenance="0"))
-    assert "who" not in rows[0] and SECRET not in str(rows)
+    other = grid_id(push(client, "others", TABLE))
+    ticket = ticket_for(client, gid)
+    refused = client.get(f"/grids/{other}/export", params={"ticket": ticket}, headers=AGENT)
+    assert refused.status_code == 403
 
 
-def test_the_source_scope_is_masked_too(client: TestClient) -> None:
+def test_an_agent_cannot_approve_its_own_export(client: TestClient) -> None:
     gid = open_grid(client)
-    set_policy(client, 2, masks={"client": "hide"})
-    rows = saved_csv(agent_export(client, gid, scope="source", provenance="0"))
-    assert rows[0] == ["balance", "region"]
+    waiting = threading.Thread(
+        target=lambda: client.post(f"/agent/export-approval/{gid}", params={"format": "csv"}, headers=AGENT)
+    )
+    waiting.start()
+    pending: list[dict[str, Any]] = []
+    for _ in range(250):
+        pending = client.get("/agent/approvals", headers=AGENT).json()["pending"]
+        if pending:
+            break
+        time.sleep(0.02)
+    assert pending
+    refused = client.post(f"/agent/approvals/{pending[0]['id']}", json={"approve": True}, headers=AGENT)
+    assert refused.status_code == 403
+    client.post(f"/agent/approvals/{pending[0]['id']}", json={"approve": False}, headers=AUTH)
+    waiting.join()
 
 
-def test_an_agent_export_keeps_to_the_levels_row_cap(client: TestClient) -> None:
+def test_the_user_exports_without_any_ticket(client: TestClient) -> None:
+    gid = open_grid(client)
+    mine = client.get(f"/grids/{gid}/export", params={"format": "csv", "provenance": "0"}, headers=AUTH)
+    assert mine.status_code == 200 and SECRET in mine.text
+
+
+def test_an_approved_export_holds_the_whole_view(client: TestClient) -> None:
     many = pa.table({"client": [f"c{i}" for i in range(250)], "balance": [float(i) for i in range(250)]})
     gid = open_grid(client, many)
-    set_policy(client, 2)
-    saved = agent_export(client, gid, provenance="0")
-    assert len(saved_csv(saved)) == 1 + 200
-    assert "200" in saved.json()["message"]
+    rows = saved_csv(agent_export(client, gid, provenance="0"))
+    assert rows[0] == ["client", "balance"] and len(rows) == 1 + 250
+
+
+@pytest.mark.parametrize("scope", ["view", "source", "profile"])
+def test_every_scope_can_be_exported_once_approved(client: TestClient, scope: str) -> None:
+    gid = open_grid(client)
+    rows = saved_csv(agent_export(client, gid, scope=scope, provenance="0"))
+    assert SECRET in str(rows)
 
 
 @pytest.mark.parametrize("fmt", ["parquet", "xlsx"])
-def test_binary_formats_are_masked_as_well(client: TestClient, fmt: str) -> None:
+def test_binary_formats_are_written_too(client: TestClient, fmt: str) -> None:
     gid = open_grid(client)
-    set_policy(client, 1)
     saved = agent_export(client, gid, format=fmt, provenance="0")
     assert saved.status_code == 200, saved.text
     path = Path(saved.json()["saved"])
     if fmt == "parquet":
-        assert pq.read_table(path).column("client").to_pylist() == [mask_text(SECRET), mask_text("Globex")]
+        assert pq.read_table(path).column("client").to_pylist() == [SECRET, "Globex"]
     else:
-        from zipfile import ZipFile
-
-        with ZipFile(path) as book:
-            assert not any(SECRET.encode() in book.read(name) for name in book.namelist())
-
-
-def test_level_0_refuses_a_row_export_before_asking_the_user(client: TestClient) -> None:
-    gid = open_grid(client)
-    set_policy(client, 0)
-    refused = client.post(f"/agent/export-approval/{gid}", params={"format": "csv"}, headers=AGENT)
-    assert refused.status_code == 403 and "level 0" in refused.text
-    assert client.get("/agent/approvals", headers=AUTH).json()["pending"] == []
-
-
-def test_level_0_refuses_a_row_export_even_with_a_ticket(client: TestClient) -> None:
-    gid = open_grid(client)
-    ticket = ticket_for(client, gid)
-    set_policy(client, 0)
-    refused = client.get(f"/grids/{gid}/export", params={"format": "csv", "ticket": ticket}, headers=AGENT)
-    assert refused.status_code == 403 and SECRET not in refused.text
-
-
-def test_level_0_exports_the_profile_without_text_values(client: TestClient) -> None:
-    gid = open_grid(client)
-    set_policy(client, 0)
-    rows = saved_csv(agent_export(client, gid, scope="profile", provenance="0"))
-    assert rows[0][0] == "column" and SECRET not in str(rows) and "Globex" not in str(rows)
-    balance = next(r for r in rows if r[0] == "balance")
-    assert "100.0" in balance and "250.5" in balance  # numbers stay, as in agent_describe
-
-
-def test_level_3_and_the_user_export_everything(client: TestClient) -> None:
-    gid = open_grid(client)
-    assert SECRET in str(saved_csv(agent_export(client, gid, provenance="0")))
-    set_policy(client, 0, masks={"client": "hide"})
-    mine = client.get(f"/grids/{gid}/export", params={"format": "csv", "provenance": "0"}, headers=AUTH)
-    assert SECRET in mine.text
+        assert path.stat().st_size > 0

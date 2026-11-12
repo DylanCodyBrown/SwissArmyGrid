@@ -182,18 +182,15 @@ def test_selection_export_is_the_selected_block(client: TestClient) -> None:
 # ===== the agent reads the grid as CSV =====
 
 
-def test_read_grid_respects_levels_and_always_gives_the_row_count(
+def test_read_grid_pages_and_always_gives_the_row_count(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     grid = grid_id(push(client, "orders", ORDERS))
     monkeypatch.setattr(api, "call", fake_call(client))
 
-    client.post("/agent/policy", json={"level": 0}, headers=AUTH)
-    level0 = tool("agent_read_grid", {"grid": grid, "limit": 5})
-    assert "row_count: 10" in level0 and "rows_returned: 0" in level0
-    assert "North" not in level0 and "privacy level 0" in level0
+    none = tool("agent_read_grid", {"grid": grid, "limit": 5, "offset": 50})
+    assert "row_count: 10" in none and "rows_returned: 0" in none
 
-    client.post("/agent/policy/orders", json={"level": 2, "auto_rows": True}, headers=AUTH)
     text = tool("agent_read_grid", {"grid": grid, "limit": 3, "offset": 2})
     assert "row_count: 10" in text and "rows_returned: 3" in text
     body = text.split('format="csv">\n', 1)[1].split("</untrusted-data>")[0]
@@ -225,20 +222,18 @@ def test_agent_applies_a_sql_step_and_sees_the_new_count(
     assert view["row_count"] == 10
 
 
-def test_duckdb_errors_do_not_leak_values_below_level_2(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A conversion error quotes the cell ("Could not convert string 'North'..."): hidden."""
+def test_duckdb_errors_reach_the_agent_in_full(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A conversion error quotes the cell ("Could not convert string 'North'..."), which helps the
+    agent fix its query."""
     grid = grid_id(push(client, "orders", ORDERS))
     monkeypatch.setattr(api, "call", fake_call(client))
-    client.post("/agent/policy", json={"level": 1}, headers=AUTH)
-    refused = client.post(
+    failed = client.post(
         "/agent/query",
         json={"grid": grid, "sql": "SELECT count(*) FROM grid WHERE CAST(region AS INTEGER) > 0"},
         headers=AGENT,
     )
-    assert refused.status_code == 400 and "North" not in refused.text and "hidden" in refused.text
+    assert failed.status_code == 400 and "North" in failed.text and failed.text.startswith("DuckDB:")
     steps(client, grid, [{"kind": "sql", "params": {"sql": "SELECT CAST(region AS INTEGER) AS n FROM grid"}}])
     with pytest.raises(Exception) as caught:
         tool("agent_read_grid", {"grid": grid})
-    assert "North" not in str(caught.value)
+    assert "North" in str(caught.value)

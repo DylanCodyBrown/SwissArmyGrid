@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     try:
         if args and args[0] in ("-h", "--help", "help"):
-            print(json.dumps(catalog(None, level=None), indent=2))
+            print(json.dumps(catalog(None), indent=2))
             return 0
         name, values = parse(args)
         result = execute_result(name, values)

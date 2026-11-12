@@ -46,12 +46,20 @@ src/swissarmygrid/
                          uploads the PNG; nothing is kept), security (guard), lifecycle
                          (ports, single instance, clean exit), info_file, grids, live_updates
   client/push_client.py  push(), ensure_server()
+  client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
+  blade_core/            blades, standard library only: code (what code makes, asks for, imports; read
+                         with ast), run (run a blade, its catalog command, a vault), packages (pip names)
+  engine/catalog.py      catalogs: a source's names and types, tree queries and search (in the locked DuckDB)
+  server/blade_store.py  saved blades (~/.swissarmygrid/blades, one JSON each), secrets via keyring;
+                         blade_runner (Refresh/Test in a child process), blade_templates (35 starters),
+                         routes_catalog (/catalogs for everyone, /blades refuses the agent)
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (88 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (92 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
-web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco and Vega
+web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco and Vega;
+                         catalogPage.ts + bladeEditor.ts are the blades page (static/catalog.html, its own tab)
 web/static/              index.html, grid.css (all theme tokens), build/ (gitignored)
 tests/                   unit + HTTP tests, golden/ (shared cases), e2e/ (Edge via Playwright)
 tools/                   screenshots.py, vscode_check.py

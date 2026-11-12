@@ -53,9 +53,6 @@ from swissarmygrid.server.context import (
 )
 from swissarmygrid.server.grids import Grid
 from swissarmygrid.server.info_file import info_file_path
-from swissarmygrid.server.level_zero import query_classes, value_use_refusal
-from swissarmygrid.server.masking import Origins
-from swissarmygrid.server.routes_agent import Policy, pivot_refused
 
 ARROW_STREAM: str = "application/vnd.apache.arrow.stream"
 
@@ -97,25 +94,13 @@ async def store_table(
     who: str,
     query: str | None = None,
     follow: bool = False,
-    origins: dict[str, Origins] | None = None,
 ) -> dict[str, Any]:
     """The common end of every way data arrives: store, pick a grid, notify, audit.
 
     `follow` is a Python session keeping an open table current after its variable was assigned
     again. It refreshes the grid where it is: no jump to the front, and no new tab if the user
-    closed the old one (the data stays fresh for when they open it again).
-
-    `origins`: for a table made by a query, where each column came from (masking.py); any other
-    arrival replaces the data, so whatever the name was derived from no longer applies."""
+    closed the old one (the data stays fresh for when they open it again)."""
     info: DatasetInfo = await ctx.workers.run(BACKGROUND, ctx.store.replace, name, table, source_kind, query)
-    if origins is None:
-        ctx.derived_columns.pop(name, None)
-    else:
-        ctx.derived_columns[name] = origins
-    if who == "agent":
-        ctx.agent_made.add(name)
-    else:
-        ctx.agent_made.discard(name)
     ctx.views.forget_dataset(name)
     existing = ctx.grids.first_for(name)
     if follow and existing is None:
@@ -175,8 +160,7 @@ async def store_table(
     }
 
 
-def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
-    """`policy`: the agent privacy policy (routes_agent), for the SQL an agent may send."""
+def routes(ctx: Context) -> list[BaseRoute]:
     settings = ctx.settings
 
     def own_file_refused(path: str) -> Response | None:
@@ -282,8 +266,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         if not await ctx.workers.run(INTERACTIVE, ctx.store.close, name):
             return Response("No such dataset.", status_code=404)
         ctx.views.forget_dataset(name)
-        ctx.derived_columns.pop(name, None)
-        ctx.agent_made.discard(name)
         for grid in ctx.grids.for_dataset(name):
             ctx.grids.close(grid.id)
         await ctx.live.broadcast({"type": "dataset_closed", "dataset": name})
@@ -341,15 +323,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             text = body.get("sql") if isinstance(body, dict) else None
             if not isinstance(text, str) or not text.strip():
                 raise ValueError('Send {"sql": "SELECT ... FROM <table>"}.')
-            if (refused := pivot_refused(request, policy, text)) is not None:
-                return refused
-            if actor(request) == "agent" and policy.level == 0:
-                tables = await ctx.workers.run(
-                    BACKGROUND,
-                    lambda: query_classes(ctx, ctx.store.cursor(), None, None, datasets_as_tabs=True),
-                )
-                if (why := value_use_refusal(text, tables, returns_rows=False)) is not None:
-                    return Response(why, status_code=403)
             existing = ctx.store.get(name)
             if existing is not None and not (body.get("replace") is True and existing.query is not None):
                 raise DatasetError(f"A dataset named {name!r} already exists; pick a new name.")
@@ -363,7 +336,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                     return f"SELECT * FROM {quote('ds_' + dataset)}"  # noqa: S608 (a quoted dataset name)
                 return ctx.compiled(cursor, grid, info).sql()
 
-            def execute(cursor: duckdb.DuckDBPyConnection) -> tuple[pa.Table, dict[str, Origins]]:
+            def execute(cursor: duckdb.DuckDBPyConnection) -> pa.Table:
                 datasets = {i.name for i in ctx.store.all()}
                 guarded = guard(text, datasets, None, lambda dataset: tab_view(cursor, dataset))
                 if guarded.kind != "select":
@@ -374,19 +347,17 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                     result = cursor.sql(guarded.sql).to_arrow_table()
                 finally:
                     timer.cancel()
-                return result, ctx.origins_of_result(guarded.sql, result.column_names)
+                return result
 
             try:
-                table, origins = await ctx.workers.run(BACKGROUND, lambda: execute(ctx.store.cursor()))
+                table = await ctx.workers.run(BACKGROUND, lambda: execute(ctx.store.cursor()))
             except duckdb.InterruptException:
                 return Response(
                     f"The query was stopped: it ran past {settings.query_timeout_seconds:.0f} seconds.",
                     status_code=408,
                 )
             who = actor(request)
-            result = await store_table(
-                ctx, name, table, "sql_result", False, who, query=text, origins=origins
-            )
+            result = await store_table(ctx, name, table, "sql_result", False, who, query=text)
             ctx.audit.write(who, "sql_query", name, query=text, rows=table.num_rows)
             return json_response(result | {"rows": table.num_rows})
         except Exception as error:

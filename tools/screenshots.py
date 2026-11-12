@@ -162,19 +162,9 @@ def main() -> None:
         page.screenshot(path=str(SHOTS / "sql-result.png"))
         page.context.close()
 
-        call(info, "POST", "/agent/policy/orders", {"level": 1})
         page = page_for()
         worker = threading.Thread(
-            target=lambda: call(
-                info,
-                "POST",
-                "/agent/query",
-                {
-                    "dataset": "orders",
-                    "sql": "SELECT region, product, unit_price FROM grid WHERE unit_price > 400 LIMIT 50",
-                },
-                agent=True,
-            )
+            target=lambda: call(info, "POST", f"/agent/export-approval/{grid}?format=csv", agent=True)
         )
         worker.start()
         page.locator(".approval").wait_for(timeout=15000)

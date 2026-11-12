@@ -10,7 +10,7 @@ agent's context: the first sentence of the command's summary, and a short note o
 whose shape cannot be guessed (the JSON ones). The `guide` tool carries the detail.
 
 Like every front end it calls the grid server over HTTP as the agent (`X-Actor: agent`); all the
-rules (privacy levels, approvals, masks, the SQL guard, the audit log) live in that server. It never
+rules (export approvals, the SQL guard, the audit log) live in that server. It never
 starts a server or opens a browser: SwissArmyGrid lives in VS Code, whose extension runs the one
 server and shows the grids.
 
@@ -35,16 +35,14 @@ server = MCPServer(
     title="SwissArmyGrid",
     instructions=(
         "The user's tables in live local grids, with every action their grid page has. Call guide "
-        "first. One privacy level, set by the user, covers every table (3 everything, 2 masked "
-        "rows after a click, 1 small masked samples, 0 counts only); a command it rules out says "
-        "so. " + DATA_NOTE
+        "first. Exports wait for the user's click. " + DATA_NOTE
     ),
 )
 
 
 class GridServerError(ToolError):
     """A command was refused or failed. A ToolError, so the MCP library passes the plain-language
-    reason ("level 0 allows only whole-table aggregates...") to the agent; any other exception
+    reason ("The user declined (or did not answer) this export.") to the agent; any other exception
     type reaches it only as "Error executing tool <name>"."""
 
 

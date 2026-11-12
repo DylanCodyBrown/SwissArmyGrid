@@ -758,29 +758,22 @@ def test_agent_panel_lives_only_in_the_agent_tab(browser: Browser, orders_url: s
 def test_agent_approval_banner_allow(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     import threading
 
-    call(server, "POST", "/agent/policy/orders", {"level": 2})
+    grid = orders_url.split("/g/")[1].split("#")[0]
     page = open_grid(browser, orders_url)
     result: dict[str, Any] = {}
     worker = threading.Thread(
         target=lambda: result.update(
-            call(
-                server,
-                "POST",
-                "/agent/query",
-                {"dataset": "orders", "sql": "SELECT region FROM grid LIMIT 3"},
-                agent=True,
-            )
+            call(server, "POST", f"/agent/export-approval/{grid}?format=csv", agent=True)
         )
     )
     worker.start()
     # The request pops up at once, over whatever tab is open.
     expect(page.locator(".approval")).to_be_visible(timeout=15000)
-    expect(page.locator(".approval pre")).to_have_text("SELECT region FROM grid LIMIT 3")
+    expect(page.locator(".approval pre")).to_have_text("csv export of orders to the export folder")
     page.get_by_role("button", name="Allow").click()
     worker.join(timeout=30)
-    assert len(result["rows"]) == 3
+    assert result["approved"] is True and result["ticket"]
     expect(page.locator(".approval")).to_have_count(0)
-    call(server, "POST", "/agent/policy", {"level": 3})  # leave the default for later tests
 
 
 def test_closing_the_approval_window_declines_the_request(
@@ -790,13 +783,13 @@ def test_closing_the_approval_window_declines_the_request(
     # showed it again until a reload, and the agent waited out the 3 minutes.
     import threading
 
-    call(server, "POST", "/agent/policy", {"level": 2, "auto_rows": False, "masks": {}})
+    grid = orders_url.split("/g/")[1].split("#")[0]
     page = open_grid(browser, orders_url)
     answers: list[int] = []
 
     def ask() -> None:
         try:
-            call(server, "POST", "/agent/query", {"dataset": "orders", "sql": "SELECT 1"}, agent=True)
+            call(server, "POST", f"/agent/export-approval/{grid}?format=csv", agent=True)
             answers.append(200)
         except urllib.error.HTTPError as error:
             answers.append(error.code)
@@ -814,26 +807,21 @@ def test_closing_the_approval_window_declines_the_request(
         assert not worker.is_alive()
         assert call(server, "GET", "/agent/approvals")["pending"] == []
     assert answers == [403, 403]
-    call(server, "POST", "/agent/policy", {"level": 3})  # leave the default for later tests
 
 
-def test_agent_privacy_controls(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
+def test_agent_activity_in_settings(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     page = open_grid(browser, orders_url)
-    # One policy for the whole (shared) test server: start from the default, level 3.
-    call(server, "POST", "/agent/policy", {"level": 3, "auto_rows": False, "masks": {}})
     sql = "SELECT count(*) AS activity_check FROM grid"
     call(server, "POST", "/agent/query", {"dataset": "orders", "sql": sql}, agent=True)
     page.get_by_role("button", name="Settings").click()
     dialog = page.locator("dialog")
     expect(dialog.locator(".activity li").first).to_contain_text(sql)  # newest first
-    expect(dialog.get_by_role("radio", name=re.compile("Level 3"))).to_be_checked()
-    dialog.get_by_text("Level 1: masked samples").click()
-    expect(page.locator(".toast").last).to_contain_text("level 1")
-    assert call(server, "GET", "/agent/policy")["level"] == 1  # one level for every table
-    expect(dialog.get_by_label("Mask for region")).to_be_visible()
+    expect(dialog).to_contain_text("Its exports wait for your Allow")
+    # The privacy levels and column masks are gone.
+    expect(dialog.get_by_role("radio", name=re.compile("Level 3"))).to_have_count(0)
+    expect(dialog.get_by_text("What the agent may see")).to_have_count(0)
     install = "claude mcp add --scope user swissarmygrid -- swissarmygrid-mcp"
     expect(dialog.locator(".mcp-prompt")).to_contain_text(install)
-    call(server, "POST", "/agent/policy", {"level": 3})  # leave the default for later tests
 
 
 def test_agent_changes_show_up_live(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
@@ -997,10 +985,12 @@ def test_forced_colors_mode(browser: Browser, orders_url: str) -> None:
 
 def test_keyboard_only_reaches_the_toolbar_and_grid(browser: Browser, orders_url: str) -> None:
     page = open_grid(browser, orders_url)
-    # The tab bar comes first: Settings at its far left, then the open grid's tab.
+    # The tab bar comes first: Settings at its far left, the blades page beside it, then the grid's tab.
     page.keyboard.press("Tab")
     focused = page.evaluate("document.activeElement && document.activeElement.getAttribute('aria-label')")
     assert focused == "Settings"  # the cog
+    page.keyboard.press("Tab")
+    assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Blades and catalog"
     page.keyboard.press("Tab")
     assert page.evaluate("document.activeElement.getAttribute('role')") == "tab"
     outline = page.evaluate("getComputedStyle(document.activeElement).outlineStyle")

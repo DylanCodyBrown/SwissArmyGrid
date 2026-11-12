@@ -1,4 +1,4 @@
-"""Every MCP tool, called the way an agent calls it, at every privacy level, with good and bad arguments.
+"""Every MCP tool, called the way an agent calls it, with good and bad arguments.
 
 A real server runs on a real port with the made-up sample store pushed (examples/sample_store.py), in
 an isolated state folder and connection file, with no browser. Each tool is called through the MCP
@@ -6,16 +6,12 @@ server's own `call_tool` (argument validation, the registry's dispatcher, the HT
 the agent's code path end to end. The test is parametrized over the registry: a new command is swept
 the moment it is added, with arguments made from its argument names unless SENSIBLE gives better ones.
 
-For every call, at levels 0 to 3, with sensible and with hostile arguments (missing, wrong types,
-huge numbers, unknown ids, odd names, injection-looking text):
+For every call, with sensible and with hostile arguments (missing, wrong types, huge numbers,
+unknown ids, odd names, injection-looking text, SQL that fails on a value), the call returns a result
+or a plain-language refusal or error: never a 5xx, a traceback, an empty answer, or the MCP's
+"<tool> failed: SomeError" that marks an exception the command did not expect.
 
-* the call returns a result or a plain-language refusal or error: never a 5xx, a traceback, or the
-  MCP's "<tool> failed: SomeError" that marks an exception the command did not expect;
-* nothing above its level comes back: at levels 0 and 1 no full text value of the store appears in a
-  result or an error, and at level 0 neither does a value the user typed into a step.
-
-`app_snapshot` is the documented exception (a picture of the page at every level); with no page open
-it refuses, which is what is swept here.
+`app_snapshot` needs an open page; with none it refuses, which is what is swept here.
 """
 
 from __future__ import annotations
@@ -49,24 +45,8 @@ from swissarmygrid.settings import Settings
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from examples.sample_store import make_store
 
-LEVELS = (0, 1, 2, 3)
 TOKEN = "sweep-token"
-# Text columns whose full values must never reach an agent below level 3 (masked at level 2).
-SENTINEL_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("customers", "customer_name"),
-    ("products", "product_name"),
-    ("products", "sku"),
-    ("stores", "store_name"),
-    ("regions", "region_name"),
-)
-LEVEL_2_MASKS: dict[str, str] = {
-    "customer_name": "hide",
-    "product_name": "hash",
-    "sku": "hide",
-    "store_name": "hash",
-    "region_name": "hide",
-}
-USER_TYPED = "UserTypedSecret"  # a value the user typed into a step: hidden from the agent at level 0
+USER_TYPED = "UserTypedValue"  # a value the user typed into a step
 # What a broken call looks like: a server error, a traceback, or an exception the command did not expect.
 BROKEN = re.compile(r"(^|\s)5\d\d: |Traceback \(most recent|\bfailed: [A-Za-z_.]*(Error|Exception)\b")
 
@@ -79,7 +59,6 @@ class Sweep:
     port: int
     tmp: Path
     grids: dict[str, str]  # dataset -> its first grid (from the push)
-    sentinels: frozenset[str]  # full text values of the store, which levels 0 and 1 never show
     base_datasets: frozenset[str]
     counter: itertools.count[int] = field(default_factory=itertools.count)
 
@@ -93,12 +72,6 @@ class Sweep:
         )
         with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310 (loopback)
             return json.loads(response.read() or b"null")
-
-    def level(self, level: int) -> None:
-        """The user's setting for one case. Reads run without a click; at level 2 every column the
-        sentinels come from is hidden or hashed, so level 2 must not show them either."""
-        masks = LEVEL_2_MASKS if level == 2 else {}
-        self.user("POST", "/agent/policy", {"level": level, "auto_rows": True, "masks": masks})
 
     def fresh(self, stem: str) -> str:
         return f"sweep_{stem}_{next(self.counter)}"
@@ -205,20 +178,13 @@ def sweep(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Sweep]:
             time.sleep(0.05)
         assert server.started
         store = make_store()
-        probe = Sweep(port, tmp, {}, frozenset(), frozenset())
+        probe = Sweep(port, tmp, {}, frozenset())
         grids: dict[str, str] = {}
         for name, frame in store.items():
             pushed = probe.user(
                 "PUT", f"/datasets/{name}", raw=_arrow(frame), kind="application/vnd.apache.arrow.stream"
             )
             grids[name] = str(pushed["grid"])
-        sentinels = frozenset(
-            str(v)
-            for name, column in SENTINEL_COLUMNS
-            for v in store[name][column].unique()
-            if isinstance(v, str) and len(v) >= 8
-        )
-        assert len(sentinels) > 100
         # A catalog, as sag.load would send it, for the catalog_* tools: names and types only.
         probe.user(
             "PUT",
@@ -231,7 +197,7 @@ def sweep(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Sweep]:
                 ],
             },
         )
-        ready = Sweep(port, tmp, grids, sentinels, frozenset(store))
+        ready = Sweep(port, tmp, grids, frozenset(store))
         stop = threading.Event()
 
         def approve() -> None:  # the user clicks Allow on every request an agent makes (exports)
@@ -442,8 +408,8 @@ _WRONG: dict[str, tuple[Any, ...]] = {
 }
 
 
-# SQL that goes looking for the values a level hides: rows, a cast whose error quotes the cell, text
-# aggregates, numbers made from text, a join to every table.
+# SQL that reads values: rows, a cast whose error quotes the cell, text aggregates, numbers made from
+# text, a join to every table.
 VALUE_SEEKING_SQL: tuple[str, ...] = (
     "SELECT customer_name FROM grid",
     "SELECT * FROM customers JOIN stores ON customers.home_store = CAST(stores.store_id AS VARCHAR)",
@@ -453,7 +419,7 @@ VALUE_SEEKING_SQL: tuple[str, ...] = (
     "SELECT product_name, sku FROM products",
     "CREATE TABLE sweep_peek AS SELECT customer_name FROM grid",
 )
-# Columns whose values only show at level 3 (or level 2 without the masks this sweep sets there).
+# Text columns of the store, for every `column` argument.
 VALUE_COLUMNS: tuple[str, ...] = ("customer_name", "product_name", "sku")
 
 
@@ -496,26 +462,14 @@ def call(name: str, args: dict[str, Any]) -> tuple[bool, str]:
     return True, text
 
 
-def leaks(s: Sweep, text: str) -> list[str]:
-    """The store's full text values that appear in `text` (JSON escapes undone first)."""
-    plain = text.replace("\\u003c", "<").replace('\\"', '"')
-    return [v for v in s.sentinels if v in plain]
-
-
-def check(s: Sweep, name: str, level: int, args: dict[str, Any]) -> list[str]:
+def check(name: str, args: dict[str, Any]) -> list[str]:
     """What is wrong with one call (empty when nothing is)."""
     _, text = call(name, args)
     problems: list[str] = []
     if BROKEN.search(text):
-        problems.append(f"{name}({_short(args)}) at level {level} broke: {text[:300]}")
+        problems.append(f"{name}({_short(args)}) broke: {text[:300]}")
     if not text.strip():
-        problems.append(f"{name}({_short(args)}) at level {level} answered nothing")
-    if level <= 2 and name != "app_snapshot":
-        leaked = leaks(s, text)
-        if leaked:
-            problems.append(f"{name}({_short(args)}) at level {level} showed values: {leaked[:3]}")
-    if level == 0 and USER_TYPED in text:
-        problems.append(f"{name}({_short(args)}) at level 0 showed a step value the user typed")
+        problems.append(f"{name}({_short(args)}) answered nothing")
     return problems
 
 
@@ -535,39 +489,34 @@ def test_every_registry_command_gets_arguments() -> None:
             )
 
 
-def test_the_leak_check_sees_values_when_they_are_shown(sweep: Sweep) -> None:
-    """The check is only worth something if it would catch a value: at level 3 a read shows them."""
-    sweep.level(3)
+def test_the_agent_reads_the_values_it_is_shown(sweep: Sweep) -> None:
+    """Reads come back with the store's values, and steps with the values the user typed."""
     try:
         answered, text = call("agent_read_grid", {"grid": sweep.grids["customers"], "limit": 5})
-        assert answered and leaks(sweep, text)
+        assert answered and "rows_returned: 5" in text and "<untrusted-data" in text
         _, step_text = call("tabs_get", {"grid": sweep.scratch_grid()})
         assert USER_TYPED in step_text
     finally:
         sweep.clean_up()
 
 
-@pytest.mark.parametrize("level", LEVELS)
 @pytest.mark.parametrize("name", list(REGISTRY))
-def test_sensible_arguments_get_a_clear_answer(sweep: Sweep, name: str, level: int) -> None:
-    sweep.level(level)
+def test_sensible_arguments_get_a_clear_answer(sweep: Sweep, name: str) -> None:
     try:
-        problems = check(sweep, name, level, sensible(sweep, REGISTRY[name]))
+        problems = check(name, sensible(sweep, REGISTRY[name]))
     finally:
         sweep.clean_up()
     assert not problems, "\n".join(problems)
 
 
-@pytest.mark.parametrize("level", LEVELS)
 @pytest.mark.parametrize("name", list(REGISTRY))
-def test_hostile_arguments_get_a_plain_refusal(sweep: Sweep, name: str, level: int) -> None:
-    sweep.level(level)
+def test_hostile_arguments_get_a_plain_refusal(sweep: Sweep, name: str) -> None:
     cmd = REGISTRY[name]
     problems: list[str] = []
     try:
         base = sensible(sweep, cmd)
         for args in hostile(cmd, base):
-            problems += check(sweep, name, level, args)
+            problems += check(name, args)
     finally:
         sweep.clean_up()
     assert not problems, "\n".join(problems)

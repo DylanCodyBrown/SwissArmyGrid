@@ -15,7 +15,7 @@ in this order, a later file with the same name winning:
      of models, or a repository's models folder
 
 Agents may set relationships too (the MCP tools set_relationships and apply_model): keys and joins
-are metadata, never cell values, so they need no privacy gate.
+are metadata, never cell values.
 """
 
 from __future__ import annotations

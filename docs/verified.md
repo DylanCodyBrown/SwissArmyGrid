@@ -12,7 +12,7 @@ still an assumption. Last updated 2026-10-23.
 | 5 | sqlglot | Verified, 30.24.0 | Parses the DuckDB dialect for the SQL box subset; WITH clauses live under the `with_` argument (not `with`) in this version; table functions parse as `exp.Table` with a function `this`. |
 | 6 | VS Code | Verified, 1.143.0 | "Simple Browser: Show" opens the integrated browser as a real Chromium page (not an iframe); the grid, WebSocket, panel and title all work. Older versions use a sandboxed iframe and append `?id=&vscodeBrowserReqId=`; the page reads the grid id from the path and the token from the fragment, so both work. `tools/vscode_check.py` reproduces the check. Debugger-variable menu: not checked (VS Code extension not built). |
 | 7 | Licenses and sizes | Verified | AG Grid Community MIT; Monaco 0.57 MIT; Vega 6.4, Vega-Lite 6.5, vega-embed 7.3 BSD-3-Clause; xlsxwriter 3.3 BSD-2-Clause; DuckDB MIT; pyarrow Apache-2.0; sqlglot MIT; Starlette and uvicorn BSD-3. Bundles: main 1.2 MB (loads with the page), charts 0.84 MB and the SQL editor 4.5 MB (each loads on first use). The release wheel is 7.2 MiB unpacked. Check the company's open-source policy before wider sharing. |
-| 8 | Company policy on sending client data to an AI service | Not checked | Gates privacy levels above 0. The default is level 0 (no cell values). |
+| 8 | Company policy on sending client data to an AI service | Not checked | A connected agent sees cell values (the privacy levels were removed on 2026-11-12), so check this before connecting an agent to client data. |
 | 9 | Windows sandbox options | Not checked | Milestone 9 is not built. |
 | 10 | Excel export | Verified | xlsxwriter `in_memory` mode (constant_memory would write temp files, against the no-disk default); `strings_to_formulas=False` writes `=1+1` as a string cell; integers over 15 digits stay exact as text; the row limit (1,048,576) and cell limit (32,767) are enforced with messages; round trips read back with openpyxl. CSV formula neutralization prefixes an apostrophe. Parquet round trips keep types, nulls, time zones and provenance metadata (pyarrow, snappy or zstd). |
 | 11 | Resource limits | Verified | See item 2 for memory. `Content-Length` is checked first and the body is counted while streaming (Starlette `request.stream()`); Arrow and Parquet decode batch by batch so a 16 MB table compressed to under 200 KB is refused at 1 MB. `pyarrow.Table.nbytes` measures size cheaply. |
@@ -63,8 +63,8 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   copy uses `.to_arrow_table()` for Arrow pushes (tests/test_copied_code.py,
   tests/test_golden_codegen.py).
 - DuckDB conversion errors quote the cell value ("Could not convert string 'North' to
-  INT32"), so an agent below privacy level 2 gets a generic message instead
-  (`tests/test_sql_step_and_selection.py`).
+  INT32"). Until the privacy levels were removed (2026-11-12) an agent below level 2 got a
+  generic message instead; now everyone gets DuckDB's own text.
 - Headless Edge shares the real Windows clipboard with the desktop, so the copy test captures
   what the page writes instead of reading the clipboard.
 - AG Grid Community 36 has no range selection; the Excel-style selection is drawn with cell

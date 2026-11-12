@@ -36,10 +36,6 @@ def load(client: TestClient, name: str = "Bakery", dialect: str = "sqlserver") -
     return response.json()
 
 
-def set_level(client: TestClient, level: int) -> None:
-    assert client.post("/agent/policy", json={"level": level}, headers=AUTH).status_code == 200
-
-
 # ===== catalogs =====
 
 
@@ -72,10 +68,8 @@ def test_catalog_mistakes_are_plain(client: TestClient) -> None:
     assert nowhere.status_code == 404
 
 
-@pytest.mark.parametrize("level", [0, 1, 2, 3])
-def test_the_agent_reads_catalogs_at_every_level_but_never_loads_one(client: TestClient, level: int) -> None:
+def test_the_agent_reads_catalogs_but_never_loads_one(client: TestClient) -> None:
     load(client)
-    set_level(client, level)
     assert client.get("/catalogs", headers=AGENT).status_code == 200
     assert client.get("/catalogs/Bakery/schemas", headers=AGENT).status_code == 200
     found = client.get("/catalogs/Bakery/search", params={"q": "order id"}, headers=AGENT)
@@ -158,10 +152,8 @@ def test_secrets_are_set_but_never_read_back_except_by_sag_blade(client: TestCli
     assert forgot.json() == {"secrets": {"password": False}}
 
 
-@pytest.mark.parametrize("level", [0, 3])
-def test_the_agent_is_refused_every_blade_route(client: TestClient, bakery: Path, level: int) -> None:
+def test_the_agent_is_refused_every_blade_route(client: TestClient, bakery: Path) -> None:
     assert client.post("/blades", json=sqlite_blade(bakery), headers=AUTH).status_code == 200
-    set_level(client, level)
     for method, path in [
         ("GET", "/blades"),
         ("GET", "/blades/templates"),

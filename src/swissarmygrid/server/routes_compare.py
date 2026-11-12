@@ -44,8 +44,6 @@ from swissarmygrid.engine.datasets import Column, DatasetInfo
 from swissarmygrid.engine.workers import INTERACTIVE
 from swissarmygrid.server.context import Context, actor, error_response, json_response, query_int, read_json
 from swissarmygrid.server.grids import Grid
-from swissarmygrid.server.level_zero import probe_refusal
-from swissarmygrid.server.routes_agent import Policy, agent_may_see_raw_values, raw_values_refused
 
 
 @dataclass
@@ -73,7 +71,7 @@ class Side:
     columns: tuple[Column, ...]
 
 
-def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
+def routes(ctx: Context) -> list[BaseRoute]:
     compares: dict[str, Compare] = {}
 
     def side(cur: duckdb.DuckDBPyConnection, grid_id: str) -> Side:
@@ -114,14 +112,10 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             cmp.signature = sig
         return left, right
 
-    def describe(cmp: Compare, request: Request) -> dict[str, Any]:
+    def describe(cmp: Compare) -> dict[str, Any]:
         focus: dict[str, Any] | None = None
         if cmp.focus is not None:
-            focus = {"side": cmp.focus[0], "rows": len(cmp.focus[1])}
-            # The picked row's key is its cell values: for the page, and for an agent at level 3 only
-            # (below it, picking row after row would read the key column one value at a time).
-            if agent_may_see_raw_values(request, policy):
-                focus["key"] = cmp.focus[2]
+            focus = {"side": cmp.focus[0], "rows": len(cmp.focus[1]), "key": cmp.focus[2]}
         return {
             "compare": cmp.id,
             "left": cmp.left,
@@ -138,16 +132,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             raise LookupError("No such compare; it may have been stopped or the server restarted.")
         return cmp
 
-    def probe_refused(request: Request, left: str, right: str) -> Response | None:
-        """At level 0, an agent's compare of a table it made (values it chose) against the user's:
-        the matched counts would tell whether the user's data has those values. Checked on every
-        count, since a compare recounts after either grid changes."""
-        if actor(request) != "agent" or policy.level != 0:
-            return None
-        grids = [g for g in (ctx.grids.get(left), ctx.grids.get(right)) if g is not None]
-        why = probe_refusal(ctx, *grids)
-        return None if why is None else Response(why, status_code=403)
-
     async def run(fn: Any) -> Any:
         return await ctx.workers.run(INTERACTIVE, lambda: fn(ctx.store.cursor()))
 
@@ -158,8 +142,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 raise ValueError('Send {"left": grid id, "right": grid id, "keys": [[left col, right col]]}.')
             if body["left"] == body["right"]:
                 raise ValueError("Compare two different grids.")
-            if (refused := probe_refused(request, body["left"], body["right"])) is not None:
-                return refused
             spec = CompareSpec.from_json(body)
             cmp = Compare(secrets.token_hex(4), body["left"], body["right"], spec)
             await run(lambda cur: ensure(cur, cmp))
@@ -167,25 +149,21 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             ctx.audit.write(
                 actor(request), "compare", f"{cmp.left}:{cmp.right}", keys=len(spec.keys), mode=spec.mode
             )
-            return json_response(describe(cmp, request))
+            return json_response(describe(cmp))
         except Exception as error:
             return error_response(error)
 
     async def read(request: Request) -> Response:
         try:
             cmp = get(request)
-            if (refused := probe_refused(request, cmp.left, cmp.right)) is not None:
-                return refused
             await run(lambda cur: ensure(cur, cmp))
-            return json_response(describe(cmp, request))
+            return json_response(describe(cmp))
         except Exception as error:
             return error_response(error)
 
     async def change(request: Request) -> Response:
         try:
             cmp = get(request)
-            if (refused := probe_refused(request, cmp.left, cmp.right)) is not None:
-                return refused
             body = await read_json(request)
             if not isinstance(body, dict):
                 raise ValueError("Send the fields to change: keys, mode, anti_side.")
@@ -196,7 +174,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             cmp.focus = None
             cmp.signature = ""
             await run(lambda cur: ensure(cur, cmp))
-            return json_response(describe(cmp, request))
+            return json_response(describe(cmp))
         except Exception as error:
             return error_response(error)
 
@@ -212,8 +190,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     async def rows(request: Request) -> Response:
         from swissarmygrid.server.routes_grids import _truncate  # the grid page's own cell cut
 
-        if not agent_may_see_raw_values(request, policy):
-            return raw_values_refused()
         try:
             cmp = get(request)
             which = request.query_params.get("side")
@@ -264,8 +240,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     async def key_group(request: Request) -> Response:
         """Rows `row`'s key also covers: one block, since the mapping is sorted by key. A blank key
         matches nothing, so it is a block of one."""
-        if not agent_may_see_raw_values(request, policy):
-            return raw_values_refused()
         try:
             cmp = get(request)
             row = query_int(request, "row")
@@ -297,8 +271,6 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
     async def set_focus(request: Request) -> Response:
         try:
             cmp = get(request)
-            if (refused := probe_refused(request, cmp.left, cmp.right)) is not None:
-                return refused
             body = await read_json(request)
             picked = body.get("side") if isinstance(body, dict) else None
             position = body.get("position") if isinstance(body, dict) else None
@@ -320,7 +292,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 cmp.focus = ("right" if picked == "left" else "left", hits, key)
 
             await run(compute)
-            return json_response(describe(cmp, request))
+            return json_response(describe(cmp))
         except Exception as error:
             return error_response(error)
 
@@ -328,7 +300,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         try:
             cmp = get(request)
             cmp.focus = None
-            return json_response(describe(cmp, request))
+            return json_response(describe(cmp))
         except Exception as error:
             return error_response(error)
 

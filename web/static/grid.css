@@ -1786,7 +1786,7 @@ html {
   height: 32px;
 }
 
-/* Column checklist (export columns, masks). */
+/* Column checklist (export columns). */
 .checklist {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -1811,16 +1811,6 @@ html {
 .fieldset legend {
   padding: 0 4px;
   font-weight: 600;
-}
-
-table.masks td,
-table.masks th {
-  padding: 3px 8px;
-}
-
-table.masks select {
-  min-height: 24px;
-  padding: 0 6px;
 }
 
 .histogram-axis {
@@ -2681,11 +2671,6 @@ body.agent-view .titlebar {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
-}
-
-.masks-scroll {
-  max-height: 240px;
-  overflow: auto;
 }
 
 /* Preferences: a settings icon at the far left of the tab bar, before the Agent tab. */

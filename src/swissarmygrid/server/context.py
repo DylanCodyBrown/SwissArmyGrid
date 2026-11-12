@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, TypeVar
@@ -40,7 +40,6 @@ from swissarmygrid.engine.workers import PriorityWorkers
 from swissarmygrid.server.blade_store import BladeError, BladeStore
 from swissarmygrid.server.grids import Grid, GridLimitError, GridRegistry, StaleRequestError
 from swissarmygrid.server.live_updates import LiveUpdates
-from swissarmygrid.server.masking import Origins, trace
 from swissarmygrid.server.processes import ProcessRegistry
 from swissarmygrid.settings import Settings
 
@@ -69,17 +68,11 @@ class Context:
     # Source databases' names and types (engine/catalog.py) and the saved blades (blade_store.py).
     catalogs: CatalogStore
     blades: BladeStore
-    # For a table made by a query: each column's origins, the dataset columns it was computed
-    # from (masking.py), so a privacy mask on a source column follows the data into it.
-    derived_columns: dict[str, dict[str, Origins]] = field(default_factory=dict)
-    # Datasets an agent made (loaded, pasted, or built by a query), whose values the agent chose:
-    # at privacy level 0 they are not compared against the user's data (server/level_zero.py).
-    agent_made: set[str] = field(default_factory=set)
 
     def grid_url(self, grid: Grid, with_token: bool = True) -> str:
         """The grid's page. The fragment carries the token to the page without ever sending it to
         the server. `with_token=False` for an agent: the token is the user's credential (a request
-        with it and no X-Actor is the user's, at any level), so an agent gets the address only."""
+        with it and no X-Actor is the user's), so an agent gets the address only."""
         address = f"http://127.0.0.1:{self.port}/g/{grid.id}"
         return f"{address}#token={self.token}" if with_token else address
 
@@ -128,32 +121,6 @@ class Context:
 
     def compiled(self, cursor: duckdb.DuckDBPyConnection, grid: Grid, info: DatasetInfo) -> CompiledView:
         return self.views.compile(cursor, info, grid.steps, grid.settings)
-
-    def lineage_tables(self) -> dict[str, list[str]]:
-        """Every dataset's table (its plain name, ds_<name>) and columns, for masking.trace."""
-        return {"ds_" + info.name: [c.name for c in info.columns] + ["rowid"] for info in self.store.all()}
-
-    def lineage_derived(self) -> dict[str, dict[str, Origins]]:
-        """The origins of the columns of tables made by queries, keyed by their table."""
-        return {"ds_" + name: columns for name, columns in self.derived_columns.items()}
-
-    def column_origins(self, dataset: str, column: str) -> Origins:
-        """Where one column of a dataset came from: itself, or what its query read."""
-        derived = self.derived_columns.get(dataset)
-        if derived is None:
-            return frozenset({column.lower()})
-        return derived.get(column.lower())
-
-    def trace(self, sql: str) -> list[Origins] | None:
-        """The origins of each output column of `sql`, a query over the datasets' tables."""
-        return trace(sql, self.lineage_tables(), self.lineage_derived())
-
-    def origins_of_result(self, sql: str, names: list[str]) -> dict[str, Origins]:
-        """For a table about to be made from `sql`: each of its columns' origins (None: untraced)."""
-        traced = self.trace(sql)
-        if traced is None or len(traced) != len(names):
-            return {name.lower(): None for name in names}
-        return {name.lower(): origin for name, origin in zip(names, traced, strict=True)}
 
 
 def jsonable(value: Any) -> Any:

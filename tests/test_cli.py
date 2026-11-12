@@ -1,7 +1,7 @@
 """The agent command layer: the registry, the `sag` terminal front end and the two-tool MCP server.
 
 These run against a real server on a real port (like test_watch.py), so the actual HTTP client, the
-hand-rolled event socket and the privacy gate are all exercised with nothing mocked. The "user" in
+hand-rolled event socket and the export approval are all exercised with nothing mocked. The "user" in
 a test is a plain urllib call with the token and no `X-Actor`; the agent is `commands.execute`.
 """
 
@@ -60,9 +60,6 @@ class Live:
         )
         with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
             return json.loads(response.read() or b"null")
-
-    def level(self, level: int, **extra: Any) -> None:
-        self.user("POST", "/agent/policy", {"level": level, **extra})
 
 
 def run(command: str, /, **args: Any) -> Any:
@@ -128,7 +125,6 @@ def _normal(path: str) -> str:
 NOT_COMMANDS = {
     "/shutdown": "stops the server: the user's, not the agent's",
     "/audit": "the server refuses the agent: the log is for the user",
-    "/agent/policy/{}": "per-dataset policy alias of /agent/policy; changing it is the user's",
     "/agent/approvals/{}": "resolving an approval is the user's click, refused to the agent",
     "/agent/export-approval/{}": "reached through table_export, which asks first",
     "/workspace/active": "the page reports which tab is in front; refused to the agent",
@@ -186,19 +182,15 @@ def test_unknown_commands_and_arguments_are_refused_before_the_server(live: Live
         execute("row_count", {"grid": "g1", "upto": "soon"})
 
 
-def test_the_catalog_lists_arguments_and_flags_the_privacy_level(live: Live) -> None:
+def test_the_catalog_lists_arguments(live: Live) -> None:
     listing = catalog("table_export")
     assert [c["command"] for c in listing["commands"]] == ["table_export"]
     export = listing["commands"][0]
     assert {a["name"] for a in export["args"]} >= {"grid", "format", "scope", "options"}
     assert [a["name"] for a in export["args"] if a["required"]] == ["grid"]
-    assert catalog("row_read")["commands"][0]["available"] is True
-    live.level(1)
     rows = catalog("row_read")
-    assert rows["privacy_level"] == 1 and rows["commands"][0]["available"] is False
-    assert "level 3" in rows["commands"][0]["why"]
-    with pytest.raises(CommandError, match="needs privacy level 3"):
-        execute("row_read", {"grid": "g1"})
+    assert rows["commands"][0]["returns_cell_values"] is True
+    assert "privacy_level" not in rows and "available" not in rows["commands"][0]
 
 
 # ===== the "+" tab and the SQL box: agents can write queries =====
@@ -317,7 +309,7 @@ def test_grids_datasets_and_files(live: Live, clients: str, tmp_path: Path) -> N
     assert loaded["dataset"] == "more" and loaded["grid"]
     assert run("datasets_close", name="more")["closed"] == "more"
     assert run("health")["status"] == "ok" and "processes" in run("datasets_python_sessions")
-    assert run("agent_policy")["level"] == 3 and run("agent_approvals") == {"pending": []}
+    assert run("agent_approvals") == {"pending": []}
     assert run("steps_save_recipe", grid=clients)["saved"]
     assert run("steps_save_recipe", grid=clients, delete=True)["deleted"] is True
     code = run("steps_python", grid=clients, target="duckdb")
@@ -540,11 +532,8 @@ def test_every_command_is_one_lean_typed_tool(live: Live, clients: str) -> None:
     assert added["row_count"] == 1 and added["index"] == 0
     with pytest.raises(Exception, match="grid"):
         asyncio.run(call("steps_add", {"kind": "limit", "params": {"n": 1}}))  # a required argument missing
-    live.level(1)
-    with pytest.raises(Exception, match="needs privacy level 3"):
-        asyncio.run(
-            call("row_read", {"grid": clients})
-        )  # refused with the reason, not "Error executing tool"
+    with pytest.raises(Exception, match="No such grid"):
+        asyncio.run(call("row_read", {"grid": "nope"}))  # refused with the reason, not "Error executing tool"
 
 
 def test_injected_text_in_cells_stays_inside_the_data_block(live: Live) -> None:
@@ -575,14 +564,13 @@ def test_a_value_cannot_close_the_untrusted_data_block(live: Live, command: str)
     assert INJECTION in text  # still there, as data
 
 
-def test_agent_cannot_use_a_command_to_raise_its_level_or_approve(live: Live, clients: str) -> None:
+def test_agent_cannot_use_a_command_to_approve(live: Live, clients: str) -> None:
     """The user-only controls have no command, and the server refuses the agent if it tries anyway."""
-    assert not {"set_policy", "resolve_approval", "shutdown", "audit"} & set(REGISTRY)
-    with pytest.raises(CommandError, match=r"403.*Only the user"):
-        api.call("POST", "/agent/policy", {"level": 0})
+    assert not {"agent_policy", "resolve_approval", "shutdown", "audit"} & set(REGISTRY)
     with pytest.raises(CommandError, match="403"):
         api.call("POST", "/agent/approvals/anything", {"approve": True})
-    assert run("agent_policy")["level"] == 3
+    with pytest.raises(CommandError, match="403"):
+        api.call("POST", "/shutdown")
 
 
 # ===== the ribbon's buttons, one command each, filed under the app's layout =====
@@ -596,7 +584,7 @@ def test_every_command_belongs_to_an_app_area_and_the_registry_follows_the_apps_
     assert seen == sorted(seen, key=order.index), "the registry is not in the app's order"
     assert order[:5] == ["help", "tabs", "datasets", "table", "column"]  # tab bar, then the ribbon's rows
     assert order.index("table") < order.index("column") < order.index("cell")
-    listing = catalog(level=3)["commands"]
+    listing = catalog()["commands"]
     assert {c["group"] for c in listing} == {title for _, title in AREAS}
     column_row = [c["command"] for c in listing if c["group"] == "Ribbon, Column row"]
     assert column_row[:2] == ["column_sort", "column_keep"]
@@ -735,13 +723,12 @@ def test_app_snapshot_returns_the_picture_the_page_drew(live: Live, clients: str
     assert result.meta["area"] == "grid" and result.meta["width"] == 800 and result.meta["saved"] == str(out)
     assert out.read_bytes() == png
     # As plain text (what execute gives a caller with no image channel) it describes the picture.
-    assert catalog("app_snapshot", level=3)["commands"][0]["returns_image"] is True
+    assert catalog("app_snapshot")["commands"][0]["returns_image"] is True
 
 
-def test_app_snapshot_shows_real_cells_at_every_privacy_level(live: Live, clients: str) -> None:
+def test_app_snapshot_is_audited(live: Live, clients: str) -> None:
     from tests.test_snapshots import tiny_png
 
-    live.level(0)  # the user chose the real picture at every level; the audit log records it
     page = a_page_that_draws(live, tiny_png())
     assert run("app_snapshot")["bytes"] > 0
     page.join(10)

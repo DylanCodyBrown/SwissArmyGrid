@@ -108,7 +108,7 @@ The goal, per workspace, without panning:
 17. **A catalog is names and types only, never data.** `sag.load(table, name=...)` takes a table with
     schema, table, column and type (any `INFORMATION_SCHEMA.COLUMNS` result works as it is) and makes a
     searchable explorer: Schema -> table/view -> column -> type. Catalogs live in memory (Refresh or
-    `sag.load` brings them back after a restart). The agent reads them at every privacy level through
+    `sag.load` brings them back after a restart). The agent reads them through
     `catalog_*` tools, to write SQL against the source in its dialect.
 18. **The blades and catalog navigation sits left of the notebook** in the notebook's own tab
     (decision 12). Until phase 2 it is its own page, `/catalog`, the same component.

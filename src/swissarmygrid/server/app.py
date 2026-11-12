@@ -3,7 +3,7 @@
 Route modules, one per area, like ASP.NET controllers:
   routes_datasets.py   push, list, close, load a file, paste; health and shutdown
   routes_grids.py      rows, steps, profile, SQL, export, code, recipes for one grid
-  routes_agent.py      the MCP door: privacy levels and approvals (plan section 12)
+  routes_agent.py      the MCP door: the agent's reads and export approvals (plan section 12)
   routes_cards.py      side-panel charts and notes (plan section 11)
   routes_catalog.py    catalogs (a source's names and types) and blades (saved code that loads)
   routes_keyfinder.py  the Key Finder: likely join columns between grids
@@ -53,7 +53,7 @@ from swissarmygrid.server.context import Context
 from swissarmygrid.server.grids import GridRegistry
 from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.processes import ProcessRegistry
-from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, EngineErrorRedaction, LocalOnlyGuard
+from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, LocalOnlyGuard
 from swissarmygrid.settings import Settings
 
 # How often the server looks for Python sessions that stopped reporting.
@@ -90,7 +90,7 @@ def create_app(
         blades=BladeStore(settings.blades_dir),
     )
 
-    policy = routes_agent.Policy()  # what an agent may see: one policy, every table
+    tickets = routes_agent.ExportTickets()  # the agent exports the user approved, not yet written
     relationships = routes_models.Relationships()  # the current keys and joins (a shared model)
 
     async def live(websocket: WebSocket) -> None:
@@ -144,15 +144,15 @@ def create_app(
 
     app = Starlette(
         routes=[
-            *routes_datasets.routes(ctx, policy),
-            *routes_grids.routes(ctx, policy),
-            *routes_agent.routes(ctx, policy),
-            *routes_context.routes(ctx, policy),
+            *routes_datasets.routes(ctx),
+            *routes_grids.routes(ctx, tickets),
+            *routes_agent.routes(ctx, tickets),
+            *routes_context.routes(ctx),
             *routes_models.routes(ctx, relationships),
-            *routes_cards.routes(ctx, policy),
+            *routes_cards.routes(ctx),
             *routes_catalog.routes(ctx),
-            *routes_keyfinder.routes(ctx, policy),
-            *routes_compare.routes(ctx, policy),
+            *routes_keyfinder.routes(ctx),
+            *routes_compare.routes(ctx),
             *routes_processes.routes(ctx),
             *routes_snapshots.routes(ctx),
             WebSocketRoute("/ws", live),
@@ -161,11 +161,7 @@ def create_app(
             Route("/catalog", catalog_page),
             Mount("/static", StaticFiles(directory=settings.web_root, check_dir=False)),
         ],
-        middleware=[
-            Middleware(LocalOnlyGuard, port=port, token=token),
-            # Inside the guard: only requests that passed it reach a route and get an error back.
-            Middleware(EngineErrorRedaction, shown=policy.engine_errors_shown),
-        ],
+        middleware=[Middleware(LocalOnlyGuard, port=port, token=token)],
         lifespan=lifespan,
     )
     app.state.ctx = ctx

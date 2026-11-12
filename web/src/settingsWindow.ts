@@ -2,16 +2,16 @@
  * settingsWindow.ts: the Settings window (the cog at the far left of the tab bar). [WIRE + EXPORT]
  *
  * The theme and whether column headers show their profile, remembered per viewer and never sent
- * anywhere; and what the agent may see, one level for every table (agentAccess.ts, kept by the
- * server). How a table compares text is a table setting, so it lives on the ribbon's Table row
- * (textMatching.ts). Everything here applies as you change it, so the window only has Close.
+ * anywhere; and what the agent has done (agentAccess.ts, from the server's audit log). How a
+ * table compares text is a table setting, so it lives on the ribbon's Table row (textMatching.ts).
+ * Everything here applies as you change it, so the window only has Close.
  *
  * ROUTING: [SETTINGS BUTTON]      -> openSettings()
  *          [THEME CHOICE]         -> setTheme(choice)  (every open tab and window follows)
  *          [COLUMN PROFILES]      -> setHeaderProfiles(on)  (off by default)
  *          [CONNECT AN AGENT]     Copy -> copyMcpPrompt()  (a prompt that installs the MCP in any agent)
  *          [CLOSE]                -> close()
- *          [AGENT ACCESS]         -> agentAccess.agentAccessSection()  (level, masks, activity)
+ *          [AGENT ACCESS]         -> agentAccess.agentAccessSection()  (agent activity)
  */
 import { agentAccessSection } from "./agentAccess";
 import { button, h, openDialog, toast } from "./dom";
@@ -19,7 +19,7 @@ import { THEME_LABELS, headerProfiles, setHeaderProfiles, setTheme, themeChoice,
 
 export function settingsButton(): HTMLButtonElement {
   // A cog at the far left of the tab bar: always there, whichever tab is open.
-  const btn = button("Settings", () => openSettings(), { icon: "cog", iconOnly: true, class: "ghost prefs-btn", title: "Settings: theme and what the agent may see" });
+  const btn = button("Settings", () => openSettings(), { icon: "cog", iconOnly: true, class: "ghost prefs-btn", title: "Settings: theme, agent setup and activity" });
   btn.setAttribute("aria-haspopup", "dialog");
   return btn;
 }
@@ -31,7 +31,7 @@ export const MCP_PROMPT = [
   "1. Run: claude mcp add --scope user swissarmygrid -- swissarmygrid-mcp",
   "   (another agent: add an MCP server over stdio whose command is swissarmygrid-mcp)",
   "2. Reconnect your MCP servers (/mcp in Claude Code).",
-  "3. Call the swissarmygrid guide tool first; it explains the grids, the tools and the privacy levels.",
+  "3. Call the swissarmygrid guide tool first; it explains the grids and the tools.",
 ].join("\n");
 
 async function copyMcpPrompt(): Promise<void> {

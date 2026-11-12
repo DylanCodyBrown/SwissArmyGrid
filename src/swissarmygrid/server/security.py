@@ -24,11 +24,10 @@ are still checked on these paths.
 from __future__ import annotations
 
 import secrets
-from collections.abc import Callable
 
 from starlette.datastructures import Headers
 from starlette.responses import PlainTextResponse
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocket
 
 WEBSOCKET_SUBPROTOCOL: str = "swissarmygrid"
@@ -93,66 +92,3 @@ class LocalOnlyGuard:
             ]
             return any(secrets.compare_digest(part.encode("latin-1"), self._token) for part in offered)
         return False
-
-
-# ===== Engine errors and the agent's privacy level =====
-
-# How engine errors start, wherever a route words them (context.error_response, the SQL box, the
-# dataset store). DuckDB's own text can quote a cell ("Could not convert string 'Acme' to INT32").
-_ENGINE_ERROR_PREFIXES: tuple[bytes, ...] = (b"DuckDB:", b"DuckDB could not store")
-ENGINE_ERROR_HIDDEN: str = (
-    "DuckDB could not compute this. The message is hidden at this privacy level because it can "
-    "quote cell values; check the query or the grid's steps."
-)
-# Below this level an agent sees no engine error text (from level 2 it sees rows anyway).
-ENGINE_ERRORS_SHOWN_FROM_LEVEL: int = 2
-
-
-def is_agent_scope(scope: Scope) -> bool:
-    return Headers(scope=scope).get("x-actor") == "agent"
-
-
-class EngineErrorRedaction:
-    """ASGI middleware: an agent below privacy level 2 never reads DuckDB's error text.
-
-    Each route turns a DuckDB error into a 400 whose text is DuckDB's message, which can quote the
-    value that failed (a cast, a date, a division). An agent at level 0 or 1 could otherwise read
-    any cell one error at a time (`CAST(client AS INTEGER)`). Doing it here, on the response,
-    covers every route, including ones added later, without each having to remember. The user and
-    an agent at level 2 or 3 get the full message, which they need to fix a query, except at level 2
-    with a column hidden or hashed, where the quoted cell may be that column's (`shown` decides:
-    routes_agent.Policy.engine_errors_shown).
-    """
-
-    def __init__(self, app: ASGIApp, shown: Callable[[], bool]) -> None:
-        self._app = app
-        self._shown = shown
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not is_agent_scope(scope) or self._shown():
-            await self._app(scope, receive, send)
-            return
-        held: Message | None = None  # an error's start message, until its body says what it is
-        body = bytearray()
-
-        async def guarded_send(message: Message) -> None:
-            nonlocal held
-            if message["type"] == "http.response.start" and 400 <= int(message["status"]) < 600:
-                held = message
-                return
-            if held is None:
-                await send(message)
-                return
-            body.extend(message.get("body", b""))
-            if message.get("more_body", False):
-                return
-            start, text = held, bytes(body)
-            if text.startswith(_ENGINE_ERROR_PREFIXES):
-                text = ENGINE_ERROR_HIDDEN.encode()
-                headers = [(k, v) for k, v in start.get("headers", []) if k.lower() != b"content-length"]
-                start = {**start, "headers": [*headers, (b"content-length", str(len(text)).encode())]}
-            held = None
-            await send(start)
-            await send({"type": "http.response.body", "body": text, "more_body": False})
-
-        await self._app(scope, receive, guarded_send)

@@ -4,8 +4,8 @@
  * It lives in the Agent tab only: the first tab of the tab bar, always there, which shows this
  * panel full width (panes.ts). It is one sandbox for every table: each card names the table it is
  * drawn on (GET /cards), and Add chart picks the table. The grid tabs give the grids the full width.
- * The column profile is a popup now (profileView.openColumnProfile), and what the agent may see
- * is set in Settings for every table (agentAccess.ts).
+ * The column profile is a popup now (profileView.openColumnProfile), and the agent's activity is
+ * listed in Settings (agentAccess.ts).
  *
  * Split-panel styles: the panel sits to the right of the grid or below it, its size drags
  * (or moves with the arrow keys on the splitter), it collapses to a slim rail or maximizes
