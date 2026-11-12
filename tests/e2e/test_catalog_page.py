@@ -222,3 +222,147 @@ def test_the_grid_page_opens_the_blades_page_in_its_own_tab(browser: Browser, or
     assert blades.url.split("#")[0].endswith("/catalog")
     expect(blades.get_by_role("heading", name="Blades", exact=True)).to_be_visible()
     blades.close()
+
+
+# ===== portable blades: search, tags, favourites, import, export, blade folders =====
+
+
+def blade_item(page: Page, name: str) -> Any:
+    return page.locator(".blade-item", has=page.locator(f'.blade-name:text-is("{name}")'))
+
+
+def test_blades_are_found_by_name_description_or_tag_and_favourites_come_first(
+    browser: Browser, server: dict[str, Any], warehouse: str
+) -> None:
+    for name, description, tags in [
+        ("Bakery", "Daily bread counts", ["bakery"]),
+        ("Orders feed", "What the orders app reads", ["orders-function-app", "sales"]),
+        ("Stock", "Shelf stock", ["sales"]),
+    ]:
+        call(
+            server,
+            "POST",
+            "/blades",
+            {"name": name, "kind": "other", "code": "x = 1\n", "description": description, "tags": tags},
+        )
+    page = open_page(browser, warehouse)
+    names = page.locator(".blade-list .blade-name")
+    expect(names).to_have_count(3)
+    search = page.get_by_label("Search blades")
+    search.fill("orders-function")  # a tag
+    expect(names).to_have_text(["Orders feed"])
+    search.fill("shelf")  # a description
+    expect(names).to_have_text(["Stock"])
+    search.fill("")
+    page.locator(".blade-tags").get_by_role("button", name="sales").click()
+    expect(names).to_have_text(["Orders feed", "Stock"])
+    page.locator(".blade-tags").get_by_role("button", name="sales").click()  # again: every tag
+    expect(names).to_have_count(3)
+    blade_item(page, "Stock").get_by_role("button", name="Pin as a favourite").click()
+    expect(names.first).to_have_text("Stock")
+    expect(blade_item(page, "Stock").get_by_role("button", name="Unpin")).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    pinned = {b["name"]: b["pinned"] for b in call(server, "GET", "/blades")["blades"]}
+    assert pinned == {"Bakery": False, "Orders feed": False, "Stock": True}
+    page.reload()
+    expect(names.first).to_have_text("Stock")  # kept on this computer
+    call(server, "PUT", "/blades/Stock/pin", {"pinned": False})
+    assert page.errors == []  # type: ignore[attr-defined]
+    page.close()
+
+
+def test_an_imported_blade_file_is_reviewed_first_and_a_taken_name_keeps_both(
+    browser: Browser, server: dict[str, Any], warehouse: str, tmp_path: Path
+) -> None:
+    from swissarmygrid.blade_core.portable import write_blade
+
+    marker = tmp_path / "ran.txt"
+    code = f"open({str(marker)!r}, 'w').write('ran')\nconn = 1\n"
+    blade_file = tmp_path / "bakery_db.blade.py"
+    blade_file.write_text(
+        write_blade(
+            {
+                "name": "Bakery DB",
+                "kind": "other",
+                "code": code,
+                "variable": "conn",
+                "description": "The bakery's made-up database",
+                "tags": ["bakery", "orders-function-app"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    page = open_page(browser, warehouse)
+    for round_ in (1, 2):
+        with page.expect_file_chooser() as chooser:
+            page.get_by_role("button", name="Import blades").click()
+        chooser.value.set_files(str(blade_file))
+        dialog = page.locator("dialog")
+        expect(dialog.locator(".import-card h3")).to_contain_text("Bakery DB")
+        expect(dialog).to_contain_text("The bakery's made-up database")
+        dialog.locator("summary", has_text="The code").click()
+        expect(dialog.locator("pre")).to_contain_text("conn = 1")
+        if round_ == 2:  # the name is taken now: keep both is offered first
+            expect(dialog.get_by_label("When Bakery DB is taken")).to_have_value("copy")
+        assert not marker.exists()  # reviewing runs nothing
+        dialog.get_by_role("button", name="Import 1 blade").click()
+        expect(dialog).to_have_count(0)
+    expect(page.locator(".blade-list .blade-name")).to_have_text(["Bakery DB", "Bakery DB 2"])
+    saved = call(server, "GET", "/blades/Bakery%20DB")
+    assert saved["tags"] == ["bakery", "orders-function-app"] and saved["code"] == code
+    assert not marker.exists()  # nor does importing
+    assert page.errors == []  # type: ignore[attr-defined]
+    page.close()
+
+
+def test_a_blade_folder_lists_its_blade_files_and_the_save_screen_exports(
+    browser: Browser, server: dict[str, Any], warehouse: str, tmp_path: Path
+) -> None:
+    from swissarmygrid.blade_core.portable import write_blade
+
+    folder = tmp_path / "team blades"
+    (folder / "apps").mkdir(parents=True)
+    (folder / "apps" / "orders.blade.py").write_text(
+        write_blade(
+            {
+                "name": "Orders app DB",
+                "kind": "other",
+                "code": "conn = 2\n",
+                "variable": "conn",
+                "tags": ["orders-function-app"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (folder / "helper.py").write_text("x = 1\n", encoding="utf-8")  # an ordinary file: not a blade
+    page = open_page(browser, warehouse)
+    try:
+        page.get_by_role("button", name="Blade folders").click()
+        dialog = page.locator("dialog")
+        dialog.get_by_label("Folder to add").fill(str(folder))
+        dialog.get_by_role("button", name="Add").click()
+        dialog.get_by_role("button", name="Save").click()
+        expect(dialog).to_have_count(0)
+        orders = blade_item(page, "Orders app DB")
+        expect(orders.locator(".blade-file")).to_have_text("file")
+        expect(page.locator(".blade-list .blade-name")).to_have_count(1)
+        orders.locator(".blade-name").click()
+        expect(page.locator("#detail")).to_contain_text("orders.blade.py")
+        expect(page.locator("#detail").get_by_role("button", name="Remove", exact=True)).to_have_count(
+            0
+        )  # its file is the user's to remove
+        page.get_by_label("Description").fill("The orders app's database")
+        page.get_by_role("button", name="Save", exact=True).click()
+        expect(page.locator(".status-line")).to_contain_text("Saved Orders app DB.")
+        assert 'description = "The orders app\'s database"' in (
+            folder / "apps" / "orders.blade.py"
+        ).read_text(encoding="utf-8")
+        with page.expect_download() as download:
+            page.locator("#detail").get_by_role("button", name="Export", exact=True).click()
+        assert download.value.suggested_filename == "orders_app_db.blade.py"
+        assert "conn = 2" in Path(download.value.path()).read_text(encoding="utf-8")
+        assert page.errors == []  # type: ignore[attr-defined]
+    finally:
+        call(server, "PUT", "/blades/folders", {"folders": []})
+        page.close()

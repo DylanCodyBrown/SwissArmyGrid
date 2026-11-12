@@ -157,6 +157,27 @@ relation, not the user's variable, so they were marked verified anyway.
   `SELECT *` shows one column fewer than the grid. A list of dicts, a file or the clipboard has no
   variable DuckDB can read; the copy expects a DataFrame of that name and says so.
 
+## Portable blades (2026-11-12, the owner's requests; confirm or change)
+
+"A way to import a blade ... a format to make them portable", "blade folders that the app could search",
+"a format or frontmatter" to tell blades from other Python, "descriptions and tags", and "pin blades
+to favorite".
+
+- **The frontmatter is a comment block**, `# /// swissarmygrid-blade` ... `# ///` holding TOML, the
+  same shape as Python's inline script metadata (PEP 723), so a blade file stays a runnable, lintable
+  Python file and Git diffs read well. It must open the file: a header further down does not count,
+  so a file that merely mentions the marker is never taken for a blade.
+- **`.blade.py` is the suggested name, not the mark.** In a blade folder any `.py` file that starts with
+  the header is a blade; the name is only for people.
+- **Secrets travel as names only.** An imported blade asks for its values on its save screen.
+- **Folder blades are the folder's.** Saving writes the file back (the header is rewritten, the code
+  kept); the app never deletes one. A blade saved in the app wins a name clash with a folder blade,
+  and the clash shows in import as "already exists".
+- **Favourites are per computer** (`blade_pins.json`), never in the shared file, so one person's pins
+  don't travel to a team folder.
+- **Open:** a tag-only view (group the list by tag) and a "pull from Git" button for a folder are not
+  built; the search and tag chips cover finding a blade for now.
+
 ## Privacy levels removed (2026-11-12, the owner's decision)
 
 "Remove the privacy levels from the app." The agent now always sees everything, as level 3 gave.

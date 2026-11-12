@@ -293,6 +293,24 @@ notebook's toolbar takes the highlighted code into the save screen. Dropping a b
 dropped in full; an import already there (in any form) is never repeated. Drag a blade into a cell
 (`conn = sag.blade(...)`), a table (a SQL cell over the blade's connection), a column (its quoted name).
 
+**Portable blades (done 2026-11-12, release 1.4.0; the owner's requests):**
+- **A format:** `<name>.blade.py`, the blade's code under a `# /// swissarmygrid-blade` header (TOML,
+  written like Python's inline script metadata) with format, name, kind, description, tags, dialect,
+  variable, secret *names*, environment variable names, template, `[catalog]` and `[vault]`. Secret
+  values never go in a file. Several travel as a zip. `blade_core/portable.py`, standard library only.
+- **The header is the mark** that separates blades from other Python: it must open the file (only
+  blank lines and comments before it). Reading parses the header and checks the code is Python; it
+  never runs anything.
+- **Import reviews first:** every blade's code, description, tags, the secrets it asks for, and a name
+  clash (keep both as "Name 2", replace, skip), saved in the app or into a blade folder.
+- **Blade folders:** the user's list (`blade_folders.json`) and `SWISSARMYGRID_BLADE_FOLDERS`, searched
+  four levels deep (hidden folders, virtual environments, `node_modules`, `site-packages`, build and
+  dist skipped; at most 5,000 Python files a folder, 1 MB a file), cached by modification time. A folder
+  blade saves back into its own file and is never deleted by the app. A saved blade wins a name clash.
+- **Description and tags** (at most 20 tags) for search and the tag chips; `sag.blades(tag=, search=)`.
+- **Favourites:** pinned names in `blade_pins.json`, on this computer only, listed first.
+- Every one of these routes refuses the agent, like the rest of the blade routes.
+
 ## Phase 3: save and open a workspace
 
 A saved workspace is a folder (`<name>.sagw/`):

@@ -133,6 +133,92 @@
   min-height: 24px;
 }
 
+/* favourites, tags, folder blades, import by dropping files */
+.blade-item .star svg {
+  fill: none;
+}
+
+.blade-item .btn.star.on,
+.blade-item .btn.star[aria-pressed="true"] {
+  border-color: transparent;
+  background: none;
+  color: var(--warn);
+}
+
+.blade-item .star.on svg {
+  fill: currentColor;
+}
+
+.blade-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.blade-item-tags {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blade-file {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.75em;
+}
+
+.blade-tags {
+  margin-bottom: 6px;
+}
+
+.blade-tags .tag-chip {
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 0.8em;
+}
+
+.blade-tags .tag-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.rail-section.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.import-card {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.import-card h3 {
+  margin: 0;
+  font-size: 1em;
+}
+
+.import-card pre {
+  max-height: 30vh;
+  overflow: auto;
+  white-space: pre;
+}
+
+.folder-list {
+  display: grid;
+  gap: 4px;
+  padding-left: 18px;
+}
+
 .empty {
   padding: 6px 2px;
   color: var(--muted);

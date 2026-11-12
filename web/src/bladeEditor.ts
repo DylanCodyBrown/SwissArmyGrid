@@ -8,7 +8,8 @@
  * vault's secret-to-variable map, a secret blade's variable names, and an optional catalog command.
  */
 import { api, ApiError } from "./api";
-import { button, clear, h, openDialog, toast } from "./dom";
+import { append, button, clear, h, openDialog, toast } from "./dom";
+import { exportBlades } from "./bladeLibrary";
 
 // ===== shapes the server sends (server/routes_catalog.py) =====
 
@@ -26,6 +27,14 @@ export interface BladeSummary {
   vaults: string[];
   typed: Record<string, string>;
   env_names: string[];
+  /** What it is for, and words to find it by (search matches the name, the description and the tags). */
+  description: string;
+  tags: string[];
+  /** A favourite on this computer: listed first. */
+  pinned: boolean;
+  /** "folder": its own .blade.py file in a blade folder (`path`); "saved": kept by the app. */
+  source: "saved" | "folder";
+  path: string | null;
 }
 
 interface CatalogCommand {
@@ -90,6 +99,11 @@ const KIND_LABELS: Record<BladeKind, string> = {
   vault: "Vault",
   secret: "Secret",
 };
+
+/** "a, b,c" -> ["a", "b", "c"]: tags as typed, commas between. */
+export function splitTags(text: string): string[] {
+  return text.split(",").map((t) => t.trim()).filter(Boolean);
+}
 
 export function kindLabel(kind: BladeKind): string {
   return KIND_LABELS[kind];
@@ -289,6 +303,8 @@ interface Draft {
   mapping: { env: string; secret: string }[];
   envNames: string;
   template: string | null;
+  description: string;
+  tags: string;
 }
 
 function draftFrom(detail: BladeDetail | null, template: Template | null, kind: BladeKind): Draft {
@@ -305,6 +321,8 @@ function draftFrom(detail: BladeDetail | null, template: Template | null, kind: 
       mapping: detail.vault_mapping.length ? detail.vault_mapping : [{ env: "", secret: "" }],
       envNames: detail.env_names.join("\n"),
       template: detail.template,
+      description: detail.description ?? "",
+      tags: (detail.tags ?? []).join(", "),
     };
   }
   return {
@@ -319,6 +337,8 @@ function draftFrom(detail: BladeDetail | null, template: Template | null, kind: 
     mapping: template?.vault_mapping.length ? template.vault_mapping.map((m) => ({ ...m })) : [{ env: "", secret: "" }],
     envNames: "",
     template: template?.id ?? null,
+    description: "",
+    tags: "",
   };
 }
 
@@ -353,6 +373,20 @@ export async function editBlade(
   // ----- fields that stay put while the rest re-renders -----
   const nameInput = h("input", { type: "text", value: draft.name, maxlength: "64", "aria-label": "Blade name", spellcheck: "false" });
   nameInput.addEventListener("input", () => (draft.name = nameInput.value));
+  const descriptionInput = h("textarea", { rows: "2", maxlength: "2000", "aria-label": "Description", placeholder: "What it loads, and for which app" }) as HTMLTextAreaElement;
+  descriptionInput.value = draft.description;
+  descriptionInput.addEventListener("input", () => (draft.description = descriptionInput.value));
+  const tagsInput = h("input", { type: "text", value: draft.tags, "aria-label": "Tags", placeholder: "orders-function-app, warehouse, finance", spellcheck: "false" });
+  tagsInput.addEventListener("input", () => (draft.tags = tagsInput.value));
+  // Where a new blade is kept: in the app, or as a .blade.py file in one of the blade folders.
+  const whereSelect = h("select", { "aria-label": "Keep it in" }, h("option", { value: "" }, "This app (on this computer)"));
+  if (!name) {
+    void api<{ folders: { path: string; exists: boolean }[] }>("/blades/folders").then((got) => {
+      for (const folder of got.folders) if (folder.exists) whereSelect.append(h("option", { value: folder.path }, `Blade folder: ${folder.path}`));
+      whereLabel.hidden = whereSelect.options.length < 2;
+    }, () => undefined);
+  }
+  const whereLabel = h("label", { hidden: true }, h("span", {}, "Keep it in"), whereSelect);
   const codeBox = h("textarea", { class: "code-box", rows: "12", spellcheck: "false", "aria-label": "Blade code" }) as HTMLTextAreaElement;
   codeBox.value = draft.code;
   const madeHost = h("div", {});
@@ -612,7 +646,14 @@ export async function editBlade(
   );
 
   function body(): Record<string, unknown> {
-    const out: Record<string, unknown> = { name: draft.name.trim(), kind: draft.kind, template: draft.template };
+    const out: Record<string, unknown> = {
+      name: draft.name.trim(),
+      kind: draft.kind,
+      template: draft.template,
+      description: draft.description.trim(),
+      tags: splitTags(draft.tags),
+    };
+    if (!savedName && whereSelect.value) out.folder = whereSelect.value;
     if (draft.kind === "secret") {
       out.env_names = draft.envNames.split(/[\s,]+/).filter(Boolean);
       return out;
@@ -680,8 +721,13 @@ export async function editBlade(
     template?.note ? h("p", { class: "hint" }, template.note) : null,
     sections,
   );
-  sections.append(
+  append(
+    sections,
     h("label", {}, h("span", {}, "Name"), nameInput),
+    detail?.path ? h("p", { class: "hint" }, "Kept in its own file: ", h("code", {}, detail.path), ". Saving here writes that file.") : null,
+    h("label", {}, h("span", {}, "Description"), descriptionInput),
+    h("label", {}, h("span", {}, "Tags (commas between; search finds a blade by any of them)"), tagsInput),
+    name ? null : whereLabel,
     h("div", {}, h("div", { class: "hint" }, "Kind"), kinds),
     codeFieldset,
     kindHost,
@@ -692,7 +738,8 @@ export async function editBlade(
       button("Save and refresh the catalog", () => void save("refresh"), { icon: "play" }),
       button("Save and test", () => void save("test"), { icon: "check" }),
       button("Cancel", onClosed, { class: "ghost" }),
-      name ? button("Remove", () => void remove(), { class: "danger", icon: "trash" }) : null,
+      name ? button("Export", () => void exportBlades(savedName ?? name), { icon: "export", class: "ghost", title: "Download it as a .blade.py file anyone can import" }) : null,
+      name && !detail?.path ? button("Remove", () => void remove(), { class: "danger", icon: "trash" }) : null,
     ),
     status,
   );

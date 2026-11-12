@@ -11,6 +11,7 @@
  */
 import { api, query } from "./api";
 import { type BladeSummary, bladeLine, kindLabel, runBlade } from "./bladeEditor";
+import { chooseBladeFiles, editBladeFolders, exportBlades, importBlades } from "./bladeLibrary";
 import { button, clear, formatCount, h, recall, remember, toast } from "./dom";
 
 // ===== shapes the server sends (server/routes_catalog.py) =====
@@ -205,9 +206,55 @@ export function mountRail(host: RailHost): Rail {
     renderBlades();
   }
 
-  function renderBlades(): void {
-    const list = h("ul", { class: "blade-list", "aria-label": "Saved blades" });
-    for (const blade of blades) {
+  // The blades list: a search (names, descriptions, tags), tag chips to narrow it, favourites first.
+  let bladeTag: string | null = null;
+  const bladeSearch = h("input", {
+    class: "cat-search",
+    type: "search",
+    placeholder: "Search blades: name, description or tag",
+    "aria-label": "Search blades",
+    spellcheck: "false",
+  });
+  bladeSearch.addEventListener("input", () => renderBladeList());
+  const bladeTags = h("div", { class: "chips blade-tags", role: "group", "aria-label": "Tags" });
+  const bladeList = h("ul", { class: "blade-list", "aria-label": "Saved blades" });
+
+  function bladeMatches(blade: BladeSummary): boolean {
+    const tags = blade.tags ?? [];
+    if (bladeTag && !tags.some((t) => t.toLowerCase() === bladeTag)) return false;
+    const text = bladeSearch.value.trim().toLowerCase();
+    if (!text) return true;
+    return [blade.name, blade.description ?? "", ...tags].some((field) => field.toLowerCase().includes(text));
+  }
+
+  async function setPinned(blade: BladeSummary, pinned: boolean): Promise<void> {
+    try {
+      await api(`/blades/${encodeURIComponent(blade.name)}/pin`, "PUT", { pinned });
+      blade.pinned = pinned;
+      renderBladeList();
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  }
+
+  function renderBladeList(): void {
+    // Every tag once (as first written), the chosen one pressed; a click narrows the list to it.
+    const allTags = new Map<string, string>();
+    for (const blade of blades) for (const tag of blade.tags ?? []) if (!allTags.has(tag.toLowerCase())) allTags.set(tag.toLowerCase(), tag);
+    if (bladeTag && !allTags.has(bladeTag)) bladeTag = null;
+    clear(
+      bladeTags,
+      ...[...allTags].sort(([a], [b]) => a.localeCompare(b)).map(([key, tag]) =>
+        button(tag, () => {
+          bladeTag = bladeTag === key ? null : key;
+          renderBladeList();
+        }, { class: "chip tag-chip", pressed: bladeTag === key, title: bladeTag === key ? "Show every tag again" : `Only blades tagged ${tag}` }),
+      ),
+    );
+    bladeTags.hidden = allTags.size === 0;
+    const shown = blades.filter(bladeMatches).sort((a, b) => Number(b.pinned) - Number(a.pinned));
+    clear(bladeList);
+    for (const blade of shown) {
       const line = bladeLine(blade);
       const item = h(
         "li",
@@ -215,33 +262,70 @@ export function mountRail(host: RailHost): Rail {
           class: "blade-item",
           draggable: "true",
           "aria-current": blade.name === selectedBlade ? "true" : undefined,
-          title: `Drag into a script: ${line}`,
+          title: `${blade.description ? blade.description + "\n" : ""}Drag into a script: ${line}`,
           ondragstart: (event: DragEvent) => {
             event.dataTransfer?.setData("text/plain", line);
             event.dataTransfer?.setData("application/x-sag-blade", JSON.stringify({ name: blade.name, kind: blade.kind, line }));
             event.dataTransfer?.setData(DROP_TYPE, JSON.stringify({ code: line, imports: ["import swissarmygrid as sag"] }));
           },
         },
+        button(blade.pinned ? "Unpin" : "Pin as a favourite", () => void setPinned(blade, !blade.pinned), {
+          icon: "star",
+          iconOnly: true,
+          class: `ghost star${blade.pinned ? " on" : ""}`,
+          pressed: blade.pinned,
+          title: blade.pinned ? `Unpin ${blade.name}` : `Pin ${blade.name} as a favourite (listed first)`,
+        }),
         h("span", { class: `blade-kind ${blade.kind}` }, kindLabel(blade.kind)),
-        h("button", { class: "blade-name", type: "button", onclick: () => openBlade(blade.name) }, blade.name),
+        h(
+          "span",
+          { class: "blade-text" },
+          h("button", { class: "blade-name", type: "button", onclick: () => openBlade(blade.name) }, blade.name),
+          blade.tags?.length ? h("span", { class: "blade-item-tags" }, blade.tags.join(" · ")) : null,
+        ),
+        blade.source === "folder" ? h("span", { class: "blade-file", title: `In a blade folder: ${blade.path ?? ""}` }, "file") : null,
         blade.has_catalog
           ? button("Refresh catalog", () => void refresh(blade.name), { icon: "play", iconOnly: true, class: "ghost", title: `Refresh ${blade.name}'s catalog` })
           : null,
         button("Copy the sag.blade line", () => copy(line, "the line"), { icon: "copy", iconOnly: true, class: "ghost", title: line }),
       );
-      list.append(item);
+      bladeList.append(item);
     }
+    if (!shown.length && blades.length) bladeList.append(h("li", { class: "empty" }, "No blade matches."));
+  }
+
+  function renderBlades(): void {
     clear(
       bladesHost,
       h(
         "div",
         { class: "rail-head" },
         h("h2", { id: "blades-title" }, "Blades"),
+        button("Import blades", () => chooseBladeFiles(() => void loadBlades()), { icon: "import", iconOnly: true, class: "ghost", title: "Import .blade.py files or a zip (you review them first)" }),
+        button("Export every blade", () => void exportBlades(), { icon: "export", iconOnly: true, class: "ghost", title: "Download every blade as a zip of .blade.py files" }),
+        button("Blade folders", () => void editBladeFolders(() => void loadBlades()), { icon: "folder", iconOnly: true, class: "ghost", title: "Folders searched for .blade.py files" }),
         button("New blade", () => void newBlade(), { icon: "plus", class: "ghost" }),
       ),
-      blades.length ? list : h("p", { class: "empty" }, "No blades yet. Any code that loads from outside Python can be one."),
+      blades.length ? h("div", {}, bladeSearch, bladeTags, bladeList) : h("p", { class: "empty" }, "No blades yet. Any code that loads from outside Python can be one. Import a .blade.py file, or add a blade folder."),
     );
+    renderBladeList();
   }
+
+  // Dropping .blade.py, .py or .zip files on the blades opens the import review.
+  bladesHost.addEventListener("dragover", (event) => {
+    if (event.dataTransfer?.types.includes("Files")) {
+      event.preventDefault();
+      bladesHost.classList.add("dropping");
+    }
+  });
+  bladesHost.addEventListener("dragleave", () => bladesHost.classList.remove("dropping"));
+  bladesHost.addEventListener("drop", (event) => {
+    bladesHost.classList.remove("dropping");
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (!files.length) return;
+    event.preventDefault();
+    void importBlades(files, () => void loadBlades());
+  });
 
   async function newBlade(): Promise<void> {
     selectedBlade = null;

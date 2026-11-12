@@ -49,9 +49,11 @@ src/swissarmygrid/
   client/push_client.py  push(), ensure_server()
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
   blade_core/            blades, standard library only: code (what code makes, asks for, imports; read
-                         with ast), run (run a blade, its catalog command, a vault), packages (pip names)
+                         with ast), run (run a blade, its catalog command, a vault), packages (pip names),
+                         portable (the .blade.py file: a `# /// swissarmygrid-blade` TOML header, zips)
   engine/catalog.py      catalogs: a source's names and types, tree queries and search (in the locked DuckDB)
-  server/blade_store.py  saved blades (~/.swissarmygrid/blades, one JSON each), secrets via keyring;
+  server/blade_store.py  saved blades (~/.swissarmygrid/blades, one JSON each), blade folders (.blade.py
+                         files found by their header), favourites, description and tags; secrets via keyring;
                          blade_runner (Refresh/Test in a child process), blade_templates (35 starters),
                          routes_catalog (/catalogs for everyone, /blades refuses the agent)
   server/notebook.py     the notebook: marimo started on first use (child process, token on stdin),
@@ -65,7 +67,8 @@ src/swissarmygrid/
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco and Vega;
                          catalogRail.ts (blades + catalog navigation) is shared by the blades page
                          (catalogPage.ts, static/catalog.html) and the notebook tab (notebookPage.ts,
-                         static/notebook.html: the rail left of marimo); bladeEditor.ts is the save screen.
+                         static/notebook.html: the rail left of marimo); bladeEditor.ts is the save screen;
+                         bladeLibrary.ts is import (review first), export and the blade folders dialog.
                          The grid page has no SQL box and no steps panel (decision 13): stepsStrip.ts is the
                          strip under the title; stepsPanel.ts shows only in its own window (?panel=steps)
 web/static/              index.html, grid.css (all theme tokens), build/ (gitignored)

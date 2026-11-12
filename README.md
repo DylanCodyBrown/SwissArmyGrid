@@ -187,7 +187,9 @@ import swissarmygrid as sag
 conn = sag.blade("Warehouse")  # runs the saved code here and returns its variable
 sag.blade("Azure vault")  # a vault blade: reads its secrets live, sets environment variables
 sag.blade("Warehouse login")  # a secret blade: asks for values this Python does not have yet
-sag.blades()  # the saved names
+sag.blades()  # every blade's name, favourites first
+sag.blades(search="orders-function-app")  # by name, description or tag
+sag.blades(tag="sales")
 ```
 
 - **Kinds:** SQL connection (with its dialect), other (any code), vault (Azure Key Vault, AWS,
@@ -205,6 +207,41 @@ sag.blades()  # the saved names
 ```python
 sag.load(conn.execute("SELECT * FROM INFORMATION_SCHEMA.COLUMNS").df(), name="Warehouse", dialect="sqlserver")
 ```
+
+### Portable blades, blade folders, tags and favourites
+
+A blade travels as one plain Python file, `<name>.blade.py`: its own code under a header, like a
+script's inline metadata, that holds what the app needs (TOML):
+
+```python
+# /// swissarmygrid-blade
+# format = 1
+# name = "Orders app DB"
+# kind = "sql"
+# description = "The database the orders function app reads"
+# tags = ["orders-function-app", "sales"]
+# dialect = "postgres"
+# variable = "conn"
+# secrets = ["password"]
+# ///
+import psycopg
+conn = psycopg.connect(host="db.example", user="reader", password=secret("password"))
+```
+
+- **Only names of secrets travel**, never their values: the person importing types their own.
+- **Import** (the up-arrow above the blades, or drop `.blade.py` or `.zip` files on them) shows every
+  blade first: its code, its description and tags, the secrets it asks for, and whether its name is
+  taken (keep both, replace or skip). Importing runs nothing. **Export** gives one blade's file (on its
+  save screen) or every blade as a zip.
+- **Blade folders** (the folder button, or `SWISSARMYGRID_BLADE_FOLDERS`, paths separated as in `PATH`):
+  folders searched, four levels deep, for Python files that *start* with the header. Ordinary Python
+  files, virtual environments, `node_modules` and hidden folders are left alone, so blades can live in
+  a Git repository beside other code. A folder blade saves back into its own file; removing it is
+  yours to do in the folder. A blade kept by the app wins a name clash.
+- **Description and tags** on the save screen. The search above the blades finds a blade by its name,
+  its description or any tag, and the tag chips narrow the list: tag a blade with the app it serves
+  and searching for that app finds it.
+- **Favourites:** the star pins a blade to the top. Kept on this computer, never in the file.
 
 The agent reads catalogs with `catalog_list`, `catalog_schemas`, `catalog_tables`, `catalog_columns`
 (with a first SELECT quoted for the source) and `catalog_search`. It never sees a blade's code or any
