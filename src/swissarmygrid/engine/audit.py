@@ -48,8 +48,16 @@ class AuditLog:
         with self._lock, self._path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
 
-    def tail(self, limit: int = 200) -> list[dict[str, Any]]:
+    def tail(self, limit: int = 200, actor: str | None = None) -> list[dict[str, Any]]:
+        """The last `limit` entries, or the last `limit` of one actor's."""
         if self._path is None or not self._path.exists():
             return []
-        lines = self._path.read_text(encoding="utf-8").splitlines()[-limit:]
-        return [json.loads(line) for line in lines if line.strip()]
+        newest_first: list[dict[str, Any]] = []
+        for line in reversed(self._path.read_text(encoding="utf-8").splitlines()):
+            if len(newest_first) >= limit:
+                break
+            if line.strip():
+                entry = json.loads(line)
+                if actor is None or entry.get("actor") == actor:
+                    newest_first.append(entry)
+        return newest_first[::-1]

@@ -71,3 +71,20 @@ def test_malformed_specs_are_chart_errors(
 def test_a_heatmap_with_both_axes_still_works(table: tuple[DatasetStore, DatasetInfo]) -> None:
     spec = {"mark": "heatmap", "x": {"field": "region"}, "y": {"aggregate": "count", "field": "qty"}}
     assert len(chart(table, spec)["values"]) == 4
+
+
+def test_a_blank_date_does_not_stretch_the_y_axis() -> None:
+    # 158 blank dates drew nowhere on the time axis but set its top at 170, over bars of 1.
+    import datetime as dt
+
+    from swissarmygrid.charts.spec import vega_lite
+    from swissarmygrid.engine.datasets import Column
+
+    columns = (Column("day", "DATE"), Column("kind", "VARCHAR"))
+    values = [{"x": None, "y": 158}, {"x": dt.date(2026, 1, 1), "y": 2}, {"x": dt.date(2026, 1, 2), "y": 1}]
+    by_day = {"mark": "bar", "x": {"field": "day"}, "y": {"aggregate": "count"}}
+    assert vega_lite(by_day, {"values": values}, columns)["encoding"]["y"]["scale"]["domainMax"] == 2 * 1.08
+    # On a category axis the blank is a bar of its own, and counts.
+    by_kind = {"mark": "bar", "x": {"field": "kind"}, "y": {"aggregate": "count"}}
+    scale = vega_lite(by_kind, {"values": values}, columns)["encoding"]["y"]["scale"]
+    assert scale["domainMax"] == 158 * 1.08

@@ -123,3 +123,27 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   untraced), and DuckDB error text at level 2 quoting a hidden column. sqlglot 30.24.0 qualifies a
   whole-row reference (`to_json(t)`) as `exp.TableColumn` and `#1` as `exp.PositionalColumn`;
   `server/level_zero.py` treats both as untraceable.
+- (2026-11-12) Excel export, xlsxwriter 3.3.0, 1,000,000 rows x 10 columns (ints, floats,
+  text, a date, a timestamp, a boolean), at the engine: 59.0 -> 21.9 s. Half the time was
+  xlsxwriter's per-cell write calls and half its row-by-row XML loop at close(); the data sheet's
+  cells are now written as XML directly (`export._SheetData`) and xlsxwriter writes every other
+  part. Every part of the file but docProps/core.xml (its creation time) is byte for byte the same
+  as with the per-cell calls (`tests/test_export_hostile.py`, and the 1,000,000-row file compared
+  part by part). Of the 21.9 s, zip's deflate of the 389 MB sheet XML takes 9 s; level 1 would
+  take 2 s but make the file 30% larger (56 -> 73 MB), so the default level stays. Format indexes
+  depend on the order xlsxwriter first writes each format (row by row), and shared strings on
+  the order of write calls (header, then each batch column by column); both are kept. A sheet
+  with 16,385+ columns used to lose the extra columns silently (xlsxwriter returns -1 past XFD);
+  it is refused now. DuckDB 2.0.0's ORDER BY over a very wide result is slow whatever the row
+  count: `SELECT <4,000 columns> FROM t ORDER BY rowid` takes 2.4 s on 3 rows (SELECT * without
+  the ORDER BY 0.09 s), and 16,390 columns took 47 s for every view request (rows and exports).
+- (2026-11-12) Copy as Python (Altair), Altair 6.3.0 with vl-convert, pandas, DuckDB 1.4 in a
+  clean virtual environment: the copy put column names into Altair's shorthand (`"col:on:N"` is a
+  syntax error there, `a.b` reads a nested field, a `"` ended the Python string) and handed Altair
+  the whole frame, which it refuses over 5,000 rows (MaxRowsError). It now runs the grid's own
+  chart query over the frame with DuckDB (`charts.spec.chart_query`) and encodes the plain columns
+  x, y, y2, color, bin_start and bin_end. All 24 chart kinds and options of the probe table (dates,
+  time zones, 1850-9999, nulls, unicode, HUGEINT sums, +-1e300) ran and rendered to SVG, from a
+  DuckDB `.df()` frame and from `pd.read_parquet` (dates as objects); on a 1,000,000-row frame a
+  900-bar chart took 0.7 s and a scatter 0.2 s (5,000 sampled points). The tests run the copy with
+  a recording stand-in for altair (not a dependency) and compare its points with the card's.

@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from datetime import date, timedelta
@@ -511,10 +512,34 @@ def test_export_excel_download(browser: Browser, orders_url: str) -> None:
     page = open_grid(browser, orders_url)
     page.get_by_role("button", name="Export", exact=True).click()
     dialog = page.locator("dialog")
+    # Only Excel (a sheet) and Parquet (file metadata) carry provenance; a CSV never did.
+    expect(dialog.get_by_text("Include provenance")).to_be_hidden()
     dialog.get_by_label("Format").select_option("xlsx")
+    expect(dialog.get_by_text("Include provenance")).to_be_visible()
     with page.expect_download() as download_info:
         dialog.get_by_role("button", name="Download").click()
     assert download_info.value.suggested_filename == "orders.xlsx"
+
+
+def test_excel_export_can_cut_a_cell_over_excels_limit(browser: Browser, server: dict[str, Any]) -> None:
+    # The refusal said "Export CSV instead, or allow truncation", and the dialog had no way to.
+    import io
+
+    import openpyxl
+
+    url = push_client.push(pd.DataFrame({"id": [1, 2], "text": ["short", "y" * 40_000]}), name="long_cells")
+    page = open_grid(browser, url)
+    page.get_by_role("button", name="Export", exact=True).click()
+    dialog = page.locator("dialog")
+    dialog.get_by_label("Format").select_option("xlsx")
+    dialog.get_by_role("button", name="Download").click()
+    expect(dialog.locator(".status-error")).to_contain_text("holds 40,000 characters")
+    dialog.get_by_label("Cut text longer than an Excel cell holds (32,767 characters)").check()
+    with page.expect_download() as download_info:
+        dialog.get_by_role("button", name="Download").click()
+    sheet = openpyxl.load_workbook(io.BytesIO(Path(download_info.value.path()).read_bytes()))["Data"]
+    assert len(str(sheet["B3"].value)) == 32_767
+    call(server, "DELETE", f"/grids/{grid_of(url)}")
 
 
 # ===== analysis panel: charts, notes, zoom, split layouts =====
@@ -537,6 +562,161 @@ def test_chart_card_draws_zooms_and_cross_filters(browser: Browser, orders_url: 
     page.locator("dialog").get_by_role("button", name="Close", exact=True).last.click()
     page.locator(".card .chart svg path.mark-rect, .card .chart svg .mark-rect path").first.click()
     expect(page.locator("#status")).to_contain_text("of 1,250", timeout=15000)
+
+
+def test_chart_clicks_filter_by_date_by_heatmap_cell_and_never_by_a_whole_line(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # Vega hands a clicked date over as epoch milliseconds: every date chart's click failed
+    # ("month must be in 1..12"), and a raw date's became a filter on a number.
+    grid = grid_of(orders_url)
+
+    def add_chart(title: str, spec: dict[str, Any]) -> None:
+        call(server, "POST", f"/grids/{grid}/cards", {"kind": "chart", "title": title, "spec": spec})
+
+    def steps() -> list[dict[str, Any]]:
+        return call(server, "GET", f"/grids/{grid}")["steps"]  # type: ignore[no-any-return]
+
+    count = {"aggregate": "count"}
+    add_chart("By month", {"mark": "bar", "x": {"field": "order_date", "time_unit": "month"}, "y": count})
+    add_chart("By week", {"mark": "line", "x": {"field": "order_date", "time_unit": "week"}, "y": count})
+    add_chart("By day", {"mark": "point", "x": {"field": "order_date"}, "y": count})
+    add_chart("Cells", {"mark": "heatmap", "x": {"field": "product"}, "y": {"field": "region", **count}})
+    add_chart("Prices", {"mark": "histogram", "x": {"field": "unit_price"}})
+    page = open_grid(browser, orders_url)
+    open_agent(page)
+    for title in ("By month", "By week", "By day", "Cells", "Prices"):
+        expect(page.locator(".card", has_text=title).locator(".chart svg")).to_be_visible(timeout=20000)
+    # The line itself is not one week (it was the first one): only its points filter.
+    page.locator(".card", has_text="By week").locator(".mark-line path").first.dispatch_event("click")
+    page.wait_for_timeout(700)
+    assert steps() == []
+    page.locator(".card", has_text="By month").locator(".mark-rect path").first.click()
+    expect(page.locator(".toast").last).to_contain_text("2026-01-01")
+    assert [(s["params"]["op"], s["params"]["low"]) for s in steps()] == [("date_between", "2026-01-01")]
+    assert call(server, "GET", f"/grids/{grid}/count")["row_count"] == 31 * 14
+    call(server, "POST", f"/grids/{grid}/steps", {"steps": []})
+    page.locator(".card", has_text="By day").locator(".mark-symbol path").first.dispatch_event("click")
+    expect(page.locator(".toast").last).to_contain_text("Filtered the grid to order_date = 2026-")
+    assert [s["params"]["op"] for s in steps()] == ["eq"]
+    call(server, "POST", f"/grids/{grid}/steps", {"steps": []})
+    page.locator(".card", has_text="Cells").locator(".mark-rect path").first.click()
+    expect(page.locator(".toast").last).to_contain_text(" and region = ")
+    assert sorted(s["params"]["column"] for s in steps()) == ["product", "region"]
+    # A histogram bar does not filter, so its card does not say it does.
+    expect(page.locator(".card", has_text="Prices").locator(".card-foot")).not_to_contain_text("click")
+
+
+def test_add_chart_offers_every_open_table(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
+    # Only tables whose tab had been opened were offered (their columns were in the page).
+    other = push_client.push(
+        pd.DataFrame({"shelf": ["A", "B", "A"], "units": [3, 4, 5]}), name="unvisited", new_grid=True
+    )
+    page = open_grid(browser, orders_url)
+    open_agent(page)
+    page.get_by_role("button", name="Add chart").click()
+    dialog = page.locator("dialog")
+    dialog.get_by_label("Table").select_option(label="unvisited")
+    expect(dialog.get_by_label("X axis").locator("option")).to_have_text(["shelf", "units"])
+    dialog.get_by_label("X axis").select_option("shelf")
+    dialog.get_by_role("button", name="Add chart").click()
+    card = page.locator(".card", has=page.locator(".card-table", has_text="unvisited"))
+    expect(card.locator(".chart svg")).to_be_visible(timeout=20000)
+    expect(card.locator(".card-foot")).to_contain_text("2 points")
+    call(server, "DELETE", f"/grids/{grid_of(other)}")
+
+
+def test_thousands_of_bars_stay_bars_with_readable_labels(browser: Browser, server: dict[str, Any]) -> None:
+    # 5,000 bars drew as one black block (each bar's outline was wider than the bar) over a
+    # smear of 5,000 angled labels on top of each other.
+    many = pd.DataFrame({"code": [f"code {i:04d}" for i in range(3000)], "n": range(3000)})
+    url = push_client.push(many, name="many_codes", new_grid=True)
+    grid = grid_of(url)
+    spec = {"mark": "bar", "x": {"field": "code"}, "y": {"aggregate": "sum", "field": "n"}}
+    call(server, "POST", f"/grids/{grid}/cards", {"kind": "chart", "title": "Codes", "spec": spec})
+    page = open_grid(browser, url)
+    open_agent(page)
+    card = page.locator(".card", has_text="Codes")
+    expect(card.locator(".chart svg")).to_be_visible(timeout=20000)
+    widths = card.locator(".mark-rect path").evaluate_all(
+        "paths => paths.map(p => getComputedStyle(p).strokeWidth)"
+    )
+    assert len(widths) == 3000 and set(widths) == {"0px"}
+    shown = card.locator(".role-axis-label text").evaluate_all(
+        "labels => labels.filter(l => getComputedStyle(l).opacity !== '0'"
+        " && l.getAttribute('opacity') !== '0').length"
+    )
+    assert 0 < shown < 300
+    call(server, "DELETE", f"/grids/{grid}")
+
+
+def test_a_result_card_keeps_long_text_from_hiding_the_other_columns(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # demo_frame's row 3 holds a 700-character note: its column took the card's whole width.
+    sql = "SELECT note, order_id, region FROM grid WHERE order_id IN (3, 4, 5) ORDER BY order_id"
+    call(
+        server, "POST", f"/grids/{grid_of(orders_url)}/cards", {"kind": "table", "title": "Notes", "sql": sql}
+    )
+    page = open_grid(browser, orders_url)
+    open_agent(page)
+    card = page.locator(".card", has_text="Notes")
+    expect(card.locator("tbody tr").nth(1).locator("td").first).to_have_attribute("title", "x" * 700)
+    card_box = card.bounding_box()
+    region = card.locator("th", has_text="region").bounding_box()
+    assert card_box and region and region["x"] + region["width"] <= card_box["x"] + card_box["width"]
+
+
+def test_a_diagram_card_never_makes_the_page_fetch_anything(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # Mermaid's sanitizer kept <img src> in a label, so an agent's diagram made the user's
+    # browser request any URL it named (the page has no Content-Security-Policy).
+    body = (
+        '%%{init: {"themeCSS": ".node rect { fill: url(/beacon-css.png) }"}}%%\n'
+        "flowchart LR\n"
+        '  A["<img src=/beacon-label.png> label"] --> B\n'
+        '  B["<image href=/beacon-svg.png/>"] --> C\n'
+        '  click A "/beacon-click"'
+    )
+    grid = grid_of(orders_url)
+    call(
+        server,
+        "POST",
+        f"/grids/{grid}/cards",
+        {"kind": "diagram", "title": "Beacons", "body": body},
+        agent=True,
+    )
+    page = open_grid(browser, orders_url)
+    fetched: list[str] = []
+    page.on("request", lambda request: fetched.append(request.url))
+    open_agent(page)
+    card = page.locator(".card", has_text="Beacons")
+    expect(card.locator(".diagram svg")).to_be_visible(timeout=20000)
+    expect(card.locator(".diagram")).to_contain_text("label")
+    page.wait_for_timeout(1000)
+    assert not [url for url in fetched if "beacon" in url]
+    assert card.locator(".diagram img, .diagram image, .diagram [href*='beacon']").count() == 0
+
+
+def test_a_small_diagram_is_not_blown_up_to_the_cards_width(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # A two-column ERD (155 px wide) was stretched to the card's 760 px: 50 px text, 1,360 px tall.
+    body = "erDiagram\n  ORDERS ||--o{ LINES : has\n  ORDERS {\n    int order_id PK\n  }"
+    call(
+        server,
+        "POST",
+        f"/grids/{grid_of(orders_url)}/cards",
+        {"kind": "diagram", "title": "Tiny", "body": body},
+    )
+    page = open_grid(browser, orders_url)
+    open_agent(page)
+    svg = page.locator(".card", has_text="Tiny").locator(".diagram svg")
+    expect(svg).to_be_visible(timeout=20000)
+    natural = float(svg.get_attribute("viewBox").split()[2])  # type: ignore[union-attr]
+    box = svg.bounding_box()
+    assert box and box["width"] <= natural + 1
 
 
 def test_note_markdown_is_rendered_safely(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
@@ -603,12 +783,49 @@ def test_agent_approval_banner_allow(browser: Browser, orders_url: str, server: 
     call(server, "POST", "/agent/policy", {"level": 3})  # leave the default for later tests
 
 
+def test_closing_the_approval_window_declines_the_request(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # Escape (or the window's X) hid a request that was still waiting: nothing in the page
+    # showed it again until a reload, and the agent waited out the 3 minutes.
+    import threading
+
+    call(server, "POST", "/agent/policy", {"level": 2, "auto_rows": False, "masks": {}})
+    page = open_grid(browser, orders_url)
+    answers: list[int] = []
+
+    def ask() -> None:
+        try:
+            call(server, "POST", "/agent/query", {"dataset": "orders", "sql": "SELECT 1"}, agent=True)
+            answers.append(200)
+        except urllib.error.HTTPError as error:
+            answers.append(error.code)
+
+    for close in ("Escape", "X"):
+        worker = threading.Thread(target=ask)
+        worker.start()
+        expect(page.locator(".approval")).to_be_visible(timeout=15000)
+        expect(page.locator("dialog")).to_contain_text("Closing this window declines")
+        if close == "Escape":
+            page.keyboard.press("Escape")
+        else:
+            page.locator("dialog").get_by_role("button", name="Close").first.click()
+        worker.join(timeout=20)
+        assert not worker.is_alive()
+        assert call(server, "GET", "/agent/approvals")["pending"] == []
+    assert answers == [403, 403]
+    call(server, "POST", "/agent/policy", {"level": 3})  # leave the default for later tests
+
+
 def test_agent_privacy_controls(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     page = open_grid(browser, orders_url)
     # One policy for the whole (shared) test server: start from the default, level 3.
     call(server, "POST", "/agent/policy", {"level": 3, "auto_rows": False, "masks": {}})
+    sql = "SELECT count(*) AS activity_check FROM grid"
+    call(server, "POST", "/agent/query", {"dataset": "orders", "sql": sql}, agent=True)
     page.get_by_role("button", name="Settings").click()
     dialog = page.locator("dialog")
+    expect(dialog.locator(".activity li").first).to_contain_text(sql)  # newest first
     expect(dialog.get_by_role("radio", name=re.compile("Level 3"))).to_be_checked()
     dialog.get_by_text("Level 1: masked samples").click()
     expect(page.locator(".toast").last).to_contain_text("level 1")

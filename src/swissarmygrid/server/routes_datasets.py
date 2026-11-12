@@ -213,7 +213,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             limit = max(1, min(500, query_int(request, "limit", 100) or 100))
         except ValueError as error:
             return error_response(error)
-        return json_response({"entries": ctx.audit.tail(limit)})
+        # ?actor=agent: the agent's own last entries, however many the user wrote since.
+        return json_response({"entries": ctx.audit.tail(limit, request.query_params.get("actor") or None)})
 
     async def list_datasets(request: Request) -> Response:
         return json_response(

@@ -257,46 +257,51 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         return json_response({"removed": card["id"]})
 
     async def select(request: Request) -> Response:
-        """Cross-filtering: clicking a bar adds `x = value` (or the time bucket's range)."""
+        """Cross-filtering: clicking a bar adds `x = value` (or the time bucket's range); a heatmap
+        cell adds its row's value too ({"value": x, "y": y}). The new steps must compile on the
+        grid's view, or none is added (a value its column cannot hold used to break the grid)."""
         try:
             card = cards.get(request.path_params["card_id"])
             if card is None or card["kind"] != "chart":
                 return Response("No such chart.", status_code=404)
             grid, info = ctx.grid_and_info(card["grid"])
             body = await read_json(request)
-            value = body.get("value") if isinstance(body, dict) else None
-            x = card["spec"]["x"]
-            field = x["field"]
+            if not isinstance(body, dict):
+                raise ValueError('Send {"value": ...}.')
+            spec = card["spec"]
+            if spec["mark"] == "histogram":
+                raise ValueError("Select a histogram range from the column profile instead.")
 
-            def column_type(cur: duckdb.DuckDBPyConnection) -> str:
+            def added(cur: duckdb.DuckDBPyConnection) -> list[Step]:
                 columns = ctx.compiled(cur, grid, info).columns
-                return next(c.type for c in columns if c.name == field)
+                validate(spec, columns)  # its columns may have left the view since
+                families = {c.name: type_family(c.type) for c in columns}
+                x = spec["x"]
+                clicked: list[tuple[str, Any, str | None]] = [
+                    (x["field"], body.get("value"), x.get("time_unit"))
+                ]
+                if spec["mark"] == "heatmap" and "y" in body:
+                    clicked.append((spec["y"]["field"], body["y"], None))
+                for field, value, _ in clicked:
+                    if value is not None and level_zero and families[field] != "number":
+                        # A filter on the value clicked, with the row count, would tell the column's values.
+                        raise _LevelZeroClick(field)
+                picked = [_click_filter(f, families[f], v, unit) for f, v, unit in clicked]
+                steps = [Step(kind="filter", params=p | {"from_chart": card["id"]}) for p in picked]
+                trial = ctx.views.compile(cur, info, [*grid.steps, *steps], grid.settings)
+                if trial.error is not None:
+                    raise ValueError(str(trial.error))
+                return steps
 
-            family = type_family(await ctx.grid_query(grid, None, BACKGROUND, column_type))
-            if value is not None and actor(request) == "agent" and policy.level == 0 and family != "number":
-                # A filter on the value clicked, with the row count, would tell the column's values.
+            level_zero = actor(request) == "agent" and policy.level == 0
+            try:
+                grid.steps = [*grid.steps, *await ctx.grid_query(grid, None, BACKGROUND, added)]
+            except _LevelZeroClick as refused:
                 return Response(
-                    f"At privacy level 0 a click can filter {field} (not a number column) only on its blank "
-                    "bar (omit value). The user can raise the level in Settings.",
+                    f"At privacy level 0 a click can filter {refused.field} (not a number column)"
+                    " only on its blank bar (omit value). The user can raise the level in Settings.",
                     status_code=403,
                 )
-            if value is None:
-                params: dict[str, Any] = {"column": field, "op": "blank"}
-            elif "time_unit" in x:
-                params = {
-                    "column": field,
-                    "op": "date_between",
-                    "low": str(value)[:10],
-                    "high": _bucket_end(str(value)[:10], x["time_unit"]),
-                }
-            elif family == "number" and card["spec"]["mark"] == "histogram":
-                raise ValueError("Select a histogram range from the column profile instead.")
-            else:
-                params = {"column": field, "op": "eq", "value": value}
-            grid.steps = [
-                *grid.steps,
-                Step(kind="filter", params=params | {"from_chart": card["id"]}),
-            ]
             await ctx.live.broadcast(
                 {"type": "grid_updated", "grid": grid.id, "by": actor(request), "gen": grid.gen}
             )
@@ -313,7 +318,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
             def make(cur: duckdb.DuckDBPyConnection) -> str:
                 columns = ctx.compiled(cur, grid, info).columns
-                return altair_code(validate(card["spec"], columns), columns, info.name)
+                spec = validate(card["spec"], columns)
+                return altair_code(spec, columns, info.name, ctx.settings.max_chart_points)
 
             return json_response({"code": await ctx.grid_query(grid, None, BACKGROUND, make)})
         except Exception as error:
@@ -328,6 +334,45 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         Route("/cards/{card_id}/select", select, methods=["POST"]),
         Route("/cards/{card_id}/code", code),
     ]
+
+
+class _LevelZeroClick(Exception):
+    """An agent at level 0 clicked a value of a column that is not a number."""
+
+    def __init__(self, field: str) -> None:
+        super().__init__(field)
+        self.field = field
+
+
+def _click_filter(field: str, family: str, value: Any, time_unit: str | None) -> dict[str, Any]:
+    """The filter for one clicked value: a blank, a whole time bucket, or the value itself."""
+    if value is None:
+        return {"column": field, "op": "blank"}
+    if time_unit is None:
+        return {"column": field, "op": "eq", "value": _as_family(value, family)}
+    if not isinstance(value, str):
+        raise ValueError(f"A {time_unit} of {field} is picked by its first day, as YYYY-MM-DD.")
+    start = value[:10]
+    end = _bucket_end(start, time_unit)
+    if family == "timestamp":
+        end += "T23:59:59.999999"  # the whole last day, not just its midnight
+    return {"column": field, "op": "date_between", "low": start, "high": end}
+
+
+def _as_family(value: Any, family: str) -> Any:
+    """A value an agent gave as text (`sag sandbox_select --value 3`) as its column's type; any
+    other value as it came (the filter step says what is wrong with it)."""
+    if not isinstance(value, str):
+        return value
+    if family == "boolean" and value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    if family == "number":
+        try:
+            number = float(value)
+        except ValueError:
+            return value
+        return int(value) if value.strip().lstrip("+-").isdigit() else number
+    return value
 
 
 def _bucket_end(start: str, unit: str) -> str:

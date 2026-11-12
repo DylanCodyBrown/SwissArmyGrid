@@ -20,7 +20,7 @@
  *          [CARD ACTIONS]    pin / expand (zoom) / image / HTML / Altair / remove
  *          [CARD TABLE]      each card's table name -> read-only, from the card's grid
  */
-import { api, grid, gridId, type Notice } from "./api";
+import { api, grid, gridId, gridPath, type ColumnInfo, type GridInfo, type Notice } from "./api";
 import { contextOf, gridList, onAgentView, viewingAgent } from "./panes";
 import { button, clear, formatCount, h, icon, isDateType, isNumericType, openDialog, recall, remember, toast } from "./dom";
 import { renderMarkdown } from "./markdown";
@@ -282,16 +282,18 @@ function cardElement(card: Card): HTMLElement {
     content.append(smallTable(card.columns ?? [], card.rows ?? []));
     if (card.capped) foot.textContent = "Showing the first 100 rows.";
   } else if (card.vega_lite) {
-    const chart = h("div", { class: "chart", role: "img", "aria-label": `${chartTitle(card)}: ${card.points ?? 0} points. Click a mark to filter the grid.` });
+    // A histogram's bar is a range, which the column profile filters on; every other mark is one value.
+    const clickable = markOf(card) !== "histogram";
+    const chart = h("div", { class: "chart", role: "img", "aria-label": `${chartTitle(card)}: ${card.points ?? 0} points.${clickable ? " Click a mark to filter the grid." : ""}` });
     content.append(chart);
-    foot.textContent = [card.note, `${formatCount(card.points ?? 0)} points · click a mark to filter`].filter(Boolean).join(" · ");
+    foot.textContent = [card.note, `${formatCount(card.points ?? 0)} points${clickable ? " · click a mark to filter" : ""}`].filter(Boolean).join(" · ");
     void charts().then(async (m) => {
       const max = workspace.dataset.panel === "max";
       const roomy = max || viewingAgent(); // the Agent tab gives each chart a full-width, tall card
       const room = workspace.getBoundingClientRect().height;
       const maxHeight = Math.min(480, Math.max(320, Math.round(room * (workspace.dataset.layout === "bottom" ? 0.55 : 0.4))));
       const height = Math.round((roomy ? maxHeight : workspace.dataset.layout === "bottom" ? 150 : 280) * (roomy ? 1 : panelZoom));
-      drawn = await m.drawChart(chart, card.vega_lite!, { onSelect: (value) => void crossFilter(card, value), height, fontScale: panelZoom, large: max });
+      drawn = await m.drawChart(chart, card.vega_lite!, { onSelect: (value, y2) => void crossFilter(card, value, y2), height, fontScale: panelZoom, large: max });
     });
   }
   return element;
@@ -326,15 +328,24 @@ function smallTable(columns: string[], rows: unknown[][]): HTMLElement {
       "table",
       { class: "small" },
       h("thead", {}, h("tr", {}, ...columns.map((c) => h("th", { scope: "col" }, c)))),
-      h("tbody", {}, ...rows.map((r) => h("tr", {}, ...r.map((v) => h("td", { class: typeof v === "number" ? "num" : "" }, v === null ? "(blank)" : String(v)))))),
+      // A long value is cut to the cell's width (grid.css), the whole of it on hover.
+      h("tbody", {}, ...rows.map((r) => h("tr", {}, ...r.map((v) => h("td", { class: typeof v === "number" ? "num" : "", title: v === null ? "" : String(v) }, v === null ? "(blank)" : String(v)))))),
     ),
   );
 }
 
-async function crossFilter(card: Card, value: unknown): Promise<void> {
+function markOf(card: Card): string {
+  return (card.spec as { mark?: string } | undefined)?.mark ?? "";
+}
+
+async function crossFilter(card: Card, value: unknown, y2?: unknown): Promise<void> {
+  const spec = card.spec as { x?: { field?: string }; y?: { field?: string } } | undefined;
+  const shown = (v: unknown): string => (v === null ? "(blank)" : String(v));
+  // A heatmap cell is a pair: its row's value filters too.
+  const cell = markOf(card) === "heatmap" && y2 !== undefined;
   try {
-    await api(`/cards/${card.id}/select`, "POST", { value });
-    toast(`Filtered the grid to ${String((card.spec as { x?: { field?: string } })?.x?.field)} = ${value === null ? "(blank)" : String(value)}.`);
+    await api(`/cards/${card.id}/select`, "POST", cell ? { value, y: y2 } : { value });
+    toast(`Filtered the grid to ${String(spec?.x?.field)} = ${shown(value)}${cell ? ` and ${String(spec?.y?.field)} = ${shown(y2)}` : ""}.`);
     // The card's own table gets the filter step, whichever table is in front.
     const owner = contextOf(card.grid)?.state ?? state;
     // A new generation before load() redraws the panels, so their requests are not stale (409).
@@ -349,19 +360,26 @@ async function crossFilter(card: Card, value: unknown): Promise<void> {
 async function expandChart(card: Card): Promise<void> {
   const { body, foot, close } = openDialog(card.title || chartTitle(card), true);
   const chart = h("div", { class: "expanded-chart" });
-  const mark = (card.spec as { mark?: string } | undefined)?.mark ?? "";
+  const mark = markOf(card);
   const zoomable = ["point", "line", "area"].includes(mark);
-  body.append(h("p", { class: "hint" }, zoomable ? "Scroll to zoom and drag to pan; double-click resets. Click a point to filter the grid." : "Click a bar to filter the grid."), chart);
+  const hint = zoomable
+    ? "Scroll to zoom and drag to pan; double-click resets. Click a point to filter the grid."
+    : mark === "histogram"
+      ? "Hover a bar for its range and count; the column profile filters on a range."
+      : mark === "heatmap"
+        ? "Click a cell to filter the grid to its pair of values."
+        : "Click a bar to filter the grid.";
+  body.append(h("p", { class: "hint" }, hint), chart);
   foot.append(button("Close", close, { class: "primary" }));
   const m = await charts();
-  await m.drawChart(chart, card.vega_lite!, { zoomable, large: true, height: Math.round(window.innerHeight * 0.6), onSelect: (v) => { close(); void crossFilter(card, v); } });
+  await m.drawChart(chart, card.vega_lite!, { zoomable, large: true, height: Math.round(window.innerHeight * 0.6), onSelect: (v, y2) => { close(); void crossFilter(card, v, y2); } });
 }
 
 async function exportHtml(card: Card, drawn: Drawn | null): Promise<void> {
   if (!drawn) return;
   const svg = await drawn.toSvg();
   const title = card.title || chartTitle(card);
-  const page = `<!doctype html><meta charset="utf-8"><title>${title.replace(/</g, "&lt;")}</title><body style="font-family:Segoe UI,sans-serif;background:#fff;margin:24px">${svg}<p style="color:#57606a">From SwissArmyGrid, dataset ${state.info?.dataset ?? ""}, ${new Date().toISOString()}</p></body>`;
+  const page = `<!doctype html><meta charset="utf-8"><title>${title.replace(/</g, "&lt;")}</title><body style="font-family:Segoe UI,sans-serif;background:#fff;margin:24px">${svg}<p style="color:#57606a">From SwissArmyGrid, dataset ${card.dataset.replace(/</g, "&lt;")}, ${new Date().toISOString()}</p></body>`;
   saveBlob(new Blob([page], { type: "text/html" }), `${title.replace(/[^A-Za-z0-9_-]+/g, "_") || "chart"}.html`);
 }
 
@@ -376,11 +394,12 @@ async function copyAltair(card: Card): Promise<void> {
 }
 
 function chartDialog(): void {
-  // Which table to chart: any open table, the one in front first.
-  const tables = gridList().filter((g) => contextOf(g.id)?.state.info);
+  // Which table to chart: any open table, the one in front first. Only tables whose tab had been
+  // opened were offered (their columns were in the page); the others' columns come from the server.
+  const tables = gridList();
   const table = h("select", { "aria-label": "Table" });
   for (const g of tables) table.append(h("option", { value: g.id, selected: g.id === gridId }, g.label));
-  let columns = contextOf(table.value)?.state.info?.columns ?? state.info?.columns ?? [];
+  let columns: ColumnInfo[] = [];
   const mark = h("select", { "aria-label": "Chart type" });
   for (const [v, label] of [["bar", "Bar"], ["line", "Line"], ["area", "Area"], ["point", "Scatter"], ["histogram", "Histogram"], ["heatmap", "Heatmap (counts)"]]) mark.append(h("option", { value: v }, label));
   const x = h("select", { "aria-label": "X axis" });
@@ -389,15 +408,19 @@ function chartDialog(): void {
   const agg = h("select", { "aria-label": "Aggregate" });
   const unit = h("select", { "aria-label": "Time unit" });
   const title = h("input", { type: "text", "aria-label": "Title", placeholder: "optional" });
-  const fill = (): void => {
-    columns = contextOf(table.value)?.state.info?.columns ?? [];
+  const fill = async (): Promise<void> => {
+    const id = table.value;
+    const known = contextOf(id)?.state.info?.columns;
+    const found = known ?? (await api<GridInfo>(gridPath(id)).then((info) => info.columns, () => [] as ColumnInfo[]));
+    if (table.value !== id) return; // another table was picked meanwhile
+    columns = found;
     clear(x, ...columns.map((c) => h("option", { value: c.name }, c.name)));
     clear(y, ...columns.map((c) => h("option", { value: c.name }, c.name)));
     clear(color, h("option", { value: "" }, "(none)"), ...columns.map((c) => h("option", { value: c.name }, c.name)));
     const numeric = columns.find((c) => isNumericType(c.type));
     if (numeric) y.value = numeric.name;
+    sync();
   };
-  fill();
   for (const a of ["count", "sum", "mean", "min", "max", "(none: raw points)"]) agg.append(h("option", { value: a.startsWith("(") ? "" : a }, a));
   unit.append(h("option", { value: "" }, "(as is)"), ...["day", "week", "month", "quarter", "year"].map((u) => h("option", { value: u }, u)));
   const field = (label: string, el: HTMLElement): HTMLElement => h("label", { class: "field" }, h("span", {}, label), el);
@@ -407,8 +430,9 @@ function chartDialog(): void {
     y.disabled = mark.value === "histogram" || (agg.value === "count" && mark.value !== "heatmap");
   };
   for (const el of [mark, x, agg]) el.addEventListener("change", sync);
-  table.addEventListener("change", () => { fill(); sync(); });
+  table.addEventListener("change", () => void fill());
   sync();
+  void fill();
   const { body, foot, close } = openDialog("Add a chart");
   const error = h("p", { class: "status-error", role: "alert" });
   body.append(

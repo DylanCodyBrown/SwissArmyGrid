@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pyarrow as pa
@@ -175,23 +175,106 @@ def test_notes_tables_updates_and_removal(client: TestClient) -> None:
     assert "error" in {c["id"]: c for c in cards(client, grid)}[bad]
 
 
-def test_altair_code(client: TestClient) -> None:
-    grid = grid_id(push(client, "o", big_table(10)))
-    card = add(
-        client,
-        grid,
+def run_copied_chart(code: str, frame: Any) -> tuple[Any, list[tuple[str, tuple[Any, ...], dict[str, Any]]]]:
+    """Run the copied Altair code as the user would, in a fresh namespace, with a stand-in for
+    altair (not installed here) that records the chart it is asked to draw. Returns the frame
+    handed to alt.Chart and every call made on altair."""
+    import sys
+    import types
+    from unittest.mock import patch
+
+    calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+
+    class Recorder:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __call__(self, *args: Any, **kwargs: Any) -> Recorder:
+            calls.append((self.name, args, kwargs))
+            return Recorder(f"{self.name}()")
+
+        def __getattr__(self, attribute: str) -> Recorder:
+            return Recorder(f"{self.name}.{attribute}")
+
+    fake = types.ModuleType("altair")
+    fake.__getattr__ = lambda attribute: Recorder(f"alt.{attribute}")  # type: ignore[method-assign]
+    with patch.dict(sys.modules, {"altair": fake}):
+        namespace: dict[str, Any] = {}
+        exec(compile(code, "<copied>", "exec"), namespace)  # noqa: S102 (code this package generated)
+        namespace["chart"](frame)
+    data = next(args[0] for name, args, _ in calls if name == "alt.Chart")
+    return data, calls
+
+
+def _plain(value: Any) -> Any:
+    """A point's value as the card's JSON has it, from what DuckDB's .df() gives."""
+    import math
+
+    if hasattr(value, "isoformat"):
+        return value.isoformat()[:10]
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        {"mark": "bar", "x": {"field": "col:on"}, "y": {"aggregate": "sum", "field": 'q"uote'}},
+        {"mark": "bar", "x": {"field": "a.b"}, "y": {"aggregate": "count"}, "color": {"field": "col:on"}},
         {
-            "kind": "chart",
-            "spec": {
-                "mark": "bar",
-                "x": {"field": "region"},
-                "y": {"aggregate": "sum", "field": "qty"},
-            },
+            "mark": "line",
+            "x": {"field": "day", "time_unit": "month"},
+            "y": {"aggregate": "mean", "field": "a.b"},
         },
-    ).json()["card"]
+        {"mark": "area", "x": {"field": "a.b"}, "y": {"aggregate": "max", "field": 'q"uote'}},
+        {
+            "mark": "point",
+            "x": {"field": "col:on"},
+            "y": {"aggregate": "min", "field": "a.b"},
+            "title": 'It\'s "x"',
+        },
+        {"mark": "heatmap", "x": {"field": "col:on"}, "y": {"field": "a.b", "aggregate": "count"}},
+        {"mark": "histogram", "x": {"field": 'q"uote', "bins": 7}},
+        {"mark": "bar", "x": {"field": "id"}, "y": {"aggregate": "count"}},  # over the 5,000 cap
+    ],
+)
+def test_the_copied_altair_code_draws_the_cards_points(client: TestClient, spec: dict[str, Any]) -> None:
+    # The copy put column names into Altair's shorthand ("col:on:N" is a syntax error there, a
+    # quote ended the string, a dot reads a nested field) and handed Altair the whole frame,
+    # which it refuses over 5,000 rows. It now aggregates with the grid's own query first.
+    rows = 6000
+    table = pa.table(
+        {
+            "id": pa.array(range(rows), pa.int64()),
+            "col:on": pa.array([("a", "b", None)[i % 3] for i in range(rows)]),
+            "a.b": pa.array([i % 7 for i in range(rows)], pa.int64()),
+            'q"uote': pa.array([(i * 37) % 101 / 4 for i in range(rows)]),
+            "day": pa.array([date(2026, 1, 1) + timedelta(days=i % 90) for i in range(rows)]),
+        }
+    )
+    grid = grid_id(push(client, "o", table))
+    card = add(client, grid, {"kind": "chart", "spec": spec}).json()["card"]
+    shown = cards(client, grid)[0]
     code = client.get(f"/cards/{card}/code", headers=AUTH).json()["code"]
-    assert 'alt.Chart(df).mark_bar(tooltip=True).encode(x="region:N", y="sum(qty):Q")' in code
-    compile(code, "<altair>", "exec")
+    data, calls = run_copied_chart(code, table.to_pandas())
+    assert len(data) == shown["points"] <= 5000
+    expected = shown["vega_lite"]["data"]["values"]
+    got = [{k: _plain(v) for k, v in row.items()} for row in data.to_dict("records")]
+    if spec["x"]["field"] == "id":  # the 5,000 largest of 6,000 equal groups: any 5,000 of them
+        assert len({r["x"] for r in got}) == 5000
+    else:
+        # Groups that tie on y may come in either order.
+        want = [{k: _plain(v) for k, v in row.items()} for row in expected]
+        assert sorted(map(repr, got)) == sorted(map(repr, want))
+        if spec["mark"] in ("line", "area"):
+            assert got == want  # in x order
+    vl_mark = {"histogram": "bar", "heatmap": "rect"}.get(spec["mark"], spec["mark"])
+    assert f"alt.Chart().mark_{vl_mark}" in {name for name, _, _ in calls}
+    if "title" in spec:
+        assert next(kwargs for name, _, kwargs in calls if name == "alt.Chart")["title"] == spec["title"]
 
 
 def test_bar_series_differ_by_dash_too(client: TestClient) -> None:
@@ -227,3 +310,97 @@ def test_one_sandbox_lists_every_tables_cards(client: TestClient) -> None:
     # A card whose grid is closed drops out of the sandbox.
     client.delete(f"/grids/{second}", headers=AUTH)
     assert [c["title"] for c in client.get("/cards", headers=AUTH).json()["cards"]] == ["on first"]
+
+
+def chart(client: TestClient, grid: str, spec: dict[str, Any]) -> str:
+    made = add(client, grid, {"kind": "chart", "spec": spec})
+    assert made.status_code == 200, made.text
+    return str(made.json()["card"])
+
+
+def row_count(client: TestClient, grid: str) -> int:
+    return int(client.get(f"/grids/{grid}/count", headers=AUTH).json()["row_count"])
+
+
+def hours() -> pa.Table:
+    start = datetime(2026, 1, 1)
+    return pa.table(
+        {
+            "at": pa.array([start + timedelta(hours=i) for i in range(24 * 59)]),  # January, February
+            "zoned": pa.array(
+                [datetime(2026, 1, 1, tzinfo=UTC) + timedelta(hours=i) for i in range(24 * 59)],
+                pa.timestamp("us", tz="UTC"),
+            ),
+            "day": pa.array([date(2026, 1, 1) + timedelta(days=i // 24) for i in range(24 * 59)]),
+            "kind": pa.array([("a", "b", "c")[i % 3] for i in range(24 * 59)]),
+        }
+    )
+
+
+def test_a_month_of_a_timestamp_column_keeps_its_last_day(client: TestClient) -> None:
+    # The bucket ended at 2026-01-31 00:00, so 23 hours of 31 January were left out (721 of 744).
+    grid = grid_id(push(client, "o", hours()))
+    month = {"mark": "bar", "x": {"field": "at", "time_unit": "month"}, "y": {"aggregate": "count"}}
+    card = chart(client, grid, month)
+    assert client.post(f"/cards/{card}/select", json={"value": "2026-01-01"}, headers=AUTH).status_code == 200
+    assert row_count(client, grid) == 31 * 24
+
+
+def test_a_raw_date_or_time_click_filters_on_that_value(client: TestClient) -> None:
+    grid = grid_id(push(client, "o", hours()))
+    by_day = chart(client, grid, {"mark": "bar", "x": {"field": "day"}, "y": {"aggregate": "count"}})
+    picked = client.post(f"/cards/{by_day}/select", json={"value": "2026-01-05"}, headers=AUTH)
+    assert picked.status_code == 200, picked.text
+    assert row_count(client, grid) == 24
+    client.post(f"/grids/{grid}/steps", json={"steps": []}, headers=AUTH)
+    by_hour = chart(client, grid, {"mark": "point", "x": {"field": "zoned"}, "y": {"aggregate": "count"}})
+    picked = client.post(
+        f"/cards/{by_hour}/select", json={"value": "2026-01-01T05:00:00+00:00"}, headers=AUTH
+    )
+    assert picked.status_code == 200, picked.text
+    assert row_count(client, grid) == 1
+
+
+def test_a_click_value_the_column_cannot_hold_is_refused_and_adds_no_step(client: TestClient) -> None:
+    # The page sent Vega's epoch milliseconds for a date; the step was saved and the grid broke.
+    grid = grid_id(push(client, "o", hours()))
+    by_day = chart(client, grid, {"mark": "bar", "x": {"field": "day"}, "y": {"aggregate": "count"}})
+    month = {"mark": "bar", "x": {"field": "day", "time_unit": "month"}, "y": {"aggregate": "count"}}
+    by_month = chart(client, grid, month)
+    for card, value in ((by_day, 1767225600000), (by_day, "not a date"), (by_month, 1767225600000)):
+        refused = client.post(f"/cards/{card}/select", json={"value": value}, headers=AUTH)
+        assert refused.status_code == 400, (value, refused.text)
+    assert client.get(f"/grids/{grid}", headers=AUTH).json()["steps"] == []
+
+
+def test_a_click_on_a_chart_whose_column_left_the_view_says_so(client: TestClient) -> None:
+    # It never answered: the column lookup's StopIteration cannot be set on an asyncio future.
+    grid = grid_id(push(client, "o", hours()))
+    card = chart(client, grid, {"mark": "bar", "x": {"field": "kind"}, "y": {"aggregate": "count"}})
+    keep = {"steps": [{"kind": "columns", "params": {"keep": ["day"]}}]}
+    client.post(f"/grids/{grid}/steps", json=keep, headers=AUTH)
+    refused = client.post(f"/cards/{card}/select", json={"value": "a"}, headers=AUTH)
+    assert refused.status_code == 400 and "kind" in refused.text
+
+
+def test_a_click_value_given_as_text_is_read_as_the_columns_type(client: TestClient) -> None:
+    # `sag sandbox_select <card> --value 3` sends "3": the filter step was refused for a number column.
+    grid = grid_id(push(client, "o", big_table(100)))
+    by_qty = chart(client, grid, {"mark": "bar", "x": {"field": "qty"}, "y": {"aggregate": "count"}})
+    assert client.post(f"/cards/{by_qty}/select", json={"value": "3"}, headers=AUTH).status_code == 200
+    assert row_count(client, grid) == 2
+    client.post(f"/grids/{grid}/steps", json={"steps": []}, headers=AUTH)
+    by_price = chart(client, grid, {"mark": "bar", "x": {"field": "price"}, "y": {"aggregate": "count"}})
+    assert client.post(f"/cards/{by_price}/select", json={"value": "0.0"}, headers=AUTH).status_code == 200
+    assert row_count(client, grid) == 1
+    refused = client.post(f"/cards/{by_qty}/select", json={"value": "three"}, headers=AUTH)
+    assert refused.status_code == 400
+
+
+def test_a_heatmap_click_filters_on_both_axes(client: TestClient) -> None:
+    grid = grid_id(push(client, "o", hours()))
+    cells = {"mark": "heatmap", "x": {"field": "kind"}, "y": {"field": "day", "aggregate": "count"}}
+    card = chart(client, grid, cells)
+    picked = client.post(f"/cards/{card}/select", json={"value": "a", "y": "2026-01-02"}, headers=AUTH)
+    assert picked.status_code == 200, picked.text
+    assert row_count(client, grid) == 8

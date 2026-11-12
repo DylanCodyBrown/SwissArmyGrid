@@ -174,3 +174,19 @@ def test_a_pasted_body_is_capped_like_a_push(tmp_path: Path) -> None:
     with make_client(tmp_path, max_push_body_bytes=1024) as c:
         response = c.post("/datasets/p/paste", content=b"a\tb\n" + b"1\t2\n" * 1000, headers=AUTH)
         assert response.status_code == 413
+
+
+def test_a_job_that_raises_stop_iteration_still_answers() -> None:
+    # A future refuses StopIteration, and the request awaiting it never answered.
+    import asyncio
+
+    from swissarmygrid.engine.workers import PriorityWorkers
+
+    workers = PriorityWorkers(1)
+
+    async def run() -> None:
+        with pytest.raises(RuntimeError, match="StopIteration"):
+            await asyncio.wait_for(workers.run(0, lambda: next(iter([]))), 5)
+
+    asyncio.run(run())
+    workers.close()

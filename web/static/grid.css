@@ -996,6 +996,14 @@ table.small td.num {
   text-align: right;
 }
 
+/* A result card's long text is cut (the whole of it on hover), so one value cannot push the
+   other columns out of the card. */
+.card-body table.small td {
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .empty-state {
   display: grid;
   place-items: center;
@@ -2621,8 +2629,9 @@ button.link {
   max-height: none;
 }
 
+/* A wide diagram shrinks to the card; a small one keeps its own size (stretched to the card's
+   width, a two-table ERD drew 50 px text and stood 1,360 px tall). */
 .workspace[data-view="agent"] .diagram svg {
-  width: 100%;
   max-width: 100%;
   height: auto;
 }

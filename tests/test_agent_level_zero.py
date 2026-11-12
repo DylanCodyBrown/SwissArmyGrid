@@ -381,6 +381,27 @@ def test_level_0_still_draws_count_charts_and_notes(client: TestClient) -> None:
     assert client.post(f"/cards/{card}/select", json={"value": None}, headers=AGENT).status_code == 200
 
 
+def test_level_0_refuses_a_heatmap_click_on_a_text_row_value(client: TestClient) -> None:
+    gid = open_grid(client)
+    heatmap = {
+        "kind": "chart",
+        "spec": {
+            "mark": "heatmap",
+            "x": {"field": "id"},
+            "y": {"field": "client", "aggregate": "count"},
+        },
+    }
+    made = client.post(f"/grids/{gid}/cards", json=heatmap, headers=AUTH)  # the user's own chart
+    assert made.status_code == 200, made.text
+    card = made.json()["card"]
+    set_level(client, 0)
+    # The x value is a number, but the y value (a heatmap cell's row) would filter on the text.
+    refused_plainly(client.post(f"/cards/{card}/select", json={"value": 1, "y": SECRET}, headers=AGENT))
+    assert (
+        client.post(f"/cards/{card}/select", json={"value": 1, "y": None}, headers=AGENT).status_code == 200
+    )
+
+
 # ===== the Key Finder and compare: values the agent chose, matched against the user's =====
 
 
