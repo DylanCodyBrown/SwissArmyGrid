@@ -34,7 +34,6 @@ import { api, useGrid } from "./api";
 import { button, clear, h, icon, recall, remember, toast } from "./dom";
 import { createGridView, setActiveView, type GridView } from "./gridView";
 import { openMenuButton } from "./openMenu";
-import { backToTable } from "./sqlBox";
 import { PageState, activate } from "./state";
 
 export interface Context {
@@ -334,7 +333,6 @@ export async function activateGrid(id: string): Promise<void> {
     // Opening another tab while split: it replaces the active side.
     split = split.map((g) => (g === activeId ? id : g)) as [string, string];
   }
-  if (activeId !== id) backToTable(); // a SQL result belongs to the grid it ran on
   ensurePane(ctx);
   activeId = id;
   useGrid(id);

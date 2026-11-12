@@ -115,6 +115,14 @@ def open_grid(browser: Browser, url: str, width: int = 1920, height: int = 900, 
     return page
 
 
+def open_steps(browser: Browser, grid_url: str) -> Page:
+    """The grid's steps window: the Table Transformations panel in a tab of its own (plan decision 13)."""
+    page = browser.new_page(viewport={"width": 520, "height": 900})
+    page.goto(grid_url.replace("#", "?panel=steps#", 1))
+    expect(page.locator(".steps-panel .step.source")).to_be_visible(timeout=15000)
+    return page
+
+
 def open_agent(page: Page) -> Locator:
     """The Agent tab: the Agent panel lives only there."""
     page.locator(".tab-agent").click()
@@ -237,21 +245,31 @@ def test_steps_add_filter_preview_toggle_and_delete(browser: Browser, orders_url
     dialog.get_by_label("Condition").select_option("eq")
     dialog.get_by_label("Value", exact=True).fill("North")
     dialog.get_by_role("button", name="Add step").click()
-    expect(page.locator(".step-list .step .text").nth(1)).to_have_text(
+    expect(page.locator("#status")).to_contain_text("of 834")
+    # The grid page shows the steps as a strip; the panel opens in a tab of its own.
+    expect(page.locator(".steps-strip .steps-count")).to_have_text("1 step")
+    steps = open_steps(browser, orders_url)
+    expect(steps.locator(".step-list .step .text").nth(1)).to_have_text(
         "Keep rows where region equals 'North'"
     )
+    expect(steps.locator(".step .meta").first).to_contain_text("5,000 \u2192 834 rows")
+    # Turn the step off there: the grid page follows the server.
+    steps.get_by_label("Step 1 on").uncheck()
+    expect(page.locator("#status")).to_contain_text("of 5,000")
+    expect(page.locator(".steps-strip .steps-count")).to_have_text("No steps")
+    steps.get_by_role("button", name="Delete step 1").click()
+    expect(steps.locator(".step-list .step")).to_have_count(1)  # only the source remains
+    # Undo on the strip drops the last step.
+    page.locator(".ribbon").get_by_role("button", name="Filter", exact=True).click()
+    dialog = page.locator("dialog")
+    dialog.get_by_label("Column", exact=True).select_option("region")
+    dialog.get_by_label("Condition").select_option("eq")
+    dialog.get_by_label("Value", exact=True).fill("North")
+    dialog.get_by_role("button", name="Add step").click()
     expect(page.locator("#status")).to_contain_text("of 834")
-    expect(page.locator(".step .meta").first).to_contain_text("5,000 \u2192 834 rows")
-    # Preview the source: all rows again, with a banner.
-    page.locator(".step.source .text").click()
-    expect(page.locator("#preview-banner")).to_be_visible()
+    page.get_by_role("button", name="Undo the last step").click()
     expect(page.locator("#status")).to_contain_text("of 5,000")
-    page.get_by_role("button", name="Back to the full view").click()
-    # Turn the step off, then delete it.
-    page.get_by_label("Step 1 on").uncheck()
-    expect(page.locator("#status")).to_contain_text("of 5,000")
-    page.get_by_role("button", name="Delete step 1").click()
-    expect(page.locator(".step-list .step")).to_have_count(1)  # only the source remains
+    steps.close()
 
 
 def test_case_toggle_changes_matching(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
@@ -298,7 +316,9 @@ def test_bucket_and_categorize_forms(browser: Browser, orders_url: str) -> None:
     dialog.get_by_label("Label").first.fill("Northern")
     dialog.get_by_role("button", name="Add step").click()
     expect(page.locator(".ag-header-cell[col-id='zone']")).to_be_visible()
-    expect(page.locator("[data-categorize]").last).to_contain_text("rows matched no rule", timeout=10000)
+    steps = open_steps(browser, orders_url)
+    expect(steps.locator("[data-categorize]").last).to_contain_text("rows matched no rule", timeout=10000)
+    steps.close()
 
 
 def test_profile_click_value_adds_a_filter(browser: Browser, orders_url: str) -> None:
@@ -339,20 +359,17 @@ def test_copy_as_sql_and_python_run_on_the_users_own_table(
     call(server, "POST", f"/grids/{grid}/steps", {"steps": steps})
     page = open_grid(browser, orders_url)
     page.evaluate("() => { navigator.clipboard.writeText = async (text) => { window.__copied = text; }; }")
-    page.get_by_role("button", name="Copy transformations as SQL or Python").click()
-    view = page.locator(".code-view")
-    expect(view).to_contain_text("Verified identical", timeout=30000)
-    expect(view.locator("pre")).to_contain_text('import duckdb\n\norders_view = duckdb.sql("""')
-    expect(page.locator(".steps-panel")).to_contain_text("Reads a pandas DataFrame named orders")
-
-    view.get_by_role("button", name="Copy as SQL").click()
-    page.wait_for_function("window.__copied !== undefined")
+    strip = page.locator(".steps-strip")
+    expect(strip.locator(".steps-count")).to_have_text("4 steps")
+    strip.get_by_role("button", name="Copy as SQL").click()
+    page.wait_for_function("window.__copied !== undefined", timeout=30000)
     sql = page.evaluate("window.__copied")
     page.evaluate("() => { window.__copied = undefined; }")
-    view.get_by_role("button", name="Copy as Python").click()
-    page.wait_for_function("window.__copied !== undefined")
+    strip.get_by_role("button", name="Copy as Python").click()
+    page.wait_for_function("window.__copied !== undefined", timeout=30000)
     code = page.evaluate("window.__copied")
-    assert code.startswith("import duckdb\n") and "__sag" not in code and sql.strip() in code
+    assert code.startswith('import duckdb\n\norders_view = duckdb.sql("""')
+    assert "__sag" not in code and sql.strip() in code
 
     # Pasted where the user works: only their table, by its name.
     orders = demo_frame()
@@ -365,35 +382,60 @@ def test_copy_as_sql_and_python_run_on_the_users_own_table(
     relation = duckdb.sql(sql)  # "Copy as SQL" is the same one query
     assert relation is not None and relation.df()["order_id"].tolist() == pasted["order_id"].tolist()
 
-    # The longer pandas translation is still there, second.
+    # The steps window's Code tab keeps every form, the longer pandas translation too.
+    window = open_steps(browser, orders_url)
+    window.get_by_role("button", name="Copy transformations as SQL or Python").click()
+    view = window.locator(".code-view")
+    expect(view).to_contain_text("Verified identical", timeout=30000)
+    expect(window.locator(".steps-panel")).to_contain_text("Reads a pandas DataFrame named orders")
     view.locator("select").select_option("pandas")
-    expect(page.locator(".code-view pre")).to_contain_text("orders_view = transform(orders)", timeout=30000)
-    expect(page.locator(".code-view")).to_contain_text("Verified identical", timeout=30000)
+    expect(window.locator(".code-view pre")).to_contain_text("orders_view = transform(orders)", timeout=30000)
+    expect(window.locator(".code-view")).to_contain_text("Verified identical", timeout=30000)
+    window.close()
 
 
-def test_steps_panel_is_right_of_the_grid_and_collapses(browser: Browser, orders_url: str) -> None:
+def test_the_grid_has_the_whole_page_and_its_steps_open_in_their_own_tab(
+    browser: Browser, orders_url: str
+) -> None:
+    """Plan decision 13: no SQL box and no Table Transformations panel beside the grid."""
     page = open_grid(browser, orders_url)
+    expect(page.locator("#sql-box")).to_have_count(0)
+    expect(page.locator(".steps-panel")).to_have_count(0)
     grid_box = page.locator(".center").bounding_box()
-    steps_box = page.locator(".steps-panel").bounding_box()
-    assert grid_box is not None and steps_box is not None
-    assert steps_box["x"] >= grid_box["x"] + grid_box["width"] - 1  # beside the grid, on its right
-    assert steps_box["x"] + steps_box["width"] <= 1920  # and fully on screen
-    open_width = steps_box["width"]
-    # Collapsing leaves a slim rail with its label, gives the room to the grid, and hides the steps.
-    page.get_by_role("button", name="Collapse the transformations panel").click()
-    expect(page.locator(".workspace")).to_have_attribute("data-steps", "collapsed")
-    expect(page.locator(".steps-panel .rail-label")).to_have_text("Table Transformations")
-    expect(page.locator(".steps-panel .step")).to_have_count(0)
-    rail = page.locator(".steps-panel").bounding_box()
-    assert rail is not None and rail["width"] < 60
-    wider = page.locator(".center").bounding_box()
-    assert wider is not None and wider["width"] > grid_box["width"] + open_width - 60
-    # The choice is remembered, and the toggle opens it again.
-    page.reload()
-    expect(page.locator(".ag-row[row-index='0']").first).to_be_visible(timeout=20000)
-    expect(page.locator(".workspace")).to_have_attribute("data-steps", "collapsed")
-    page.get_by_role("button", name="Open the transformations panel").click()
-    expect(page.locator(".steps-panel .step.source")).to_be_visible(timeout=15000)
+    panel_box = page.locator("#ai-panel").bounding_box()
+    assert grid_box is not None
+    # The grid runs to the analysis panel, or to the window's edge when that panel is closed.
+    right_edge = panel_box["x"] if panel_box and panel_box["width"] > 0 else 1920
+    assert grid_box["x"] + grid_box["width"] >= right_edge - 20
+    strip = page.locator(".steps-strip")
+    expect(strip.locator(".steps-count")).to_have_text("No steps")
+    expect(strip.get_by_role("button", name="Undo the last step")).to_be_disabled()
+    with page.context.expect_page() as opened:
+        strip.get_by_role("button", name="Edit steps").click()
+    steps = opened.value
+    expect(steps.locator(".steps-panel h2")).to_have_text("Table Transformations")
+    expect(steps.locator(".steps-panel .step.source")).to_be_visible(timeout=15000)
+    assert steps.title() == "SwissArmyGrid \u00b7 Table Transformations"
+    steps.close()
+
+
+def test_a_sql_step_has_its_own_form_in_the_steps_window(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url)
+    steps = open_steps(browser, orders_url)
+    steps.get_by_role("button", name="Add a SQL step").click()
+    dialog = steps.locator("dialog")
+    box = dialog.get_by_label("SQL")
+    box.fill("SELECT * FROM grid WHERE quantity > 40")
+    dialog.get_by_role("button", name="Add step").click()
+    expect(page.locator(".steps-strip .steps-count")).to_have_text("1 step")
+    expect(page.locator("#status")).to_contain_text("of 1,000")
+    # Anything but one read-only query is refused when the view is built: the strip names the step.
+    steps.get_by_role("button", name="Add a SQL step").click()
+    dialog = steps.locator("dialog")
+    dialog.get_by_label("SQL").fill("DROP TABLE orders")
+    dialog.get_by_role("button", name="Add step").click()
+    expect(page.locator(".steps-strip .status-error")).to_contain_text("Step 2", timeout=15000)
+    steps.close()
 
 
 def test_popout_steps_window(browser: Browser, orders_url: str) -> None:
@@ -405,39 +447,6 @@ def test_popout_steps_window(browser: Browser, orders_url: str) -> None:
 
 
 # ===== SQL box =====
-
-
-def test_sql_box_runs_shows_results_and_pins(
-    browser: Browser, orders_url: str, server: dict[str, Any]
-) -> None:
-    page = open_grid(browser, orders_url)
-    page.get_by_role("button", name="Create SQL transformation").click()
-    editor = page.locator(".sql-editor .monaco-editor, .sql-editor textarea").first
-    expect(editor).to_be_visible(timeout=20000)
-    editor.click()
-    page.keyboard.press("Control+A")
-    page.keyboard.type("SELECT region, count(*) AS n FROM grid GROUP BY region ORDER BY region")
-    page.keyboard.press("Control+Enter")
-    expect(page.locator("#sql-result-bar")).to_be_visible(timeout=15000)
-    expect(page.locator(".sql-status")).to_contain_text("6 rows")
-    page.once("dialog", lambda d: d.accept("by_region"))
-    page.get_by_role("button", name="Pin as new grid").click()
-    # The pinned result opens as a tab of its own and comes to the front (no new window).
-    expect(page.locator(".tab-item.active")).to_contain_text("by_region", timeout=15000)
-    assert "by_region" in {d["name"] for d in call(server, "GET", "/datasets")["datasets"]}
-    expect(page.locator(".pane.active .ag-row")).to_have_count(6, timeout=15000)
-
-
-def test_sql_box_shows_guard_refusals(browser: Browser, orders_url: str) -> None:
-    page = open_grid(browser, orders_url)
-    page.get_by_role("button", name="Create SQL transformation").click()
-    editor = page.locator(".sql-editor .monaco-editor, .sql-editor textarea").first
-    expect(editor).to_be_visible(timeout=20000)
-    editor.click()
-    page.keyboard.press("Control+A")
-    page.keyboard.type("SELECT * FROM read_csv('C:/Windows/win.ini')")
-    page.get_by_role("button", name="Run").click()
-    expect(page.locator(".sql-status.error")).to_contain_text("not allowed")
 
 
 # ===== the "+" tab: a new table from a query over the open tables =====
@@ -1025,7 +1034,7 @@ def test_no_column_is_cut_beside_the_row_numbers(
         },
     )
     page = open_grid(browser, orders_url)
-    page.locator(".step-list .step .text").nth(1).click()  # preview: scrolls the new column in
+    page.locator(".ag-body-horizontal-scroll-viewport").evaluate("e => e.scrollLeft = 160")  # mid-way across
     probe = """() => {
       const cells = [...document.querySelectorAll('.ag-header-cell[col-id]')]
         .map(c => [c.getAttribute('col-id'), c.getBoundingClientRect()]);
@@ -1161,34 +1170,6 @@ def test_cell_tool_keeps_rows_with_the_selected_value(browser: Browser, orders_u
     page.locator(row_cell(0, "region")).click()
     page.get_by_role("button", name="Exclude these").click()
     expect(page.locator("#status")).to_contain_text("of 833")  # Widget and North: 417 rows go
-
-
-def test_sql_apply_adds_a_step_and_edit_reopens_it(
-    browser: Browser, orders_url: str, server: dict[str, Any]
-) -> None:
-    page = open_grid(browser, orders_url)
-    page.get_by_role("button", name="Create SQL transformation").click()
-    editor = page.locator(".sql-editor .monaco-editor, .sql-editor textarea").first
-    expect(editor).to_be_visible(timeout=20000)
-    editor.click()
-    page.keyboard.press("Control+A")
-    page.keyboard.type("SELECT product, sum(quantity) AS units FROM grid GROUP BY product")
-    page.get_by_role("button", name="Apply as step").click()
-    expect(page.locator("#status")).to_contain_text("of 4", timeout=15000)
-    steps = call(server, "GET", f"/grids/{grid_of(orders_url)}")["steps"]
-    assert steps[0]["kind"] == "sql"
-    expect(page.locator(".step-list .step .text").nth(1)).to_contain_text("SQL: SELECT product")
-    page.get_by_role("button", name="Edit step 1").click()
-    expect(page.get_by_role("button", name="Update step 1")).to_be_visible()
-    # A broken query is not kept; the reason shows in the SQL box.
-    editor.click()
-    page.keyboard.press("Control+A")
-    page.keyboard.type("SELECT * FROM customers")
-    page.get_by_role("button", name="Update step 1").click()
-    expect(page.locator(".sql-status.error")).to_contain_text("reads only the table entering it")
-    assert call(server, "GET", f"/grids/{grid_of(orders_url)}")["steps"][0]["params"]["sql"].startswith(
-        "SELECT product"
-    )
 
 
 def test_value_viewer_opens_json_layers_and_markdown(browser: Browser, server: dict[str, Any]) -> None:
@@ -1357,7 +1338,7 @@ def test_workspace_shows_grids_as_tabs(browser: Browser, server: dict[str, Any])
     active = page.locator(".pane.active")
     expect(active.locator(".ag-row[row-index='0'] .ag-cell[col-id='code']")).to_have_text("X", timeout=20000)
     expect(page.locator("#grid-title")).to_contain_text("tab_two")
-    expect(page.locator(".step.source")).to_contain_text("tab_two")
+    expect(page.locator(".steps-strip .steps-count")).to_have_text("No steps")
     assert page.title() == "SwissArmyGrid"
 
     # A push while the workspace is open arrives as a new, active tab (no new window).
@@ -1417,7 +1398,6 @@ def test_split_view_by_dragging_a_tab_onto_the_grid(browser: Browser, server: di
     panes.nth(0).locator(".ag-row[row-index='0'] .ag-cell[col-id='v']").click()
     expect(page.locator("#grid-title")).to_contain_text("left_table")
     expect(page.locator(".pane.active .pane-head")).to_contain_text("left_table")
-    expect(page.locator(".step.source")).to_contain_text("left_table")
     panes.nth(1).locator(".ag-row[row-index='0'] .ag-cell[col-id='w']").click()
     expect(page.locator("#grid-title")).to_contain_text("right_table")
 
@@ -1764,7 +1744,7 @@ def test_an_agent_snapshot_is_the_page_as_the_user_sees_it(
     assert png_size(sharp) == (2560, 1600)
     grid_only, _ = snapshot_while_page_runs(page, server, {"area": "grid"})
     width, height = png_size(grid_only)
-    assert 400 < width < 1280 and 200 < height < 800  # the grid area is part of the window
+    assert 400 < width <= 1280 and 200 < height < 800  # the grid area: the window's width, less its bars
     steps, _ = snapshot_while_page_runs(page, server, {"area": "steps"})
     assert png_size(steps)[0] < width
     # Kept for a person to look at when reviewing: the picture the agent would see.
@@ -1998,13 +1978,13 @@ def test_ctrl_click_on_the_only_selected_header_selects_nothing(browser: Browser
 
 def test_a_narrow_window_has_no_sideways_page_scroll(browser: Browser, orders_url: str) -> None:
     page = open_grid(browser, orders_url, width=420, height=760)
-    expect(page.locator(".steps-panel .step.source")).to_be_visible(timeout=15000)
+    expect(page.locator(".steps-strip .steps-count")).to_be_visible(timeout=15000)
     assert page.evaluate("document.documentElement.scrollWidth") <= 420
     grid = page.locator(".pane.active .grid-host").bounding_box()
     assert grid is not None and grid["width"] > 200  # most of the width stays with the grid
 
 
-def test_switching_tabs_asks_for_the_step_counts_once_and_not_for_hidden_cards(
+def test_switching_tabs_asks_for_no_step_counts_and_not_for_hidden_cards(
     browser: Browser, orders_url: str, server: dict[str, Any]
 ) -> None:
     other = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
@@ -2019,9 +1999,10 @@ def test_switching_tabs_asks_for_the_step_counts_once_and_not_for_hidden_cards(
         seen: list[str] = []
         page.on("request", lambda request: seen.append(request.url))
         page.locator(f".tab-item[data-grid='{first}']").click()
-        expect(page.locator(".steps-panel .step.source")).to_contain_text("orders")
+        expect(page.locator("#grid-title")).to_contain_text("orders")
         page.wait_for_timeout(1000)
-        assert sum("/step-counts" in url for url in seen) == 1, seen
+        # The step counts belong to the steps window: the grid page no longer asks for them at all.
+        assert sum("/step-counts" in url for url in seen) == 0, seen
         assert not any(url.endswith("/cards") for url in seen), seen  # the Agent tab is not showing
     finally:
         call(server, "DELETE", f"/grids/{other}")
@@ -2061,7 +2042,7 @@ def test_the_sandbox_draws_cleanly_and_a_chart_click_keeps_the_step_counts(
         card.locator(".chart svg path.mark-rect, .chart svg .mark-rect path").first.click()
         expect(page.locator(".toast").last).to_contain_text("Filtered the grid", timeout=15000)
         back_to_grid(page, orders_url)
-        expect(page.locator(".step .meta").first).to_contain_text("5,000 →", timeout=15000)
+        expect(page.locator(".steps-strip .steps-count")).to_have_text("1 step", timeout=15000)
         page.wait_for_timeout(500)
         assert noise == [], noise  # no version warnings from the charts, no refused (409) requests
     finally:
@@ -2088,37 +2069,6 @@ def test_closing_one_side_of_a_compare_gives_the_other_grid_its_own_rows_back(
     # lefts is its own three rows again, not the compare's four.
     expect(page.locator(".pane.active .ag-row")).to_have_count(3, timeout=15000)
     expect(page.locator("#status")).to_contain_text("of 3")
-
-
-def test_a_query_that_answers_after_a_tab_switch_stays_off_the_new_tab(
-    browser: Browser, orders_url: str, server: dict[str, Any]
-) -> None:
-    other = call(server, "POST", "/grids", {"dataset": "orders"})["grid"]
-    try:
-        page = open_grid(browser, orders_url)
-        first = grid_of(orders_url)
-        page.get_by_role("button", name="Create SQL transformation").click()
-        editor = page.locator(".sql-editor .monaco-editor, .sql-editor textarea").first
-        expect(editor).to_be_visible(timeout=20000)
-
-        def slow(route: Any) -> None:
-            time.sleep(1.5)
-            route.continue_()
-
-        page.route(re.compile(f"/grids/{first}/sql$"), slow)
-        # The tab switch happens in the page while the query is held up.
-        page.evaluate(
-            "id => setTimeout(() => document.querySelector(`.tab-item[data-grid='${id}']`).click(), 300)",
-            other,
-        )
-        page.get_by_role("button", name="Run", exact=True).click()
-        page.wait_for_timeout(2500)
-        expect(page.locator(".tab-item.active")).to_have_attribute("data-grid", other)
-        expect(page.locator("#sql-result-bar")).to_have_count(0)
-        expect(page.locator(".sql-status")).to_contain_text("finished after you switched tabs")
-        expect(page.locator("#status")).to_contain_text("of 5,000")
-    finally:
-        call(server, "DELETE", f"/grids/{other}")
 
 
 def test_a_server_that_stops_answering_gets_one_plain_message(browser: Browser, orders_url: str) -> None:

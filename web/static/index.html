@@ -20,13 +20,12 @@
     <!-- ===== RIBBON: Table / Column / Cell transformations ===== -->
     <div class="ribbon" role="group" aria-label="Transformations"></div>
     <!-- ===== WORKSPACE: grid | splitter | analysis panel | steps (the steps panel is on the right, collapsible) ===== -->
-    <div class="workspace" data-layout="right" data-panel="open" data-steps="open">
+    <div class="workspace" data-layout="right" data-panel="open">
       <main class="center">
-        <!-- ===== SQL BOX ===== -->
-        <section id="sql-box" class="sql-box" aria-label="SQL box" hidden></section>
         <!-- ===== GRID PANES: the active grid, or two side by side (panes.ts) ===== -->
         <div class="panes" data-split="off"></div>
       </main>
+      <!-- The steps panel: only in its own window (?panel=steps); the grid page shows the steps strip. -->
       <aside id="steps-panel" class="steps-panel" aria-label="Applied steps"></aside>
       <div class="splitter"></div>
       <!-- ===== ANALYSIS SANDBOX (shown in the Agent tab) ===== -->

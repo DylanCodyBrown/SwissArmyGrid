@@ -22,15 +22,15 @@ sag.push(orders, name="orders", new_grid=True)
 
 ## The workspace
 
-![The workspace: the tab bar, the title, the three ribbon rows, Table Transformations, the grid and the status bar.](images/01-workspace.png)
+![The workspace: the tab bar, the title with its steps strip, the three ribbon rows, the grid and the status bar.](images/01-workspace.png)
 
 The page has these parts:
 
 - **Tab bar.** The cog at the far left opens Settings. The Agent tab comes next and cannot be closed. Each open grid has its own tab after it, and the + after the last tab starts a new table from a query (see below).
-- **Title.** The dataset name and its version. A new push to the same dataset raises the version.
+- **Title.** The dataset name and its version. A new push to the same dataset raises the version. Beside it, the **steps strip**: how many steps the grid has, with Undo (the last step), Clear, Edit steps, Copy as SQL, Copy as Python and To notebook.
 - **Ribbon.** Three rows, each named for what its buttons act on. **Table** works on the whole view. **Column** works on the selected column or columns. **Cell** works on the selected cells. Buttons that have nothing to act on are greyed out, and the caption under each row name says what it is looking at.
 - **Grid.** The rows, with the column headers above them.
-- **Table Transformations.** The steps applied to the grid, in order, starting from the source. It is on the right of the grid. Click the arrow at its top right to collapse it to a slim bar and give the grid the room; click the arrow on the bar to open it again. SwissArmyGrid remembers which you chose.
+- **The grid has the whole page.** The steps themselves (Table Transformations) open in a tab of their own from Edit steps, and SQL is written in the notebook.
 - **Status bar.** The row count, the selection summary and the memory meter.
 
 ### Settings
@@ -69,24 +69,19 @@ The Column row acts on the selected column. It has Sort A to Z and Z to A, Filte
 
 1. Click Filter in the Table row.
 2. Choose a column, a condition and a value, then press Add step.
-3. The step appears in Table Transformations with the row count before and after it.
+3. The steps strip counts it. **Edit steps** opens Table Transformations in a tab of its own, with every step in order and the row count before and after each.
 
-![The Table Transformations panel with one filter step that keeps rows where region equals North (40 rows to 10).](images/05-filter-step.png)
+![Table Transformations, in its own tab, with one filter step that keeps rows where region equals North (40 rows to 10).](images/05-filter-step.png)
 
-Each step has a checkbox to switch it off, a pencil to edit it and a trash icon to delete it. Turning a step off shows the grid without it, which is the quickest way to check what a step changed.
+Each step there has a checkbox to switch it off, a pencil to edit it and a trash icon to delete it; the grid follows at once. Turning a step off shows the grid without it, which is the quickest way to check what a step changed. **Undo** on the strip drops the last step.
 
-### SQL steps
+### SQL: in the notebook
 
-Create SQL transformation, at the top of Table Transformations, opens a query box. Write a query that reads the table by its dataset name, the same name the variable has in your Python (`FROM SOD` for a table you pushed as `SOD`), then press Ctrl+Enter or Run. In the query box that name reads the table as it was loaded, the same rows your Python variable holds, so you can paste the query into `duckdb.sql(...)` in your notebook unchanged and get the same answer. `grid` reads the table as it is after its steps. Once you apply the query as a step, either name means the table entering that step. If the table already has steps before it, the step can therefore show different rows from the box. With the SQL step first, the box, the step and your notebook all agree.
+SQL is written where your Python is: the notebook tab (see The notebook). A grid's steps go there too. **To notebook** on the steps strip writes them as one marimo SQL cell over your table by its own name (`orders_view = mo.sql("""SELECT ... FROM orders WHERE ...""")`), runs it, and opens the notebook. A table that came from the notebook does this by itself: after each change its one SQL cell is rewritten and run, so the notebook is always the transformation, and running that cell gives the same rows as the grid.
 
-1. Click Create SQL transformation in Table Transformations.
-2. Type the query. Column names autocomplete.
-3. Press Run. The result replaces the grid until you press Back to table.
-4. Press Apply as step to keep the query as a step, or Pin as new grid to open the result as its own table.
+**Copy as SQL** and **Copy as Python** on the strip give the same one query, or one line of DuckDB in Python, for any other Python. Both are run on a copy of your table and matched with the grid before they're copied.
 
-![The SQL box with a grouped query over grid and its result table, with the Apply as step button.](images/06-sql-box.png)
-
-The query box accepts one SELECT or WITH statement. A query can read this table or any other open dataset by name, so a join works there; pin its result as a new grid to keep it. A query kept with Apply as step reads only the table entering it.
+A SQL step is still one step among the others: in Edit steps, **Add a SQL step** takes one SELECT over the table entering it, read as `grid` or by the table's name. Anything else is refused, and the strip names the broken step.
 
 ### A new table from a query
 
@@ -94,7 +89,7 @@ The + after the last tab opens a new tab with a query tray over a blank grid. Us
 
 1. Click + after the last tab. The new tab is named query_1, or the next free number. Type another name in the tray if you want one.
 2. Write one SELECT. A table name reads that table as its tab shows it, after its steps, so a filter you added there applies here too. If a table is open in two tabs, its name reads the first one.
-3. Press the green Run button, or Ctrl+Enter. The result becomes the table in this tab, with the ribbon, Table Transformations and everything else a pushed table has.
+3. Press the green Run button, or Ctrl+Enter. The result becomes the table in this tab, with the ribbon, the steps strip and everything else a pushed table has.
 
 The tray stays at the top of the tab. Change the query and press Run again to rebuild the table in place; the steps you added to it then apply to the new rows. The arrow at the left of the tray folds it down to one row. The table doesn't update by itself when the tables it reads change: press Run again for that.
 
@@ -143,7 +138,7 @@ The Key Finder runs when the picker opens. It ranks the pairs by the share of va
 
 The Key Finder also runs on its own from the Table row. It opens in a window of its own, titled "Possible Join Keys for" your table, so you can keep it beside the grids. Choose the table to compare with and press Find keys. Each row shows your column, the other table and its column, the relationship it looks like, the share of each table's values found in the other (headed by the table names) and the shared values as fractions. Click a row to see sample values that match and values that do not. Known relationships carry a crown.
 
-Above the pairs, every run also shows the most distinct column combination in your table: the fewest columns that together tell every row apart, which is usually the table's primary key. It reads the first 400,000 rows of the grid as it stands after its steps. The search starts with the column that has the most distinct values, then adds whichever column tells the most remaining rows apart, one at a time. Each of those rows shows the share of rows the combination tells apart. The last row, marked with an accent edge, is the answer. Any other combination just as small that is also unique per row is listed under it. If no combination tells every row apart, the table repeats whole rows, and the answer says how many. The search adds one column at a time, so it finds a small key quickly, but a different key of the same size can exist. Check one you mean with a count in the SQL box.
+Above the pairs, every run also shows the most distinct column combination in your table: the fewest columns that together tell every row apart, which is usually the table's primary key. It reads the first 400,000 rows of the grid as it stands after its steps. The search starts with the column that has the most distinct values, then adds whichever column tells the most remaining rows apart, one at a time. Each of those rows shows the share of rows the combination tells apart. The last row, marked with an accent edge, is the answer. Any other combination just as small that is also unique per row is listed under it. If no combination tells every row apart, the table repeats whole rows, and the answer says how many. The search adds one column at a time, so it finds a small key quickly, but a different key of the same size can exist. Check one you mean with a count in the notebook.
 
 ![The Key Finder window comparing orders with orders_v2, with the column pairs ranked by the share found on each side.](images/12-key-finder.png)
 
@@ -241,7 +236,7 @@ The code button beside Settings opens the notebook (marimo) in a tab of its own,
 ## Limits
 
 - All open tables together can hold 3 GB (never more than half of your computer's memory), and one table up to 1 GB, enough for a full Excel sheet of 1,048,576 rows on most tables.
-- A SQL box query shows up to 1,048,576 rows.
+- A query in the + tab shows up to 1,048,576 rows.
 - Up to 50 tables and 50 grid tabs can be open at once.
 
 ## Tips

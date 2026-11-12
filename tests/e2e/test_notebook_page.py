@@ -62,7 +62,8 @@ def open_notebook(browser: Browser, server: dict[str, Any]) -> tuple[Page, Frame
     page.goto(f"http://127.0.0.1:{server['port']}/notebook#token={server['token']}")
     notebook = page.frame_locator(".nb-frame")
     notebook.locator(".cm-content").first.wait_for(timeout=60_000)
-    page.locator(".blade-item").first.wait_for()
+    page.locator("#blades .rail-head").wait_for()
+    page.wait_for_timeout(500)  # the blades list loads beside the notebook
     return page, notebook
 
 
@@ -132,10 +133,8 @@ def test_save_as_blade_takes_the_highlighted_code_and_guesses_its_kind(
     page, notebook = open_notebook(browser, server)
     page.get_by_role("button", name="Save as blade").click()
     expect(page.locator(".toast").last).to_contain_text("Highlight the code")
-    last = notebook.locator(".cm-content").last
+    last = new_python_cell(notebook)
     last.click()
-    page.keyboard.press("Control+a")
-    page.keyboard.press("Delete")
     page.keyboard.type("import sqlite3; pantry = sqlite3.connect('pantry.db'")
     page.keyboard.press("Escape")  # close any completion popup
     last.click()
@@ -159,9 +158,82 @@ def test_save_as_blade_takes_the_highlighted_code_and_guesses_its_kind(
 def test_the_grid_page_opens_the_notebook_in_its_own_tab(browser: Browser, orders_url: str) -> None:
     page = open_grid(browser, orders_url)
     with page.context.expect_page() as opened:
-        page.get_by_role("button", name="Notebook").click()
+        page.get_by_role("button", name="Notebook", exact=True).click()
     notebook = opened.value
     notebook.wait_for_load_state()
     assert notebook.url.split("#")[0].endswith("/notebook")
     notebook.frame_locator(".nb-frame").locator(".cm-content").first.wait_for(timeout=60_000)
     notebook.close()
+
+
+def new_python_cell(notebook: FrameLocator) -> Any:
+    """A new Python cell at the end (marimo's own "Python" button under the cells): earlier tests can
+    leave a SQL cell last, and Python typed there would be read as SQL."""
+    before = notebook.locator(".cm-content").count()
+    notebook.get_by_role("button", name="Python", exact=True).last.click()
+    expect(notebook.locator(".cm-content")).to_have_count(before + 1)
+    return notebook.locator(".cm-content").last
+
+
+def type_into_cell(page: Page, cell: Any, code: str) -> None:
+    """Replace a cell's code as a person would, then run it (Ctrl+Enter)."""
+    cell.click()
+    page.keyboard.press("Control+a")
+    page.keyboard.press("Delete")
+    page.keyboard.type(code)
+    page.keyboard.press("Escape")  # close any completion popup
+    page.keyboard.press("Control+Enter")
+
+
+def test_phase_2_done_when_a_notebook_table_is_a_grid_and_its_steps_go_back(
+    browser: Browser, server: dict[str, Any]
+) -> None:
+    """The plan's phase 2 "done when", in a real browser, through the pages a person uses: a table made in
+    the notebook shows in the grid page's Open list, opens as a grid, follows its cell when it runs again,
+    and a filter on that grid comes back to the notebook as a SQL cell."""
+    page, notebook = open_notebook(browser, server)
+    # Run the first cell (it imports swissarmygrid, which starts the watcher in the notebook).
+    notebook.locator(".cm-content").first.click()
+    page.keyboard.press("Control+Enter")
+    table_cell = new_python_cell(notebook)
+    type_into_cell(
+        page,
+        table_cell,
+        "import pandas as pd; "
+        "crusts = pd.DataFrame({'crust': ['thin', 'thick', 'thin'], 'grams': [300, 500, 320]})",
+    )
+    # The grid page: the notebook's table is in the Open list.
+    grids = browser.new_page(viewport={"width": 1500, "height": 900})
+    grids.goto(f"http://127.0.0.1:{server['port']}/workspace#token={server['token']}")
+    grids.get_by_role("button", name="Open a table from Python").click()
+    dialog = grids.locator("dialog")
+    row = dialog.locator("li, tr, .table-row", has_text="crusts").first
+    expect(row).to_be_visible(timeout=30_000)
+    expect(dialog).to_contain_text("notebook workspace.py")
+    row.get_by_role("button", name="Open").click()
+    expect(grids.locator(".tab-item", has_text="crusts")).to_be_visible(timeout=30_000)
+    grids.keyboard.press("Escape")
+    expect(grids.locator("#status")).to_contain_text("of 3", timeout=30_000)
+    # Run the cell again with another row: the open grid follows.
+    type_into_cell(
+        page,
+        notebook.locator(".cm-content", has_text="crusts = pd.DataFrame").first,
+        "import pandas as pd; "
+        "crusts = pd.DataFrame({'crust': ['thin', 'thick', 'thin', 'stuffed'], "
+        "'grams': [300, 500, 320, 600]})",
+    )
+    expect(grids.locator("#status")).to_contain_text("of 4", timeout=30_000)
+    # A filter on that grid comes back to the notebook as one SQL cell over crusts, run there.
+    expect(grids.locator(".steps-strip")).to_contain_text("Kept in the notebook")
+    grids.locator(".ribbon").get_by_role("button", name="Filter", exact=True).click()
+    step = grids.locator("dialog")
+    step.get_by_label("Column", exact=True).select_option("grams")
+    step.get_by_label("Condition").select_option("gt")
+    step.get_by_label("Value", exact=True).fill("310")
+    step.get_by_role("button", name="Add step").click()
+    expect(grids.locator("#status")).to_contain_text("of 3", timeout=15_000)
+    sql_cell = notebook.locator(".cm-content", has_text="FROM crusts")
+    expect(sql_cell).to_have_count(1, timeout=30_000)
+    expect(sql_cell).to_contain_text('"grams" > 310')
+    grids.close()
+    page.close()

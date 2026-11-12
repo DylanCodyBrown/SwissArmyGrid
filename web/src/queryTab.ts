@@ -22,7 +22,6 @@ import { createGrid, type GridApi } from "ag-grid-community";
 import { api } from "./api";
 import { button, clear, formatCount, h, icon, toast } from "./dom";
 import { contextOf, currentDraft, finishDraft, gridList, onAgentView, onPaneCreated, onPaneDropped, renameDraft, viewingQuery, type Context } from "./panes";
-import { ensureMonacoCss } from "./sqlBox";
 import { effectiveTheme, gridTheme, onThemeChange } from "./theme";
 import type { SqlEditor } from "./lazy/sqlEditor";
 
@@ -283,4 +282,10 @@ async function refreshNames(editor: SqlEditor): Promise<void> {
 
 function rowsText(rows: number): string {
   return `${formatCount(rows)} ${rows === 1 ? "row" : "rows"}`;
+}
+
+/** Monaco's stylesheet, loaded once, the first time an editor is shown. */
+function ensureMonacoCss(): void {
+  if (document.querySelector("link[data-monaco]")) return;
+  document.head.append(h("link", { rel: "stylesheet", href: "/static/build/lazy/sqlEditor.css", "data-monaco": "true" }));
 }

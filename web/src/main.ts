@@ -8,7 +8,7 @@
  *
  * COMPOSES: panes (tabs, panes, split) · gridView + selection (one per grid) · ribbon (Table / Column / Cell tools) ·
  *           stepsPanel + stepForms (applied steps) · aiPanel (the Analysis Sandbox) ·
- *           agentAccess (agent activity in Settings, approval popups) · sqlBox · exportDialog ·
+ *           agentAccess (agent activity in Settings, approval popups) · stepsStrip · exportDialog ·
  *           erdView (the ERD tab) · queryTab (the "+" tab: a new table from a query) ·
  *           openMenu (the Open dialog: tables in running Python sessions) ·
  *           valueViewer · bottomBar · theme
@@ -38,13 +38,13 @@ import { settingsButton } from "./settingsWindow";
 import { openCompareDialog } from "./compareDialog";
 import { activateGrid, activeContext, addGrid, contextOf, contextsOf, dropGrid, mountPanes, onSplitCreated, openGrids, resyncGrids } from "./panes";
 import { mountRibbon } from "./ribbon";
-import { backToTable, mountSqlBox, rememberAgentQuery } from "./sqlBox";
 import { openColumnProfile } from "./profileView";
 import { mountOpenMenu } from "./openMenu";
 import { mountQueryTab } from "./queryTab";
 import { loadRelationships } from "./relationships";
 import { PageState, activate, state } from "./state";
 import { mountStepsPanel } from "./stepsPanel";
+import { mountStepsStrip } from "./stepsStrip";
 import { setGridZoom, stepZoom } from "./theme";
 
 const panelParam = new URLSearchParams(location.search).get("panel");
@@ -117,7 +117,6 @@ function onLiveNotice(notice: Notice): void {
       }).catch(() => undefined);
     }
   }
-  if (notice.type === "agent_query" && notice.dataset === state.info?.dataset && notice.sql) rememberAgentQuery(notice.sql);
   if (notice.type === "relationships_updated") void loadRelationships();
   handleNotice(notice);
   handleAgentNotice(notice);
@@ -167,9 +166,14 @@ async function start(): Promise<void> {
     return;
   }
   const workspace = $(".workspace");
-  mountStepsPanel($("#steps-panel"), false);
+  // The grid has the whole page (plan decision 13): no Table Transformations panel and no SQL box here.
+  // The ribbon adds steps; the strip under the title shows them, and opens the panel in a tab of its
+  // own; transforming lives in the notebook, as DuckDB SQL cells.
+  $("#steps-panel").remove();
+  const strip = h("div", { class: "steps-strip" });
+  $(".titlebar").append(strip);
+  mountStepsStrip(strip);
   mountBottomBar($(".statusbar"));
-  mountSqlBox($("#sql-box"));
   mountAiPanel(workspace, $("#ai-panel"), $(".splitter"));
   mountErd($("#erd-view"));
   // Before the panes: a built table's pane gets its query tray as the pane is made.
@@ -217,7 +221,6 @@ async function start(): Promise<void> {
     }
   });
   void loadRelationships();
-  backToTable();
 }
 
 /** No grid open yet: a quiet title until the first push arrives as a tab. */

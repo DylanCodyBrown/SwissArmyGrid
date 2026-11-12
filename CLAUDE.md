@@ -22,7 +22,8 @@ installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), s
   Follow its section 0 working agreements: typed Python, tests first for semantics, ask before
   adding a dependency the plan doesn't list, never build milestone 9 (agent code sandbox)
   without asking.
-- **What exists:** milestones M0-M8. Not built: M9 (sandbox), the VS Code extension and the
+- **What exists:** milestones M0-M8, blades and the catalog, and plan phase 2 (the marimo notebook tab,
+  its tables as grids, grid steps written back as SQL cells). Not built: M9 (sandbox), the VS Code extension and the
   Jupyter display hook (the plan's "parallel extras").
 - **Record verification results** in [docs/verified.md](docs/verified.md); decisions and open
   notes go in [docs/ideas.md](docs/ideas.md).
@@ -64,7 +65,9 @@ src/swissarmygrid/
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco and Vega;
                          catalogRail.ts (blades + catalog navigation) is shared by the blades page
                          (catalogPage.ts, static/catalog.html) and the notebook tab (notebookPage.ts,
-                         static/notebook.html: the rail left of marimo); bladeEditor.ts is the save screen
+                         static/notebook.html: the rail left of marimo); bladeEditor.ts is the save screen.
+                         The grid page has no SQL box and no steps panel (decision 13): stepsStrip.ts is the
+                         strip under the title; stepsPanel.ts shows only in its own window (?panel=steps)
 web/static/              index.html, grid.css (all theme tokens), build/ (gitignored)
 tests/                   unit + HTTP tests, golden/ (shared cases), e2e/ (Edge via Playwright)
 tools/                   screenshots.py, vscode_check.py

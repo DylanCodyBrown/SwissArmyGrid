@@ -24,7 +24,7 @@ const AREAS: Record<string, string> = {
   app: "body",
   ribbon: ".ribbon",
   grid: ".panes",
-  steps: "#steps-panel",
+  steps: ".steps-strip", // the panel opens in its own window; the grid page shows the strip
   sandbox: "#ai-panel",
 };
 

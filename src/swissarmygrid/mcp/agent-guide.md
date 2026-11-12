@@ -19,7 +19,7 @@ order the app shows them, so the tool list reads like the screen:
 | `column_` | the ribbon's **Column** row | `column_sort`, `column_keep`, `column_remove`, `column_rename`, `column_bucket`, `column_categorize`, `column_profile` |
 | `cell_` | the ribbon's **Cell** row | `cell_keep`, `cell_exclude`, `cell_view`, `cell_selection_stats` |
 | `row_` | rows | `row_read`, `row_count`, `row_limit`, `row_highlight`, `row_select` |
-| `steps_` | the Table Transformations panel and SQL box | `steps_add`, `steps_edit`, `steps_delete`, `steps_toggle`, `steps_move`, `steps_put`, `steps_apply_sql`, `steps_run_sql`, `steps_python` |
+| `steps_` | the grid's steps (the strip under its title; Table Transformations opens in its own tab) | `steps_add`, `steps_edit`, `steps_delete`, `steps_toggle`, `steps_move`, `steps_put`, `steps_apply_sql`, `steps_run_sql`, `steps_python` |
 | `key_finder_` | the Key Finder window | `key_finder_run`, `key_finder_candidates` |
 | `relationships_`, `erd_` | the Relationships dialog and the ERD tab | `relationships_get`, `relationships_set`, `erd_draw` |
 | `compare_` | two grids side by side | `compare_create`, `compare_change`, `compare_remove` |
@@ -43,8 +43,11 @@ see the user's selection, so you name the columns or values: `column_keep(grid, 
   Every other tab is a grid, one per open grid id. The **+** tab builds a new table from a query.
 - **The ribbon** has three labelled rows: **Table**, **Column** and **Cell**. A fourth row, Compare,
   appears when two grids are side by side.
-- **Table Transformations**, on the left, lists the grid's steps in order. The `steps_` commands and
-  every ribbon wrapper land there, and the user can edit or remove them.
+- **The steps strip**, under the grid's title, counts its steps; **Edit steps** opens Table
+  Transformations in a tab of its own, which lists them in order. The `steps_` commands and every
+  ribbon wrapper land there, and the user can edit or remove them. SQL is written in the notebook
+  tab, which you cannot reach; a grid that came from the notebook has its steps written back there
+  as a SQL cell.
 - **The ERD tab**, right after Agent, draws the relationship model of the open tables.
 - **Split and compare.** When the user drags one grid tab onto another, the two show side by side,
   and the Key Finder opens to pick the key columns. The modes are outer (every key), anti (only

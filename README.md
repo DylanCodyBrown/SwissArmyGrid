@@ -17,22 +17,22 @@ What a grid page does:
   columns, group by, distinct, SQL, profile, export), **Column** (sort, filter, rename, remove,
   keep, clean, bucket, categorize, group by and profile, for the selected columns) and **Cell**
   (keep or exclude rows with the selected values, view, copy).
-- **Table Transformations** (like Power Query's applied steps): filter, sort, choose and rename
-  columns, group by, distinct, keep first rows, clean text, bucket, categorize and SQL. Each
-  step can be edited, turned off, reordered or previewed (changed cells are marked), with row
-  counts as it goes. A step list can be saved as a recipe, and the panel pops out into its own
-  window.
+- **Steps** (like Power Query's applied steps): filter, sort, choose and rename columns, group
+  by, distinct, keep first rows, clean text, bucket, categorize and SQL. The grid has the whole
+  page: a strip under its title counts the steps and offers Undo, Clear, Copy as SQL / Python and
+  To notebook; **Edit steps** opens Table Transformations in a tab of its own, where each step can
+  be edited, turned off or reordered, with row counts as it goes. A step list can be saved as a
+  recipe.
 - **Cell viewer:** double-click a cell. JSON objects and arrays show as tables you can open one
   layer at a time, markdown is formatted, and long text wraps.
 - **Text matching** (the ribbon's Table row): Match case, Wildcards (`%` only, as in SQL LIKE),
   Trim, Empty = blank.
 - **Column profile:** a popup from the Column row's Profile: statistics and value counts; click a
   value to filter on it. **Auto width** fits every column (Table row) or the selected ones.
-- **SQL box:** Monaco editor; a dataset's name reads it as loaded (the same name and rows as in
-  your Python, so the SQL copies over unchanged), and `grid` reads this grid's view after its
-  steps. Guarded: one read-only query, a time limit and a row cap. **Apply as step** keeps a
-  query over this grid as a SQL transformation step, which reads the table entering it by
-  either name; pin any result (joins included) as a new grid.
+- **SQL lives in the notebook** (DuckDB SQL does the transforming): **To notebook** writes a grid's
+  steps there as one marimo SQL cell over your table by its own name, and a table that came from
+  the notebook keeps its cell up to date by itself after every change. A SQL step (Edit steps, Add
+  a SQL step) is one guarded SELECT over the table entering it.
 - **New table from a query:** the **+** after the last tab opens a SQL tray over a blank grid.
   A table name reads that table as its tab shows it (after its steps); Run turns the result into a
   table of its own, with every tool a pushed table has. The tray stays on the tab, so Run again
@@ -259,7 +259,7 @@ run it:
 opened, an export approval asked for), so an agent can work alongside the user instead of polling.
 
 `app_snapshot` returns a PNG of the page as the user sees it (the whole window, or the ribbon, grid,
-steps panel or sandbox). The server draws nothing: it asks the open page, which draws itself with
+steps strip or sandbox). The server draws nothing: it asks the open page, which draws itself with
 html-to-image and uploads the picture, and the server hands it to the agent without writing it to disk.
 The MCP returns it as image content; `sag app_snapshot` saves it and prints the path. It shows real
 cell values, and each one is written to the audit log.

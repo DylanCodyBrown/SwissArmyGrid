@@ -4,7 +4,7 @@
  * It sits on the right of the grid and collapses to a slim labelled rail; the choice is remembered.
  *
  * ROUTING: [COLLAPSE TOGGLE]                 -> setCollapsed() (workspace data-steps="open" | "collapsed")
- *          [CREATE SQL TRANSFORMATION]       -> toggleSqlBox() (the SQL box opens above the grid)
+ *          [ADD SQL STEP]    -> editStep("sql") (a SQL step's own form)
  *          [COPY AS SQL OR PYTHON]           -> showCode() (the Code tab: the verified query + Copy as SQL / Python)
  *          [STEP ROW]        click text -> state.setPreview(i + 1); click again -> full view
  *          [ON/OFF BOX]      -> toggle(i)        [DRAG GRIP] -> drop(from, to)
@@ -19,7 +19,6 @@
 import { api, clientId, grid, gridId, query, token, type StepJson } from "./api";
 import { button, clear, formatCount, h, icon, recall, remember, toast } from "./dom";
 import { KIND_LABELS, editStep } from "./stepForms";
-import { isSqlOpen, toggleSqlBox } from "./sqlBox";
 import { state } from "./state";
 
 let inPopout = false;
@@ -106,14 +105,10 @@ async function render(): Promise<void> {
     h(
       "div",
       { class: "panel-actions" },
-      // The SQL box lives above the grid, so the pop-out window offers only the code copy.
-      inPopout
-        ? null
-        : button("Create SQL transformation", () => void toggleSqlBox().then(() => render()), {
-            icon: "sql",
-            pressed: isSqlOpen(),
-            title: "Write SQL against this grid's view; pin the result as a new grid",
-          }),
+      button("Add a SQL step", () => editStep("sql"), {
+        icon: "sql",
+        title: "One SELECT over the table entering the step (as grid, or by its name)",
+      }),
       button("Copy transformations as SQL or Python", () => showCode(), {
         icon: "code",
         pressed: tab === "code",

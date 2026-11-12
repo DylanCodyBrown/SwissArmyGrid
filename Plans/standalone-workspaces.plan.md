@@ -1,6 +1,6 @@
 # SwissArmyGrid standalone: one local server, separate workspaces, marimo built in
 
-Status: groundwork done (2026-11-12); marimo checked and chosen (2026-11-12). Phases 0-5 not started.
+Status: groundwork done (2026-11-12); marimo checked and chosen (2026-11-12); phase 2 done (1.3.0, 2026-11-12). Phases 0, 1, 3-5 not started.
 
 ## Why
 
@@ -193,9 +193,13 @@ One command per platform, from a release:
 - Done when: with no VS Code anywhere, `df = pd.read_csv(...)` in the workspace's notebook shows `df`
   in the grid list, opening it shows the grid, and editing the cell refreshes it. **Done 2026-11-12
   (1.2.1):** the watcher starts in a marimo kernel and reads marimo's own variables
-  (tests/test_notebook_grids.py runs it against a real kernel). Still to come in this phase: the
-  code-behind (grid actions write SQL cells) and, with it, removing the grid page's SQL box and
-  Table Transformations panel.
+  (tests/test_notebook_grids.py runs it against a real kernel). **Phase 2 done 2026-11-12 (1.3.0):**
+  the code-behind (a notebook grid's steps are written back as one marimo SQL cell, rewritten and run
+  after every change; "To notebook" does it for any grid), and the grid page lost its SQL box and Table
+  Transformations panel: a steps strip under the title (Undo, Clear, Copy as SQL / Python, To
+  notebook) and Table Transformations in a tab of its own (Edit steps). Checked in a real browser by
+  tests/e2e/test_notebook_page.py::test_phase_2_done_when_...: a table typed into the notebook opens
+  from the Open list, follows its cell, and a ribbon filter comes back as a SQL cell.
 
 ### Code-behind: every grid transformation is a DuckDB SQL cell
 

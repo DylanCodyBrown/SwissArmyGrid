@@ -2895,3 +2895,33 @@ body.agent-view .titlebar {
   max-height: none;
   text-align: center;
 }
+
+/* ===== the steps strip under the title (the panel itself opens in its own window) ===== */
+
+.titlebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.steps-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.92em;
+}
+
+.steps-strip:empty {
+  display: none;
+}
+
+.steps-strip .steps-count {
+  margin-right: 6px;
+  color: var(--muted);
+}
+
+.steps-strip .btn {
+  min-height: 24px;
+}

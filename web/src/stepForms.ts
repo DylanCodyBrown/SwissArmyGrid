@@ -14,11 +14,10 @@
  *          [TRANSFORM FORM]  fn + columns                   -> save()
  *          [BUCKET FORM]     edges / width / date unit      -> save()  (range prefilled from profile)
  *          [CATEGORIZE FORM] ordered rules + unmatched      -> save()
- *          [SQL STEP]        no form: opens the SQL box     -> sqlBox.openSqlForStep() / toggleSqlBox()
+ *          [SQL STEP]        sqlForm: one SELECT over the table entering the step
  */
 import { api, grid, query, type ColumnInfo, type StepJson } from "./api";
 import { button, h, isBoolType, isDateType, isNumericType, isTextType, openDialog, toast } from "./dom";
-import { openSqlForStep, toggleSqlBox } from "./sqlBox";
 import { state } from "./state";
 
 type Params = Record<string, unknown>;
@@ -358,6 +357,32 @@ function categorizeForm(columns: ColumnInfo[], p: Params): Form {
   };
 }
 
+/** A SQL step: one SELECT over the table entering it, read as `grid` or by the table's name. The server
+ * checks it (read-only, one query) when it is saved; transforming at length belongs in the notebook. */
+function sqlForm(_columns: ColumnInfo[], params: Params): Form {
+  const box = h("textarea", {
+    class: "code-input",
+    rows: "10",
+    spellcheck: "false",
+    "aria-label": "SQL",
+    style: { width: "100%", fontFamily: '"Cascadia Code", Consolas, monospace' },
+  }) as HTMLTextAreaElement;
+  box.value = typeof params.sql === "string" ? params.sql : `SELECT *\nFROM grid`;
+  const name = state.info?.dataset ?? "grid";
+  return {
+    element: h(
+      "div",
+      { class: "form-grid", style: { gridTemplateColumns: "1fr" } },
+      h("p", { class: "hint" }, "One SELECT over the table entering this step: ", h("code", {}, "grid"), ", or ", h("code", {}, name), "."),
+      box,
+    ),
+    read: () => {
+      if (!box.value.trim()) throw new Error("Write a SELECT.");
+      return { sql: box.value };
+    },
+  };
+}
+
 const FORMS: Record<string, (columns: ColumnInfo[], params: Params) => Form> = {
   filter: filterForm,
   sort: sortForm,
@@ -368,6 +393,7 @@ const FORMS: Record<string, (columns: ColumnInfo[], params: Params) => Form> = {
   transform: transformForm,
   bucket: bucketForm,
   categorize: categorizeForm,
+  sql: sqlForm,
 };
 
 /** Open the form for `kind`. With `index`, edit that step; otherwise add a new one. The
@@ -377,12 +403,6 @@ export function editStep(kind: string, index?: number, preset: Params = {}): voi
   if (!info) return;
   if (kind === "distinct") {
     void state.addStep({ kind: "distinct", params: {} }).catch((e: Error) => toast(e.message, "error"));
-    return;
-  }
-  if (kind === "sql") {
-    // A SQL step is written and checked in the SQL box, where it can run before it is saved.
-    if (index !== undefined) void openSqlForStep(index);
-    else void toggleSqlBox();
     return;
   }
   const existing = index !== undefined ? info.steps[index] : undefined;
