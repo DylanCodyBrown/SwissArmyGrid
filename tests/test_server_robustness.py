@@ -157,6 +157,19 @@ def test_jsonable_keeps_its_meaning_on_the_fast_path() -> None:
     assert jsonable(plain) is plain  # nothing to change: no copy
 
 
+def test_agent_reads_are_capped_in_bytes_like_the_sql_box(tmp_path: Path) -> None:
+    """Level 3 lets an agent read up to 1,048,576 rows; a wide table made that one JSON body of
+    gigabytes, built in memory, with no limit (the SQL box's answer has max_sql_response_bytes)."""
+    wide = pa.table({f"c{i}": ["x" * 50] * 2000 for i in range(5)})
+    with make_client(tmp_path, max_sql_response_bytes=64 * 1024) as c:
+        gid = grid_id(push(c, "wide", wide))
+        read = c.get(f"/agent/read/{gid}?limit=2000", headers=AGENT)
+        assert read.status_code == 413 and "fewer rows" in read.text
+        query = c.post("/agent/query", json={"dataset": "wide", "sql": "SELECT * FROM grid"}, headers=AGENT)
+        assert query.status_code == 413
+        assert c.get(f"/agent/read/{gid}?limit=10", headers=AGENT).status_code == 200
+
+
 def test_a_pasted_body_is_capped_like_a_push(tmp_path: Path) -> None:
     with make_client(tmp_path, max_push_body_bytes=1024) as c:
         response = c.post("/datasets/p/paste", content=b"a\tb\n" + b"1\t2\n" * 1000, headers=AUTH)

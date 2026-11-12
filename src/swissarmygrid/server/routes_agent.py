@@ -482,7 +482,9 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                     "row_cap": cap,
                     "masked": masked,
                     "privacy_level": rules.level,
-                }
+                },
+                # Level 3 allows 1,048,576 rows: the same byte limit as the SQL box's answer.
+                max_bytes=ctx.settings.max_sql_response_bytes,
             )
         except Exception as error:
             return error_response(error)
@@ -552,7 +554,8 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                     "rows": shown_rows,
                     "masked": masked,
                     "capped": limit > cap,
-                }
+                },
+                max_bytes=ctx.settings.max_sql_response_bytes,
             )
         except Exception as error:
             return error_response(error)
