@@ -79,10 +79,47 @@ def _root(cls: type) -> str:
     return cls.__module__.lstrip("_").partition(".")[0]
 
 
+# What _class_kind said about each class (CONNECTION for a DuckDB connection). The answer depends on
+# the class alone and a namespace holds many values of few classes, so a scan is one dict lookup per
+# variable. A plain dict, read without a lock (one dict.get is atomic): it holds its classes, so it
+# is emptied when it grows past _KINDS_MAX (classes redefined cell after cell would pile up).
+CONNECTION = "connection"
+_KINDS: dict[type, str | None] = {}
+_KINDS_MAX = 4096
+_UNSEEN = object()
+
+
+def _class_kind_cached(cls: type) -> str | None:
+    try:
+        known = _KINDS.get(cls, _UNSEEN)
+    except TypeError:  # an unhashable class (a metaclass with __eq__ and no __hash__)
+        return _class_kind(cls)
+    if known is not _UNSEEN:
+        return known  # type: ignore[return-value]
+    kind = _class_kind(cls)
+    if len(_KINDS) >= _KINDS_MAX:
+        _KINDS.clear()
+    _KINDS[cls] = kind
+    return kind
+
+
 def _kind(value: object) -> str | None:
     """What sort of table `value` is, judged by its class only. The class, never the instance:
     asking an instance can run its __getattr__ (mocks, lazy proxies), and nothing here should."""
-    cls = type(value)
+    kind = _class_kind_cached(type(value))
+    return None if kind == CONNECTION else kind
+
+
+def _class_kind(cls: type) -> str | None:
+    """`_kind` for a class. A class that errors when asked (a metaclass __getattr__ that raises, a
+    __module__ that is not text) is not a table; the error never stops the scan of the others."""
+    try:
+        return _table_kind(cls)
+    except Exception:
+        return None
+
+
+def _table_kind(cls: type) -> str | None:
     root = _root(cls)
     if root == "pandas" and cls.__name__ == "DataFrame":
         return "dataframe"
@@ -92,6 +129,8 @@ def _kind(value: object) -> str | None:
         return "arrow"
     if root == "duckdb" and cls.__name__ == "DuckDBPyRelation":
         return "relation"
+    if root == "duckdb" and cls.__name__ == "DuckDBPyConnection":
+        return CONNECTION
     if hasattr(cls, "__arrow_c_stream__"):  # a query client's result, and anything else Arrow can read
         return "arrow"
     return None
@@ -118,8 +157,7 @@ def _shape(value: Any, kind: str) -> tuple[int | None, int | None]:
 
 
 def _is_connection(value: object) -> bool:
-    cls = type(value)
-    return _root(cls) == "duckdb" and cls.__name__ == "DuckDBPyConnection"
+    return _class_kind_cached(type(value)) == CONNECTION
 
 
 def _default_connection() -> Any | None:
@@ -153,8 +191,10 @@ def _connection_tables(connection: Any) -> list[Table]:
     return tables
 
 
-def _connections(namespace: dict[str, Any]) -> list[Any]:
-    found = [v for v in list(namespace.values()) if _is_connection(v)]
+def _connections(namespace: dict[str, Any], found: list[Any] | None = None) -> list[Any]:
+    """The DuckDB connections among the variables (or `found`, already picked out), plus DuckDB's
+    default one."""
+    found = [v for v in list(namespace.values()) if _is_connection(v)] if found is None else list(found)
     default = _default_connection()
     if default is not None and all(default is not c for c in found):
         found.append(default)
@@ -165,18 +205,32 @@ def find_tables(namespace: dict[str, Any]) -> list[Table]:
     """The tables among a namespace's variables, then those inside its DuckDB connections. A variable
     wins over a connection table of the same name. Sorted by name so a repeated scan compares equal."""
     found: list[Table] = []
+    connections: list[Any] = []
+    kinds, unseen = _KINDS, _UNSEEN  # locals: this loop runs once per variable, twice a second
     for name, value in list(namespace.items()):
-        if not isinstance(name, str) or name.startswith("_") or name in _SKIP_NAMES:
+        cls = type(value)
+        try:
+            kind = kinds.get(cls, unseen)
+        except TypeError:
+            kind = unseen
+        if kind is unseen:
+            kind = _class_kind_cached(cls)
+        if kind is None:  # nearly every variable: a number, a string, a function, a module...
             continue
-        if not _NAME.fullmatch(name):
+        if kind == CONNECTION:
+            connections.append(value)
             continue
-        kind = _kind(value)
-        if kind is None:
+        if (
+            not isinstance(name, str)
+            or name.startswith("_")
+            or name in _SKIP_NAMES
+            or not _NAME.fullmatch(name)
+        ):
             continue
-        rows, columns = _shape(value, kind)
-        found.append(Table(name, kind, rows, columns, f"{id(value)}:{rows}:{columns}"))
+        rows, columns = _shape(value, kind)  # type: ignore[arg-type]
+        found.append(Table(name, kind, rows, columns, f"{id(value)}:{rows}:{columns}"))  # type: ignore[arg-type]
     taken = {t.name for t in found}
-    for connection in _connections(namespace):
+    for connection in _connections(namespace, connections):
         for table in _connection_tables(connection):
             if table.name not in taken:
                 taken.add(table.name)
