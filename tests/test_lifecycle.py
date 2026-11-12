@@ -96,6 +96,57 @@ def test_exclusive_bind_blocks_a_second_socket_even_with_reuse(tmp_path: Path) -
         holder.close()
 
 
+def test_the_listener_turns_off_nagle_for_every_connection(tmp_path: Path) -> None:
+    """asyncio turns Nagle off only on sockets whose proto is IPPROTO_TCP; a socket made with
+    socket(AF_INET, SOCK_STREAM) has proto 0, so the server's replies on a kept-alive connection
+    (the page fetching grid windows) waited ~40 ms each for the client's delayed ACK."""
+    listener = lifecycle.open_listener(0, tmp_path / "last")
+    try:
+        assert listener.proto == socket.IPPROTO_TCP
+        assert listener.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) != 0
+    finally:
+        listener.close()
+
+
+def test_kept_alive_requests_answer_without_a_delayed_ack_stall(tmp_path: Path) -> None:
+    import http.client
+    import statistics
+    import threading
+
+    import uvicorn
+
+    from swissarmygrid.server.app import create_app
+    from swissarmygrid.settings import Settings
+
+    listener = lifecycle.open_listener(0, tmp_path / "last")
+    port = listener.getsockname()[1]
+    settings = Settings(state_dir=tmp_path / "state", export_dir=tmp_path / "exports")
+    server = uvicorn.Server(
+        uvicorn.Config(create_app(port, "t", settings, audit_log=False), log_level="warning")
+    )
+    thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 20
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        took: list[float] = []
+        for _ in range(12):
+            started = time.perf_counter()
+            conn.request("GET", "/health", headers={"Authorization": "Bearer t"})
+            response = conn.getresponse()
+            response.read()
+            assert response.status == 200
+            took.append(time.perf_counter() - started)
+        conn.close()
+        # With the stall every request took 40-44 ms; without it about 1 ms.
+        assert statistics.median(took) < 0.025, took
+    finally:
+        server.should_exit = True
+        thread.join(10)
+
+
 def test_last_port_is_reused_when_free_and_skipped_when_busy(tmp_path: Path) -> None:
     last = tmp_path / "last"
     port = free_port()

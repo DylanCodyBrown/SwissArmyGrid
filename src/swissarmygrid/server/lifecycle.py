@@ -180,7 +180,12 @@ def running_server(path: Path) -> dict[str, Any] | None:
 
 
 def _bind(port: int) -> socket.socket:
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # IPPROTO_TCP, not the default 0: asyncio turns Nagle off on each accepted connection only when
+    # the socket says it is TCP. Without it every reply on a kept-alive connection (the page fetching
+    # grid windows as it scrolls) waited ~40 ms for the client's delayed ACK. TCP_NODELAY on the
+    # listener as well, which accepted sockets inherit.
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+    listener.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     if sys.platform == "win32":
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
     else:
