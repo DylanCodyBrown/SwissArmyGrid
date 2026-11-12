@@ -320,6 +320,25 @@ def test_a_compare_focus_does_not_hand_an_agent_the_key_values(client: TestClien
     assert SECRET in client.get(f"/compares/{cid}", headers=AUTH).text
 
 
+# ===== a card that fails to draw says why, and DuckDB's why can quote a value =====
+
+
+def test_a_card_error_does_not_quote_a_value_to_an_agent_below_level_2(client: TestClient) -> None:
+    gid = open_grid(client)
+    spec = {"mark": "bar", "x": {"field": "client"}, "y": {"aggregate": "count"}}
+    added = client.post(f"/grids/{gid}/cards", json={"kind": "chart", "spec": spec}, headers=AUTH)
+    assert added.status_code == 200, added.text
+    # A step whose evaluation fails on a value: the card can no longer draw.
+    step = {"kind": "sql", "params": {"sql": "SELECT * FROM grid WHERE CAST(client AS INT) > 0"}}
+    assert client.post(f"/grids/{gid}/steps", json={"steps": [step]}, headers=AUTH).status_code == 200
+    assert SECRET in client.get(f"/grids/{gid}/cards", headers=AUTH).text  # the user sees the reason
+    set_policy(client, 1)
+    for path in (f"/grids/{gid}/cards", "/cards"):
+        listed = client.get(path, headers=AGENT)
+        assert listed.status_code == 200 and SECRET not in listed.text
+        assert listed.json()["cards"][0]["error"]  # still told that it failed
+
+
 # ===== PIVOT turns values into column names, which every level shows =====
 
 PIVOT_SQL = "SELECT * FROM (PIVOT clients ON client USING count(*))"
