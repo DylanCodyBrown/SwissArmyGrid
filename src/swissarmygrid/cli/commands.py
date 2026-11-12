@@ -1487,7 +1487,8 @@ def execute_result(name: str, raw: dict[str, Any] | None = None) -> str | ImageR
         raise CommandError(
             f"{name}: unknown argument(s) {', '.join(unknown)}. It takes: {', '.join(known) or 'none'}."
         )
-    missing = [x.name for x in cmd.args if x.required and given.get(x.name) is None]
+    # An empty id would address the collection instead (/grids/ for a grid): as good as missing.
+    missing = [x.name for x in cmd.args if x.required and given.get(x.name) in (None, "")]
     if missing:
         raise CommandError(f"{name}: missing {', '.join(missing)}.")
     args = {k: _coerce(cmd, known[k], v) for k, v in given.items() if v is not None}

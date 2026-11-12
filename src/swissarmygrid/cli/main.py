@@ -65,7 +65,10 @@ def _read(value: str) -> str:
     if value == "-":
         return sys.stdin.read()
     if value.startswith("@"):
-        return Path(value[1:]).read_text(encoding="utf-8")
+        try:
+            return Path(value[1:]).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            raise CommandError(f"Could not read {value[1:]}: {error}") from error
     return value
 
 

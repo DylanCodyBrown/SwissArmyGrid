@@ -124,9 +124,13 @@ def call(
         "X-Actor": "agent",
     }
     status, _, payload = _http(info, method, target, headers, data, timeout)
-    if status >= 400:
-        raise CommandError(f"{status}: {payload.decode('utf-8', 'replace')}")
-    return json.loads(payload or b"null")
+    # A 3xx is not an answer either: the server redirects a path with a trailing slash (an empty id).
+    if status >= 300:
+        raise CommandError(f"{status}: {payload.decode('utf-8', 'replace') or 'no such address'}")
+    try:
+        return json.loads(payload or b"null")
+    except ValueError as error:
+        raise CommandError("The server sent a reply this client can't read.") from error
 
 
 def fetch_bytes(
@@ -141,7 +145,7 @@ def fetch_bytes(
         "X-Actor": "agent",
     }
     status, fields, payload = _http(info, method, path, headers, data, timeout)
-    if status >= 400:
+    if status >= 300:
         raise CommandError(f"{status}: {payload.decode('utf-8', 'replace')}")
     return payload, fields
 

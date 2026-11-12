@@ -461,6 +461,45 @@ def test_the_terminal_command_prints_json_and_reports_errors(
     assert "No command 'nonsense'" in capsys.readouterr().err
 
 
+def test_a_missing_at_file_is_a_one_line_error(
+    live: Live, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main.main(["agent_query", "clients", f"@{tmp_path / 'missing.sql'}"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("sag:") and "missing.sql" in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize(
+    "command", ["tabs_get", "steps_put", "table_filter", "column_keep", "steps_apply_sql"]
+)
+def test_an_empty_id_is_refused_before_the_server_is_called(live: Live, command: str) -> None:
+    """An empty grid id made the path /grids/, which the server redirects; the redirect was taken
+    for a success with no body, and the command then failed with a TypeError."""
+    args = {"grid": "", "column": "c", "op": "eq", "columns": ["c"], "sql": "SELECT 1"}
+    wanted = {a.name for a in REGISTRY[command].args if a.required}
+    with pytest.raises(CommandError, match="missing grid"):
+        execute(command, {k: v for k, v in args.items() if k in wanted})
+
+
+def test_a_redirect_is_not_taken_for_a_success(live: Live) -> None:
+    with pytest.raises(CommandError, match="307"):
+        api.call("GET", "/grids/")
+
+
+def test_an_unexpected_failure_reaches_the_agent_with_its_reason(
+    live: Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The MCP library shows any exception but a ToolError only as "Error executing tool"."""
+
+    def broken(a: dict[str, Any]) -> Any:
+        raise KeyError("row_count")
+
+    monkeypatch.setitem(REGISTRY, "health", REGISTRY["health"]._replace(run=broken))
+    tool = mcp_server._make_tool(REGISTRY["health"])
+    with pytest.raises(mcp_server.GridServerError, match="row_count"):
+        tool()
+
+
 # ===== the MCP server: one lean, typed tool per command =====
 
 

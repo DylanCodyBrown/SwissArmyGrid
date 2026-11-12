@@ -89,6 +89,8 @@ def _make_tool(cmd: Command) -> Any:
             result = execute_result(cmd.name, {k: v for k, v in kwargs.items() if v is not None})
         except CommandError as error:
             raise GridServerError(str(error)) from error
+        except Exception as error:  # a reply the command did not expect: say what, not just "Error"
+            raise GridServerError(f"{cmd.name} failed: {type(error).__name__}: {error}") from error
         if isinstance(result, ImageResult):
             # The model gets the picture itself, plus its size and where it was saved, if it was.
             return [Image(data=result.data, format="png"), json.dumps(result.meta)]
