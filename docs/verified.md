@@ -147,3 +147,17 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   DuckDB `.df()` frame and from `pd.read_parquet` (dates as objects); on a 1,000,000-row frame a
   900-bar chart took 0.7 s and a scatter 0.2 s (5,000 sampled points). The tests run the copy with
   a recording stand-in for altair (not a dependency) and compare its points with the card's.
+- (2026-11-12) Catalogs (engine/catalog.py), DuckDB 2.0.0: a 500,000-column catalog (40 schemas,
+  20,000 tables) loads in 0.6 s; its schemas list in 18 ms, one schema's tables in 4 ms, one table's
+  columns in 2 ms, a word search in 45 ms and a dotted (schema.table) search in 24 ms. DuckDB 2.0
+  refuses `unregister` (ResourceInUseException) on a cursor whose last result was read with
+  `fetchone()` and not to the end: the engine reads with `fetchall()` before touching the cursor
+  again.
+- (2026-11-12) Blades: Python's ModuleNotFoundError names only the top level it could not find
+  (`snowflake` for `import snowflake.connector`), so the blade runner maps it back to the import as
+  written before naming the pip package. `sqlite3.connect(path)` makes a new, empty database when the
+  path is wrong, so the SQLite starter opens `file:...?mode=ro` with `uri=True`, which fails plainly.
+  keyring 25 on a Linux container with no Secret Service gives `keyring.backends.fail.Keyring`; the
+  blade store says plainly that secrets need a vault and suggests a secret or vault blade instead. A
+  module attribute and a subpackage of the same name collide (`sag.blades` was the `blades` package
+  once it was imported), so the package is `blade_core`.

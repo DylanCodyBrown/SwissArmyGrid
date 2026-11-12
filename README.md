@@ -57,6 +57,13 @@ What a grid page does:
 - **Agent door (MCP):** one privacy level for every table, set in Settings (3 = everything,
   the default; 2, 1 and 0 narrow it, with approve-before-rows and column masks), an activity log,
   and a copyable prompt that installs the MCP in any agent.
+- **Blades and the catalog** (its own tab, from the key button by Settings): a **blade** is any
+  Python that reaches outside Python to load something (a database connection, a CSV or workbook,
+  an API, a vault). Save it once, then `conn = sag.blade("Warehouse")` in any Python. Starters for
+  21 databases, 5 file patterns and 8 vaults; the save screen shows the packages a blade needs and
+  installs missing ones. A blade can fill the **catalog**: every schema, table and column of its
+  source with its type, as a searchable tree, readable by the agent so it can write SQL in the
+  source's own dialect.
 - **Themes:** light, dark, high contrast light and high contrast dark, following the system by
   default; Windows forced colors are supported. Zoom with Ctrl+= and Ctrl+-.
 
@@ -164,6 +171,40 @@ Or the demo data:
 
 Open the printed URL, including the `#token=` part. In VS Code: Ctrl+Shift+P, then
 **Simple Browser: Show**, then paste it.
+
+## Blades and the catalog
+
+A blade is saved Python that reaches outside Python to load something. Write it once on the blades
+page (the key button beside Settings, or `/catalog`), then use it anywhere:
+
+```python
+import swissarmygrid as sag
+
+conn = sag.blade("Warehouse")      # runs the saved code here and returns its variable
+sag.blade("Azure vault")           # a vault blade: reads its secrets live, sets environment variables
+sag.blade("Warehouse login")       # a secret blade: asks for values this Python does not have yet
+sag.blades()                       # the saved names
+```
+
+- **Kinds:** SQL connection (with its dialect), other (any code), vault (Azure Key Vault, AWS,
+  Google, HashiCorp, 1Password, a `.env` file, the operating system's vault: each secret mapped to an
+  environment variable) and secret (variable names only; the values are typed each session).
+- **Secrets:** `secret("password")` in a blade's code. Its value is kept in the operating system's
+  vault (Windows Credential Manager, macOS Keychain), never in the blade's file; an environment
+  variable of the same name works too.
+- **Packages:** the save screen reads the code's imports, names the pip packages (and calls such as
+  `read_excel`, which needs openpyxl), and installs missing ones into SwissArmyGrid's Python on your
+  click. `sag.blade()` turns a missing driver into the exact `uv pip install` command.
+- **The catalog:** a blade's catalog command (SQL on its connection, or Python) returns one row per
+  column of the source; **Refresh** runs it in a child process and loads it. Or load one directly:
+
+```python
+sag.load(conn.execute("SELECT * FROM INFORMATION_SCHEMA.COLUMNS").df(), name="Warehouse", dialect="sqlserver")
+```
+
+The agent reads catalogs with `catalog_list`, `catalog_schemas`, `catalog_tables`, `catalog_columns`
+(with a first SELECT quoted for the source) and `catalog_search`. It never sees a blade's code or any
+secret: every blade route refuses it.
 
 ## The agent commands: `sag` and the MCP server
 

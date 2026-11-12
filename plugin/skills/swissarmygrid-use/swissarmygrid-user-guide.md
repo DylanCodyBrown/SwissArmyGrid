@@ -218,6 +218,17 @@ Settings has one privacy setting that covers every table. It is under "What the 
 
 Column masks are set by column name, and a rule applies to every table with that column. Each mask has four choices: the default, the value, a hash, or nothing (hidden). Under the masks is the agent activity list, which records what the agent asked for. It never includes cell values. An export always waits for your click, whatever the level, and the file holds only what the agent may read at that level.
 
+## Blades and the catalog
+
+The key button beside Settings opens the blades page in a tab of its own, so it can sit on another screen.
+
+- **A blade** is any Python that reaches outside Python to load something: a database connection, a CSV file, an Excel workbook, an API, a vault. Press **New blade**, pick a starter (21 databases, 5 file patterns, 8 vaults) or paste your own code, and save it. Then in any Python: `conn = sag.blade("Warehouse")`.
+- **Passwords** go in the code as `secret("password")`. Type the value on the save screen: it is kept in Windows Credential Manager (or macOS Keychain), never in the blade.
+- **Vault blades** read secrets from Azure Key Vault, AWS, Google, HashiCorp Vault, 1Password, a `.env` file or the operating system's vault, and set each one as an environment variable. **Secret blades** keep only variable names: you type the values once per session.
+- **Packages:** the save screen lists the packages the code needs. **Install** adds missing ones to SwissArmyGrid; the copy button gives the command for your own Python.
+- **The catalog:** tick **Add to the catalog** and give a query that lists the source's columns (the starters have one). **Refresh** (the play button) loads it: every schema, table and column with its type, as a tree you can search (`sales.orders` finds schema and table). Click a table for its columns and a first SELECT. Drag a blade into a script for its `sag.blade` line, or a table or column for its quoted name.
+- Your agent can read the catalog to write SQL against the source. It never sees a blade's code or its secrets.
+
 ## The tray icon
 
 While the grid server runs, its icon (the red square with the white cross) sits in the Windows notification area. Click it to open the workspace in your browser. Its menu also has Stop SwissArmyGrid. Data you pushed is held in memory, so it goes when the server stops; push again to bring it back.
