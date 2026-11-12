@@ -212,9 +212,11 @@ Settings has one privacy setting that covers every table. It is under "What the 
 - **Level 3: everything.** Every row and column, up to 1,048,576 rows per read (one Excel sheet), with no masks and no waiting.
 - **Level 2: rows.** Up to 200 rows per read, with the column masks applied. Each read waits for your Allow unless you tick "Run row reads without asking me".
 - **Level 1: masked samples.** Up to 20 rows, with text columns masked unless you mark them to show.
-- **Level 0: numbers only.** Schema, counts and profile numbers. No rows and no text values.
+- **Level 0: numbers only.** Schema, counts and profile numbers. No rows and no text values. The agent can still
+  do math on number columns, but it can't make a number out of a text or date value (a length, a comparison, a
+  sort), and the values you typed into your steps show as `<hidden at privacy level 0>`.
 
-Column masks are set by column name, and a rule applies to every table with that column. Each mask has four choices: the default, the value, a hash, or nothing (hidden). Under the masks is the agent activity list, which records what the agent asked for. It never includes cell values. An export always waits for your click, whatever the level.
+Column masks are set by column name, and a rule applies to every table with that column. Each mask has four choices: the default, the value, a hash, or nothing (hidden). Under the masks is the agent activity list, which records what the agent asked for. It never includes cell values. An export always waits for your click, whatever the level, and the file holds only what the agent may read at that level.
 
 ## The tray icon
 
