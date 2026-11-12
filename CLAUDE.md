@@ -9,11 +9,14 @@ One package, two installs (`python build.py` builds the wheel, page inside): the
 standard-library-only push client for any Python environment; the `[server]` extra is the grid server,
 installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), started by `swissarmygrid`.
 
+- **What SAG is for:** Python-to-DuckDB work on one screen instead of three. SAG brings Python's
+  power (analysis, fast data); **DuckDB SQL does the transforming**. Generated transformations are
+  DuckDB SQL over the user's own table, never a pandas translation.
 - **Where it is going:** [Plans/standalone-workspaces.plan.md](Plans/standalone-workspaces.plan.md):
-  one local server with separate workspaces (`sag.create_workspace()`), an in-app Python terminal
-  (a Monaco input with an output log), optional GitHub Copilot suggestions there and in the SQL editors,
-  saved workspaces, a tray icon, and a Power BI style relationships view with autodetection that
-  replaces the FI-Atlas ERD feature. VS Code becomes optional.
+  a one-command installer that sets up everything; one local server with separate workspaces
+  (`sag.create_workspace()`); marimo built in beside the grids (each workspace is a marimo notebook,
+  grid actions write DuckDB SQL cells); saved workspaces; a tray icon; and a Power BI style
+  relationships view with autodetection that replaces the FI-Atlas ERD feature. VS Code is optional.
 - **The original plan:** [Plans/swissarmygrid-build-plan.md](Plans/swissarmygrid-build-plan.md).
   Follow its section 0 working agreements: typed Python, tests first for semantics, ask before
   adding a dependency the plan doesn't list, never build milestone 9 (agent code sandbox)

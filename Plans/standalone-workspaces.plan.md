@@ -1,49 +1,66 @@
-# SwissArmyGrid standalone: one local server, separate workspaces
+# SwissArmyGrid standalone: one local server, separate workspaces, marimo built in
 
-Status: groundwork done (2026-11-12). Phases 1-5 (and 2b) not started.
+Status: groundwork done (2026-11-12); marimo checked and chosen (2026-11-12). Phases 0-5 not started.
 
 ## Why
 
-Today every notebook, script and VS Code window shares one workspace: one table list keyed only by
-name (two notebooks pushing `df` overwrite each other), one grid registry, one DuckDB, one 50-tab cap,
-every live update broadcast to every page, and SQL and the agent can read every table. VS Code is
-also the only thing that keeps the server running. The goal is a product that stands on its own:
+**What SAG is for (the owner's words):** SAG exists to make Python-to-DuckDB work easier, instead of
+panning across three screens (the code, the SQL, the data). SAG brings what makes Python powerful,
+analysis and fast data, and lets **DuckDB and SQL do the transforming**.
 
-- installed with uv, started from any Python with one call;
-- each launch is its own workspace, with its own scoped grids;
-- an in-app Python terminal, so VS Code is optional;
-- GitHub Copilot suggestions (ghost text) in the terminal and the SQL query editors;
-- workspaces that save, together with the Python that made them;
-- a Power BI style relationships view, with optional autodetection, replacing the FI-Atlas ERD.
+What stands in the way today: every notebook, script and VS Code window shares one workspace (one table
+list keyed only by name, so two notebooks pushing `df` overwrite each other; one grid registry, one
+DuckDB, one 50-tab cap; every live update to every page; SQL and the agent can read every table).
+VS Code is the only thing that keeps the server running. And the copied code (Python or SQL) never
+reliably transformed the source table back in the user's own environment.
+
+The goal, on one screen per workspace:
+
+- **the notebook** (marimo: Python cells and DuckDB SQL cells, with a terminal panel) beside
+- **the grids** (SAG: scroll millions of rows, profile, Key Finder, compare, charts, relationships);
+- every transformation is a **DuckDB SQL query** over the user's own table, so the code is the
+  transformation, not a translation of it;
+- installed with one installer that sets up everything; VS Code optional;
+- workspaces that save as a notebook file plus data snapshots;
+- a Power BI style relationships view with optional autodetection, replacing the FI-Atlas ERD.
 
 ## Decisions (made with the owner)
 
-1. **One package, two installs.** `uv tool install "<wheel>[server]"` once per machine (the server,
-   the `swissarmygrid` and `sag` commands, the MCP server); `uv pip install <wheel>` in any Python
-   environment (the client: standard library only). `python build.py` builds the wheel with the page
-   inside it.
+1. **One package, two installs.** `uv tool install "<wheel>[server]"` once per machine (the server, the
+   `swissarmygrid` and `sag` commands, the MCP server, marimo); `uv pip install <wheel>` in any Python
+   environment (the client: standard library only). `python build.py` builds the wheel with the page.
 2. **One local server, many workspaces.** Still 127.0.0.1 only, token on every request.
 3. **Each launch is its own workspace.** `sag.create_workspace()` from Python (or
    `swissarmygrid open <name>` from a terminal) starts the server if needed, creates a workspace, ties
    the calling Python process to it and opens it.
 4. **The agent is MCP only.** The MCP server exposes everything, by workspace: every tool takes a
-   workspace, and `workspaces_list` names them. The agent cannot type into the Python terminal.
-5. **The Python terminal is off until the user launches it** from the page. Nothing runs Python on the
-   user's behalf before that click.
-6. **New dependencies approved:** `pystray` and `Pillow` (tray icon), `jupyter_client` and `ipykernel`
-   (the terminal's kernel), elkjs (diagram layout), and `@github/copilot-language-server` (Copilot
-   suggestions). Each is added in the phase that first uses it, not before. (xterm.js was dropped: see
-   decision 8.)
-7. **The FI-Atlas ERD feature goes.** The `atlas` extra (fi-clients from a private repository) is
-   already removed; the code behind it goes in phase 4, when the relationships view replaces it.
-8. **The terminal is a Monaco input with an output log, not a character terminal** (like VS Code's
-   Python Interactive window). A character terminal (xterm.js) cannot show inline suggestions or hold
-   an editable multi-line command; Monaco, already the SQL editor, can. It is not a shell: full-screen
-   terminal programs do not run in it, and it is for Python.
-9. **Copilot is optional and per person.** Off until the person signs in with their own GitHub account
-   (GitHub's device-code sign-in) and their own Copilot subscription; nothing is shared or stored by
-   SwissArmyGrid. Without it everything works as before. The suggestion source is behind one interface,
-   so another model can replace Copilot later.
+   workspace, and `workspaces_list` names them. The agent cannot run code in the notebook.
+5. **Nothing runs Python until the user starts it.** The notebook's kernel starts on the user's click
+   (or when the user opens a saved workspace and presses Run).
+6. **New dependencies approved:** marimo (the notebook, decision 8), `pystray` and `Pillow` (tray icon),
+   elkjs (diagram layout), jupytext (marimo's converter needs it for `# %%` scripts). Each is added in
+   the phase that first uses it. (Dropped: xterm.js, `jupyter_client`/`ipykernel` as our own kernel,
+   our own Monaco terminal; marimo replaces them.)
+7. **The FI-Atlas ERD feature goes.** The `atlas` extra is already removed; the code behind it goes in
+   phase 4, when the relationships view replaces it.
+8. **marimo is the Python side, built in** (it replaces building our own terminal). Checked on
+   2026-11-12 with marimo 0.25.2 (Apache-2.0, about 130 MB, Starlette and uvicorn like SAG):
+   - `marimo convert` turns a `# %%` script into a notebook and renames reassigned variables
+     (`df = df.dropna()` in a later cell becomes `df_1`), so ordinary scripts follow marimo's
+     one-definition rule; a script with no markers becomes one cell, so SAG adds markers first;
+   - `marimo edit --headless` sends no header that stops it being framed, and has its own token
+     (`--token-password`) and `--base-url`, so SAG can show it beside the grids;
+   - `sag.push(cleaned)` in a marimo cell reached the SAG server as dataset `cleaned`;
+   - its SQL cells run DuckDB over Python data frames by name: the transforming half of SAG's purpose.
+   Not yet checked: its terminal panel on Windows (added for macOS and Linux first; Windows shells
+   came later), and its Copilot setting's needs (decision 9).
+9. **Copilot comes through marimo**, optional and per person: marimo's own AI completion setting, with
+   the person's own GitHub account and Copilot subscription. SAG stores nothing. (Its requirements,
+   such as Node.js, to be checked; the installer covers whatever it needs.)
+10. **The installer installs everything the user needs.** One command, no other steps (phase 0).
+11. **Division of labour: DuckDB SQL transforms, Python analyses.** Grid transformation steps are
+    DuckDB SQL; the grid, profile, charts, Key Finder, compare and relationships are SAG's analysis on
+    top. pandas stays for loading and for Python the user writes, not for generated transformations.
 
 ## Groundwork (done)
 
@@ -62,6 +79,24 @@ also the only thing that keeps the server running. The goal is a product that st
   sideways (now only the row numbers stay); and AG Grid could read its own 42px default row height
   before the theme's CSS loaded, so row 1 was 32px and every later row 42px, with a gap (the row
   height is now given to the grid directly, and follows zoom).
+
+## Phase 0: the installer
+
+One command per platform, from a release:
+
+- Windows: `irm <release>/install.ps1 | iex`; macOS and Linux: `curl -LsSf <release>/install.sh | sh`.
+- It installs uv when missing (uv's own installer), then `uv tool install --force
+  "<wheel>[server]"`: the server, marimo, DuckDB, pyarrow, pandas, jupytext and everything else in
+  one isolated environment, on a pinned Python that uv fetches itself (no system Python needed).
+- It adds a Start menu entry (Windows) and offers "Start with Windows" for the tray (phase 1).
+- It prints the one line for the client: `uv pip install <wheel>` in a project's environment, or
+  nothing at all when the user works only in SAG's built-in notebook.
+- `swissarmygrid doctor` checks the install (versions, the page, marimo, the tray, ports) and says
+  what to fix in plain words; the installer runs it last.
+- Re-running the installer updates in place; `swissarmygrid uninstall` removes the tool, shortcuts
+  and state folder (asking before it deletes saved workspaces: it never does by default).
+- Done when: on a clean Windows machine with nothing installed, the one command ends with the tray
+  icon showing and `swissarmygrid doctor` all green.
 
 ## Phase 1: workspaces, and a server that stands alone
 
@@ -82,78 +117,69 @@ also the only thing that keeps the server running. The goal is a product that st
 - Done when: two Python processes each `create_workspace()` and push a table named `df`, both grids
   stay correct, each page sees only its own tables, and the agent sees both by workspace.
 
-## Phase 2: the Python terminal
+## Phase 2: marimo built in, beside the grids
 
-- A terminal panel per workspace, off until the user clicks it. The click starts an IPython kernel
-  (`jupyter_client`) with the watcher on, bound to that workspace.
-- On the page (decision 8): a Monaco editor for the input (Python highlighting, completion of the
-  workspace's variable and column names, multi-line editing; Enter runs, Shift+Enter adds a line, Up
-  recalls history) above which a log shows each command with its output, errors and rich results.
-- Every table a command creates appears in the Open list; a setting auto-opens new ones as grids.
-  Reassigning a variable refreshes its open grid (the watcher already does this).
-- The kernel's history is kept per workspace: it becomes the saved code in phase 3.
-- The kernel's Python is the server's own environment by default; a setting names another Python.
-- Done when: in a page with no VS Code anywhere, `df = pd.read_csv(...)` in the terminal shows a grid.
+- **One marimo server** for all workspaces, started by SAG on first use: `marimo edit <workspaces
+  folder> --headless`, on 127.0.0.1, with a token SAG generates (`--token-password-file`) and a base
+  URL under SAG (`/notebook/`), so it is reached through SAG's own address and token. If marimo's
+  server cannot sit behind SAG cleanly, SAG frames it on its own port, still token-protected.
+- **Each workspace is a marimo notebook file** (`<workspace>.py` in the workspaces folder). The page
+  shows it as a panel beside the grids (left/right or top/bottom, resizable, can pop out), with
+  marimo's own terminal panel for shell commands.
+- **The notebook's tables become grids.** A small marimo-aware hook in the client (the watcher reads
+  `__main__`, which marimo does not use) reports each cell's data frames to the workspace; opening one
+  shows it as a grid, and re-running the cell refreshes it. `sag.push` keeps working as checked.
+- **Robustness:** SAG supervises the marimo server like the VS Code extension supervises SAG today
+  (start on demand, health check, restart if it dies, a clear message if it will not start); a
+  workspace's kernel can be interrupted and restarted from the panel; the page reconnects after a
+  reload (marimo already reattaches to a running session, as checked).
+- Done when: with no VS Code anywhere, `df = pd.read_csv(...)` in the workspace's notebook shows `df`
+  in the grid list, opening it shows the grid, and editing the cell refreshes it.
 
-### Code-behind: grid actions write their code into the terminal
+### Code-behind: every grid transformation is a DuckDB SQL cell
 
-The owner's reported bug: "Copy transformations as Python" and the SQL transformations never gave
-back code that works in the user's environment; it carried imports and was not the transformation
-that turns the source table into the grid's view. Generating code *after the fact*, from steps run in
-the server's DuckDB, is a translation that can drift from what the user's own data needs.
+The reported bug: "Copy transformations as Python" and the SQL steps never gave back code that
+transforms the source table in the user's environment (stray imports, not the actual transformation).
+Generating code after the fact, from steps run in SAG's own DuckDB, is a translation that drifts.
 
-With a terminal per workspace the direction reverses. A grid action (filter, sort, rename, group by,
-a SQL step...) **writes the pandas or DuckDB statement into the terminal and runs it there**, against
-the user's own variable, producing the next variable. The grid shows the result. So:
+With the notebook built in, the direction reverses (decision 11):
 
-- the terminal's history *is* the transformation script, by construction: nothing to copy back that
-  could disagree with what ran;
-- the user can edit a generated line and run it again, and the grid follows;
-- a step that fails, fails in the user's own Python, with the real error.
+- A grid action (filter, sort, choose and rename columns, group by, distinct, bucket, SQL...) writes a
+  **marimo SQL cell**: one DuckDB query over the user's own table by its variable name, producing a
+  new variable (`orders_filtered = mo.sql(f"SELECT ... FROM orders WHERE ...")`). It runs in the
+  user's kernel, against the user's data; the grid shows the result.
+- The notebook therefore *is* the transformation script, by construction. Editing the SQL in the cell
+  re-runs it and the grid follows (marimo's reactivity re-runs what depends on it).
+- A step list compiles to one query (SAG's step compiler already produces DuckDB SQL), so "copy" gives
+  a single runnable statement: `duckdb.sql("""...""")` over `orders` works in any Python with DuckDB.
+- Grids pushed from outside (a VS Code notebook, a script) keep server-side steps; their "Copy as SQL"
+  becomes that same single query over the source table's name, and "Copy as Python" the one-line
+  DuckDB call around it: no imports beyond `duckdb`, nothing else.
 
-The user chooses pandas or DuckDB SQL per workspace (DuckDB runs the same SQL the grid runs today).
-Workspaces without a terminal (a notebook pushing from VS Code) keep today's server-side steps, and
-their copied code gets fixed separately (task: the copied code must be one runnable function or
-statement over the user's own variable, with no stray imports).
+### Converting Python and notebooks
 
-## Phase 2b: GitHub Copilot in the SQL editors and the terminal
-
-The SQL query editors (the SQL box, a SQL step, the "+" tab's query tray) can take it before the
-terminal exists, since they are Monaco already: they are the first test of it.
-
-- **The server runs Copilot.** It starts `@github/copilot-language-server` (the Language Server
-  Protocol server GitHub publishes for editors) once, on first sign-in, and relays to it; the page
-  never talks to GitHub. Its standalone build is preferred, so a machine needs no Node.js; if that
-  cannot be used, Node.js becomes a requirement of this feature only.
-- **Sign-in:** Settings, "Sign in to GitHub Copilot": the server asks the language server for a device
-  code, the page shows the code and the GitHub page to enter it on, and the session stays signed in
-  on that machine (the language server keeps it, as in any editor). "Sign out" ends it.
-- **Suggestions:** Monaco's inline completions provider asks the server, which sends
-  `textDocument/inlineCompletion` with the editor's text as a document (`.sql` or `.py`), plus
-  context Copilot cannot see otherwise: the workspace's table names, their columns and types (never
-  cell values), and for the terminal the commands run so far. Tab accepts; Escape dismisses. Shown
-  and accepted suggestions are reported back (`textDocument/didShowCompletion`, the acceptance
-  command), as the protocol asks.
-- **Privacy:** what goes to Copilot is the editor's text and those names, nothing else; Settings says
-  so next to the sign-in. Off for a workspace with one switch.
-- **To check before it ships to anyone else:** GitHub's terms for the language server (the "GitHub
-  Terms for Additional Products and Features") for use in a local web page, and, at work, whether
-  the employer allows Copilot to see query text and column names.
-- Done when: signed in, typing `SELECT region, sum(` in the SQL box over the sample store offers a
-  ghost-text completion that names real columns, Tab accepts it, and signed out nothing is sent.
+- **Any `.py` to a marimo notebook:** SAG splits it into cells first when it has no `# %%` markers
+  (standard library `ast`: the module docstring as a markdown cell, imports together, each function or
+  class with its decorators and leading comments, top-level statements grouped by blank lines), then
+  `marimo convert` (which renames reassigned variables). Files with markers go straight through.
+- **`.ipynb` to marimo:** `marimo convert`. **marimo to `.ipynb`:** `marimo export ipynb`, so a
+  workspace can always go back to Jupyter.
+- In the page: "Open a Python file or notebook" in the workspace menu; from a terminal:
+  `swissarmygrid convert <file>`.
+- Tested on made-up scripts with reassignment, functions, a `__main__` block, comments, a syntax error
+  (one cell and a plain message), and round trips through `.ipynb`.
 
 ## Phase 3: save and open a workspace
 
 A saved workspace is a folder (`<name>.sagw/`):
 
-- `code.py`: the Python that built it (the terminal's history, and the source of scripts that pushed
-  to it, where the watcher can see it);
+- `notebook.py`: the workspace's marimo notebook, which is the Python and SQL that built it;
 - `data/<table>.parquet`: a snapshot of each table;
 - `workspace.json`: tabs, grids and their steps, relationships, the diagram layout;
-- `environment.txt`: the Python version and package versions, so the code can be re-run.
+- `environment.txt`: the Python version and package versions, so the notebook can be re-run.
 
-Opening loads the snapshots (fast and exact); "Re-run code" rebuilds from `code.py` for fresh data.
-(Proposed default; to confirm.)
+Opening loads the snapshots (fast and exact); "Run notebook" rebuilds from `notebook.py` for fresh
+data. (Proposed default; to confirm.)
 
 ## Phase 4: the relationships view (Power BI's Model view, near enough)
 
@@ -165,7 +191,7 @@ Replaces the Mermaid ERD tab and the FI-Atlas model features.
   cardinality, filter direction, active), with a preview of matched and unmatched rows.
 - Manage relationships list; zoom, fit, and "Auto layout" again.
 - Relationships drive the grid: key columns marked in headers, compare keys pre-ticked (as today),
-  and later cross-filtering between related grids.
+  joins written as DuckDB SQL cells (decision 11), and later cross-filtering between related grids.
 
 ## Phase 5: relationship autodetection (optional, and very good)
 
@@ -184,9 +210,10 @@ Built on Key Finder (`engine/keyfinder.py`). Each candidate pair gets a confiden
 
 ## Security notes
 
-- The terminal makes the local server able to run code, not just read data. Only the page with the
-  workspace's token can start or type into it; never the MCP (decision 4); never before the click
-  (decision 5). Host and Origin checks (`server/security.py`) stay on every route.
+- With the notebook built in, SAG can run code, not just read data. Only the page holding the
+  workspace's token reaches marimo (its own token, generated by SAG, never shown elsewhere); never the
+  MCP (decision 4); nothing runs before the user starts it (decision 5). Host and Origin checks
+  (`server/security.py`) stay on every SAG route, and marimo listens on 127.0.0.1 only.
 - Saved workspaces hold data snapshots: they are written only where the user saves them.
-- Copilot (phase 2b) is the one feature that sends anything off the machine: the editor's text and
-  table and column names, only while the person is signed in, never cell values.
+- Copilot (decision 9) is the one feature that sends anything off the machine, only while the person
+  is signed in; it sees the cell text and names the editor sends, never what SAG holds in its grids.
