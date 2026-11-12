@@ -84,6 +84,22 @@ The goal, per workspace, without panning:
 15. **Secrets live in the operating system's vault** (Windows Credential Manager, macOS Keychain) through
     `keyring` (new dependency, approved). Blade code says `secret("password")`; the file never
     holds the value.
+15a. **Vault blades** (the owner, 2026-11-12): a third kind of blade beside SQL and other. **Add a vault**
+    is a simple window: the vault's type (Azure Key Vault, AWS Secrets Manager, AWS Parameter Store,
+    Google Secret Manager, HashiCorp Vault, 1Password, a `.env` file, the operating system's vault), its
+    address, and a table mapping each secret in it to an environment variable (`warehouse-pwd` ->
+    `WAREHOUSE_PASSWORD`), with a Test button. Running a vault blade (`sag.blade("Azure Vault")`, or before
+    a blade that uses it) fetches the secrets live and sets those variables; SAG never stores their
+    values. `secret("WAREHOUSE_PASSWORD")` in any blade reads the OS vault first, then the variables the
+    vault blades set. The agent never sees a vault blade.
+15b. **Secret blades** (the owner, 2026-11-12): a fourth kind. It saves only environment variable names
+    (`WAREHOUSE_USER`, `WAREHOUSE_PASSWORD`), never their values. Using it asks only for the values this
+    Python does not have yet (none on a second use; all again after the kernel restarts and wipes them), each in a hidden
+    prompt: `getpass` in a terminal, a small window in the page or notebook) and sets it in that Python's
+    environment only, so the values are gone when the kernel or process ends and are typed again next
+    session. A catalog Refresh that needs them asks in the page and hands them to that one run. Lookup
+    order for `secret("X")`: the blade's own saved secret (OS vault), then environment variables (set by
+    vault and secret blades).
 16. **Refresh runs on the SAG server**, on the user's click: the blade's code and catalog command run
     in a child process of the server's own Python (the uv tool environment, the one marimo uses), never
     inside the server and never for the agent. Drivers are added to that environment

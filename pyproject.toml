@@ -16,6 +16,9 @@ dependencies = []
 [project.optional-dependencies]
 server = [
     "duckdb>=1.2",
+    # Blades' secrets (passwords, keys) live in the operating system's vault: Windows Credential
+    # Manager, macOS Keychain, the Secret Service on Linux. Never in a blade's file.
+    "keyring>=25",
     "mcp>=2.3.0",
     # Excel workbooks (.xlsx), read sheet by sheet in read-only mode.
     "openpyxl>=3.1.5",
