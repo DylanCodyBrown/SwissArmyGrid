@@ -18,6 +18,7 @@ level 2 through its own query tool.
 from __future__ import annotations
 
 import threading
+from contextlib import ExitStack
 from typing import Any
 
 import duckdb
@@ -36,11 +37,15 @@ MAX_PAIRS: int = 200
 def routes(ctx: Context) -> list[BaseRoute]:
     settings = ctx.settings
 
-    def view(cur: duckdb.DuckDBPyConnection, grid: Grid) -> tuple[str, Any, Any]:
-        """A grid's view as a SQL relation, with its columns and dataset info."""
+    def view(
+        cur: duckdb.DuckDBPyConnection, grid: Grid, held: ExitStack, ordered: bool = False
+    ) -> tuple[str, Any, Any]:
+        """A grid's view as a SQL relation, with its columns and dataset info. It reads the view
+        cache (not every step again), held until `held` closes; `ordered`: in view order."""
         _, info = ctx.grid_and_info(grid.id)
         compiled = ctx.compiled(cur, grid, info)
-        return compiled.sql(), compiled.columns, info
+        sql = held.enter_context(ctx.views.reading(cur, info, grid.steps, grid.settings, ordered=ordered))
+        return sql, compiled.columns, info
 
     def label(grid: Grid) -> str:
         steps = len([s for s in grid.steps if s.enabled])
@@ -89,24 +94,29 @@ def routes(ctx: Context) -> list[BaseRoute]:
             who = actor(request)
 
             def compute(cur: duckdb.DuckDBPyConnection) -> dict[str, Any]:
-                src_sql, src_cols, src_info = view(cur, source)
+                with ExitStack() as held:
+                    return search(cur, held)
+
+            def search(cur: duckdb.DuckDBPyConnection, held: ExitStack) -> dict[str, Any]:
+                src_sql, src_cols, src_info = view(cur, source, held)
                 pairs: list[dict[str, Any]] = []
                 skipped: dict[str, Any] = {}
                 checked: list[str] = []
                 for target in chosen:
-                    tgt_sql, tgt_cols, tgt_info = view(cur, target)
-                    found = timed(
-                        cur,
-                        lambda tgt_sql=tgt_sql, tgt_cols=tgt_cols, tgt_info=tgt_info: find_keys(
+                    with ExitStack() as held_target:
+                        tgt_sql, tgt_cols, tgt_info = view(cur, target, held_target)
+                        found = timed(
                             cur,
-                            src_sql,
-                            src_cols,
-                            tgt_sql,
-                            tgt_cols,
-                            options,
-                            same_table=tgt_info.name == src_info.name,
-                        ),
-                    )
+                            lambda tgt_sql=tgt_sql, tgt_cols=tgt_cols, tgt_info=tgt_info: find_keys(
+                                cur,
+                                src_sql,
+                                src_cols,
+                                tgt_sql,
+                                tgt_cols,
+                                options,
+                                same_table=tgt_info.name == src_info.name,
+                            ),
+                        )
                     for pair in found["pairs"]:
                         pairs.append(
                             pair
@@ -122,9 +132,11 @@ def routes(ctx: Context) -> list[BaseRoute]:
                 pairs.sort(key=lambda p: (-p["score"], -p["shared"]))
                 # This grid's own key: timed on its own, so a slow view still returns the pairs.
                 limit = settings.key_finder_unique_rows
+                # The grid's first rows, so this one reads the view in its order.
+                first_sql, _, _ = view(cur, source, held, ordered=True)
                 try:
                     unique_key: dict[str, Any] = timed(
-                        cur, lambda: most_distinct(cur, src_sql, src_cols, options, limit)
+                        cur, lambda: most_distinct(cur, first_sql, src_cols, options, limit)
                     )
                 except duckdb.InterruptException:
                     unique_key = {"stopped": True, "row_limit": limit}
@@ -170,16 +182,17 @@ def routes(ctx: Context) -> list[BaseRoute]:
             options = KeyOptions.from_json(body.get("options"))
 
             def compute(cur: duckdb.DuckDBPyConnection) -> dict[str, Any]:
-                src_sql, src_cols, _ = view(cur, source)
-                tgt_sql, tgt_cols, _ = view(cur, target)
-                a = next((c for c in src_cols if c.name == body.get("source_column")), None)
-                b = next((c for c in tgt_cols if c.name == body.get("target_column")), None)
-                if a is None or b is None:
-                    raise ValueError("Name a column of each grid.")
-                sampled: dict[str, Any] = timed(
-                    cur, lambda: sample_values(cur, src_sql, a, tgt_sql, b, options)
-                )
-                return sampled
+                with ExitStack() as held:
+                    src_sql, src_cols, _ = view(cur, source, held)
+                    tgt_sql, tgt_cols, _ = view(cur, target, held)
+                    a = next((c for c in src_cols if c.name == body.get("source_column")), None)
+                    b = next((c for c in tgt_cols if c.name == body.get("target_column")), None)
+                    if a is None or b is None:
+                        raise ValueError("Name a column of each grid.")
+                    sampled: dict[str, Any] = timed(
+                        cur, lambda: sample_values(cur, src_sql, a, tgt_sql, b, options)
+                    )
+                    return sampled
 
             return json_response(await ctx.grid_query(source, None, BACKGROUND, compute))
         except Exception as error:

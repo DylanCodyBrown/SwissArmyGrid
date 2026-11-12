@@ -22,6 +22,8 @@ import json
 import secrets
 import threading
 from collections import OrderedDict
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -167,6 +169,36 @@ class ViewEngine:
         self._release(cursor, cached)
         return f"SELECT rowid AS {POS}, {names} FROM {cached.table}", columns
 
+    @contextmanager
+    def reading(
+        self,
+        cursor: duckdb.DuckDBPyConnection,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        upto: int | None = None,
+        ordered: bool = False,
+    ) -> Iterator[str]:
+        """The view's rows as a relation over the cache table (or the dataset table when no step
+        applies), held for the `with` block so no eviction drops it meanwhile. `ordered`: in
+        view order, the same relation as CompiledView.sql(upto); otherwise in no particular
+        order, for work that does not care (profiles, header numbers, keys, aggregates).
+
+        Either is far cheaper than CompiledView.sql, which runs every step and the final sort
+        again: on 1,000,000 rows with a filter and a sort, a column profile went from about
+        590 ms to 60 ms, and `SELECT * FROM grid LIMIT 100` from 94 ms to 6 ms."""
+        compiled = self.compile(cursor, info, steps, settings)
+        names = ", ".join(quote(c.name) for c in compiled.columns_at(upto))
+        order = " ORDER BY rowid" if ordered else ""  # a cache table's rowid is the view position
+        if compiled.applied(upto) == 0:
+            yield f"SELECT {names} FROM {info.table}{order}"
+            return
+        cached = self._materialize(cursor, info, compiled, steps, settings, upto)
+        try:
+            yield f"SELECT {names} FROM {cached.table}{order}"
+        finally:
+            self._release(cursor, cached)
+
     def rows_sql(
         self,
         cursor: duckdb.DuckDBPyConnection,
@@ -175,18 +207,21 @@ class ViewEngine:
         settings: ViewSettings,
         upto: int | None = None,
     ) -> str:
-        """The view's rows in no particular order, for work that does not care about order
-        (profiles, header numbers, aggregates). It reads the cache table, or the dataset table
-        when no step applies, instead of re-running every step and the final sort: on 1,000,000
-        rows with a filter and a sort, a column profile went from about 590 ms to 60 ms.
-        Like positioned_sql, run it right away."""
-        compiled = self.compile(cursor, info, steps, settings)
-        names = ", ".join(quote(c.name) for c in compiled.columns_at(upto))
-        if compiled.applied(upto) == 0:
-            return f"SELECT {names} FROM {info.table}"
-        cached = self._materialize(cursor, info, compiled, steps, settings, upto)
-        self._release(cursor, cached)
-        return f"SELECT {names} FROM {cached.table}"
+        """reading() for a query run right away (see positioned_sql), in no particular order."""
+        with self.reading(cursor, info, steps, settings, upto) as sql:
+            return sql
+
+    def ordered_sql(
+        self,
+        cursor: duckdb.DuckDBPyConnection,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        upto: int | None = None,
+    ) -> str:
+        """reading() for a query run right away (see positioned_sql), in view order."""
+        with self.reading(cursor, info, steps, settings, upto, ordered=True) as sql:
+            return sql
 
     def step_counts(
         self,

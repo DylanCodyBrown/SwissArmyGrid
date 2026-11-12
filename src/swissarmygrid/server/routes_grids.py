@@ -300,16 +300,18 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             def compute(cur: duckdb.DuckDBPyConnection) -> Any:
                 compiled = ctx.compiled(cur, grid, info)
                 columns = compiled.columns_at(upto)
-
-                def rows() -> str:  # the view cache, not every step again (engine/views.rows_sql)
-                    return ctx.views.rows_sql(cur, info, grid.steps, grid.settings, upto)
-
-                if column_name is None:
-                    return cached(key, lambda: profile_table(cur, rows(), columns))
                 match = next((c for c in columns if c.name == column_name), None)
-                if match is None:
+                if column_name is not None and match is None:
                     raise LookupError(f"No column {column_name!r} in this view.")
-                return cached(key, lambda: profile_column(cur, rows(), match))
+
+                def run() -> Any:
+                    # The view cache, not every step again (engine/views.reading).
+                    with ctx.views.reading(cur, info, grid.steps, grid.settings, upto) as rows:
+                        if match is None:
+                            return profile_table(cur, rows, columns)
+                        return profile_column(cur, rows, match)
+
+                return cached(key, run)
 
             result = await ctx.grid_query(grid, None, priority(request), compute)
             ctx.audit.write(actor(request), "profile", info.name, column=column_name)
@@ -326,12 +328,12 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
 
             def compute(cur: duckdb.DuckDBPyConnection) -> Any:
                 compiled = ctx.compiled(cur, grid, info)
-                return cached(
-                    key,
-                    lambda: header_stats(
-                        cur, ctx.views.rows_sql(cur, info, grid.steps, grid.settings), compiled.columns
-                    ),
-                )
+
+                def run() -> Any:
+                    with ctx.views.reading(cur, info, grid.steps, grid.settings) as rows:
+                        return header_stats(cur, rows, compiled.columns)
+
+                return cached(key, run)
 
             return json_response(
                 await ctx.grid_query(grid, query_int(request, "gen"), BACKGROUND, compute, client_of(request))
@@ -430,23 +432,25 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             row_cap = settings.max_sql_rows
 
             def execute(cur: duckdb.DuckDBPyConnection) -> Any:
-                compiled = ctx.compiled(cur, grid, info)
                 # `upto`: while editing step N, `grid` is the table entering that step. A dataset
                 # name, this grid's own included, reads its rows as loaded, as the variable of
                 # that name does in the user's Python.
                 upto = body.get("upto") if isinstance(body.get("upto"), int) else None
-                guarded = guard(text, {i.name for i in ctx.store.all()}, lambda: compiled.sql(upto))
-                timer = threading.Timer(settings.query_timeout_seconds, cur.interrupt)
-                started = time.perf_counter()
-                timer.start()
-                try:
-                    if guarded.kind == "create":
-                        return guarded, cur.sql(guarded.sql).to_arrow_table(), None, 0.0
-                    result = cur.execute(guarded.sql)
-                    names = [d[0] for d in result.description or []]
-                    fetched = result.fetchmany(row_cap + 1)
-                finally:
-                    timer.cancel()
+                # `grid` reads the view cache in view order: the rows of compiled.sql(upto), without
+                # running every step again (engine/views.reading).
+                with ctx.views.reading(cur, info, grid.steps, grid.settings, upto, ordered=True) as view:
+                    guarded = guard(text, {i.name for i in ctx.store.all()}, lambda: view)
+                    timer = threading.Timer(settings.query_timeout_seconds, cur.interrupt)
+                    started = time.perf_counter()
+                    timer.start()
+                    try:
+                        if guarded.kind == "create":
+                            return guarded, cur.sql(guarded.sql).to_arrow_table(), None, 0.0
+                        result = cur.execute(guarded.sql)
+                        names = [d[0] for d in result.description or []]
+                        fetched = result.fetchmany(row_cap + 1)
+                    finally:
+                        timer.cancel()
                 elapsed = (time.perf_counter() - started) * 1000
                 return guarded, names, [list(r) for r in fetched], elapsed
 
@@ -545,8 +549,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             def prepare(cur: duckdb.DuckDBPyConnection) -> Any:
                 compiled = ctx.compiled(cur, grid, info)
                 if scope == "profile":
-                    rows = ctx.views.rows_sql(cur, info, grid.steps, grid.settings)
-                    profiled = profile_table(cur, rows, compiled.columns)
+                    with ctx.views.reading(cur, info, grid.steps, grid.settings) as rows:
+                        profiled = profile_table(cur, rows, compiled.columns)
                     header = ["column", "type", "blanks", "blank_percent", "distinct", "min", "max"]
                     values = ", ".join(
                         "(" + ", ".join(_sql_value(row.get(n)) for n in header) + ")"

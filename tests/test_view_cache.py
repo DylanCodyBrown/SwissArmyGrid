@@ -74,3 +74,23 @@ def test_windows_from_four_threads_never_fail_while_the_cache_churns() -> None:
     tables = {r[0] for r in store.cursor().execute("SELECT table_name FROM duckdb_tables()").fetchall()}
     cached = {e.table.strip('"') for e in views._tables.values()}
     assert {t for t in tables if t.startswith("vc_")} == cached
+
+
+def test_reading_gives_the_view_rows_in_order_and_holds_them_through_eviction() -> None:
+    store = _store()
+    info = store.get("t")
+    assert info is not None
+    views = ViewEngine(store.cursor(), int(info.nbytes * 1.5))
+    cursor = store.cursor()
+    settings = ViewSettings()
+    expected = cursor.execute(views.compile(cursor, info, _steps(3), settings).sql()).fetchall()
+    with views.reading(cursor, info, _steps(3), settings, ordered=True) as ordered:
+        assert "vc_" in ordered
+        views.window(cursor, info, _steps(4), settings, 0, 10)  # evicts the entry being read
+        assert cursor.execute(ordered).fetchall() == expected
+    raw = cursor.execute(views.compile(cursor, info, [], settings).sql()).fetchall()
+    with views.reading(cursor, info, [], settings, ordered=True) as plain:
+        assert cursor.execute(plain).fetchall() == raw
+    tables = {r[0] for r in cursor.execute("SELECT table_name FROM duckdb_tables()").fetchall()}
+    cached = {e.table.strip('"') for e in views._tables.values()}
+    assert {t for t in tables if t.startswith("vc_")} == cached
