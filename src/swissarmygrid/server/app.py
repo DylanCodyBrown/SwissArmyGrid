@@ -152,7 +152,7 @@ def create_app(
         middleware=[
             Middleware(LocalOnlyGuard, port=port, token=token),
             # Inside the guard: only requests that passed it reach a route and get an error back.
-            Middleware(EngineErrorRedaction, level=lambda: policy.level),
+            Middleware(EngineErrorRedaction, shown=policy.engine_errors_shown),
         ],
         lifespan=lifespan,
     )

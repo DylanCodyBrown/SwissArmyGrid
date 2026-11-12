@@ -116,8 +116,14 @@ def _trace(
 ) -> list[Origins] | None:
     known = {name.lower() for name in tables}
     # Types do not matter for lineage; one that always parses keeps odd DuckDB types out of it.
+    # rowid is a pseudo-column: DuckDB's `*` never includes it, so neither may the schema (else
+    # every `SELECT *, rowid AS ord` view traced one column too many and fell back to untraced).
     schema = ensure_schema(
-        {name: dict.fromkeys(columns, "VARCHAR") for name, columns in tables.items()}, dialect="duckdb"
+        {
+            name: dict.fromkeys((c for c in columns if c.lower() != "rowid"), "VARCHAR")
+            for name, columns in tables.items()
+        },
+        dialect="duckdb",
     )
     try:
         tree = sqlglot.parse_one(sql, read="duckdb")
@@ -187,6 +193,10 @@ def _projection_origins(
     for column in columns:
         source = scope.sources.get(column.table) if column.table else None
         name = column.name.lower()
+        if name == "rowid" and not column.table and len(scope.sources) == 1:
+            continue  # a row's position in its one table, not a value from it
+        if name == "rowid" and isinstance(source, exp.Table):
+            continue
         if isinstance(source, exp.Table):
             table = source.name.lower()
             if table not in known:

@@ -119,19 +119,17 @@ class EngineErrorRedaction:
     value that failed (a cast, a date, a division). An agent at level 0 or 1 could otherwise read
     any cell one error at a time (`CAST(client AS INTEGER)`). Doing it here, on the response,
     covers every route, including ones added later, without each having to remember. The user and
-    an agent at level 2 or 3 get the full message, which they need to fix a query.
+    an agent at level 2 or 3 get the full message, which they need to fix a query, except at level 2
+    with a column hidden or hashed, where the quoted cell may be that column's (`shown` decides:
+    routes_agent.Policy.engine_errors_shown).
     """
 
-    def __init__(self, app: ASGIApp, level: Callable[[], int]) -> None:
+    def __init__(self, app: ASGIApp, shown: Callable[[], bool]) -> None:
         self._app = app
-        self._level = level
+        self._shown = shown
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (
-            scope["type"] != "http"
-            or not is_agent_scope(scope)
-            or self._level() >= ENGINE_ERRORS_SHOWN_FROM_LEVEL
-        ):
+        if scope["type"] != "http" or not is_agent_scope(scope) or self._shown():
             await self._app(scope, receive, send)
             return
         held: Message | None = None  # an error's start message, until its body says what it is

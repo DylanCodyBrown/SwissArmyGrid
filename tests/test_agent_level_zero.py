@@ -451,3 +451,31 @@ def test_the_agents_profile_and_describe_hold_no_values_at_level_0(client: TestC
         )
     described = client.get("/agent/describe/clients", headers=AGENT)
     assert SECRET not in described.text and "Globex" not in described.text and "2024-" not in described.text
+
+
+# ===== found by the tool sweep: a grid with steps traced one column too many =====
+
+
+def test_number_columns_stay_numbers_after_the_users_steps(client: TestClient) -> None:
+    """The tracer counted rowid in `SELECT *`, so any grid with a step was untraced and every column
+    a value column: a filter on a number column was refused at level 0."""
+    gid = open_grid(client)
+    mine = {"kind": "filter", "params": {"column": "client", "op": "ne", "value": SECRET}}
+    assert client.post(f"/grids/{gid}/steps", json={"steps": [mine]}, headers=AUTH).status_code == 200
+    set_level(client, 0)
+    numeric = {"kind": "filter", "params": {"column": "balance", "op": "gt", "value": 50}}
+    added = client.post(f"/grids/{gid}/step-ops", json={"op": "add", "step": numeric}, headers=AGENT)
+    assert added.status_code == 200, added.text
+    assert agent_query(client, "SELECT sum(balance) FROM grid").json()["rows"] == [[250.5]]
+
+
+def test_a_mask_on_a_stepped_grid_hides_only_its_column(client: TestClient) -> None:
+    """The same miscount made every column of a stepped grid take the strictest mask at level 2."""
+    gid = open_grid(client)
+    mine = {"kind": "sort", "params": {"keys": [["id", "asc"]]}}
+    assert client.post(f"/grids/{gid}/steps", json={"steps": [mine]}, headers=AUTH).status_code == 200
+    policy = {"level": 2, "auto_rows": True, "masks": {"client": "hide"}}
+    assert client.post("/agent/policy", json=policy, headers=AUTH).status_code == 200
+    read = client.get(f"/agent/read/{gid}?limit=3", headers=AGENT).json()
+    assert "client" not in read["columns"] and "balance" in read["columns"] and "id" in read["columns"]
+    assert SECRET not in json.dumps(read)

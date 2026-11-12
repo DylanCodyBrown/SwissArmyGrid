@@ -85,7 +85,7 @@ from swissarmygrid.server.routes_agent import (
     redact_profile_row,
 )
 from swissarmygrid.server.routes_datasets import budget, store_table
-from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
+from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN
 from swissarmygrid.server.selection import combine_stats, selection_scope, stats_sql
 from swissarmygrid.server.step_privacy import HIDDEN, mentions_hidden, redact_step, restore_hidden
 
@@ -93,11 +93,17 @@ _SAFE_FILE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def describe_grid(
-    ctx: Context, grid: Grid, info: DatasetInfo, cursor: duckdb.DuckDBPyConnection, agent_level: int = 3
+    ctx: Context,
+    grid: Grid,
+    info: DatasetInfo,
+    cursor: duckdb.DuckDBPyConnection,
+    agent_level: int = 3,
+    engine_errors_shown: bool = True,
 ) -> dict[str, Any]:
     """The grid in full. `agent_level`: the privacy level of an agent asking (3 for the user). At
     level 0 the steps and the "+" tab's query are shown without their values (step_privacy.py),
-    and below level 2 a step error in DuckDB's own words (which can quote a cell) is hidden."""
+    and unless `engine_errors_shown` a step error in DuckDB's own words (which can quote a cell) is
+    hidden."""
     compiled = ctx.compiled(cursor, grid, info)
     error = compiled.error
     step_error: dict[str, Any] | None = None
@@ -107,7 +113,7 @@ def describe_grid(
             message = (
                 "This step cannot apply. Its message is hidden at privacy level 0, since it can quote values."
             )
-        elif agent_level < ENGINE_ERRORS_SHOWN_FROM_LEVEL and error.from_engine:
+        elif not engine_errors_shown and error.from_engine:
             message = ENGINE_ERROR_HIDDEN
         step_error = {"index": error.index, "message": message}
     if agent_level == 0:
@@ -170,6 +176,10 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         """The privacy level the caller reads at: the policy's for an agent, 3 for the user."""
         return policy.level if actor(request) == "agent" else 3
 
+    def errors_shown(request: Request) -> bool:
+        """Whether the caller may read DuckDB's own error text (it can quote a cell)."""
+        return actor(request) != "agent" or policy.engine_errors_shown()
+
     # ===== grid lifecycle =====
 
     async def list_grids(request: Request) -> Response:
@@ -216,7 +226,10 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             level = agent_level(request)
             return json_response(
                 await ctx.grid_query(
-                    grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur, level)
+                    grid,
+                    None,
+                    INTERACTIVE,
+                    lambda cur: describe_grid(ctx, grid, info, cur, level, errors_shown(request)),
                 )
             )
         except Exception as error:
@@ -458,7 +471,10 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             grid.release(grid.admit(gen, ctx.store.cursor(), client))
         grid.steps, grid.settings = new_steps, new_settings
         described = await ctx.grid_query(
-            grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur, level)
+            grid,
+            None,
+            INTERACTIVE,
+            lambda cur: describe_grid(ctx, grid, info, cur, level, errors_shown(request)),
         )
         await ctx.live.broadcast({"type": "grid_updated", "grid": grid.id, "by": who, "gen": grid.gen})
         ctx.audit.write(who, "steps", info.name, steps=len(new_steps))
@@ -576,7 +592,10 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             grid.steps = with_header_sort(grid.steps, keys)
             level = agent_level(request)
             described = await ctx.grid_query(
-                grid, None, INTERACTIVE, lambda cur: describe_grid(ctx, grid, info, cur, level)
+                grid,
+                None,
+                INTERACTIVE,
+                lambda cur: describe_grid(ctx, grid, info, cur, level, errors_shown(request)),
             )
             await ctx.live.broadcast(
                 {"type": "grid_updated", "grid": grid.id, "by": actor(request), "gen": grid.gen}

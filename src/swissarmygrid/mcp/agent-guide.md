@@ -85,8 +85,8 @@ query) and grids with a SQL, bucket or categorize step you added, since those ho
 
 A column mask follows the data: a column computed from a hidden or hashed column (renamed, in an
 expression, an aggregate, or a table made by a query) is hidden or hashed too, and a column the server
-cannot trace back to its source gets the strictest mask the user set. Below level 2, DuckDB error text
-is hidden, since it can quote a value.
+cannot trace back to its source gets the strictest mask the user set. Below level 2, and at level 2
+when a column is hidden or hashed, DuckDB error text is hidden, since it can quote a value.
 
 Every result tells you the level it was computed at (`privacy_level`) and the cap (`row_cap`). When a
 call is refused for privacy, tell the user what you need and that they can raise the level in

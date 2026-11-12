@@ -222,7 +222,7 @@ def _guard(
 ) -> GuardedQuery:
     try:
         statements = [s for s in sqlglot.parse(text, read="duckdb") if s is not None]
-    except sqlglot.errors.ParseError as error:
+    except sqlglot.errors.SqlglotError as error:  # ParseError, and TokenError (an unclosed quote)
         raise SqlRefused(f"Could not parse the query: {_first_line(str(error))}") from error
     if len(statements) != 1:
         raise SqlRefused("Run one statement at a time.")

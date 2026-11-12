@@ -83,6 +83,18 @@ def test_the_user_and_a_level_2_agent_still_get_the_full_message(client: TestCli
     assert SECRET in client.post(f"/grids/{gid}/sql", json=body, headers=AGENT).text
 
 
+@pytest.mark.parametrize("how", ["hide", "hash"])
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_at_level_2_with_masks_engine_errors_are_hidden_too(client: TestClient, how: str, index: int) -> None:
+    """A level 2 agent sees DuckDB's error text, which can quote a cell; with a column hidden or
+    hashed that cell may be the masked one (CAST(client AS INT) quoting the client)."""
+    gid = open_grid(client)
+    set_policy(client, 2, auto_rows=True, masks={"client": how})
+    method, path, extra = _error_routes(gid)[index]
+    refused = client.request(method, path, headers=AGENT, **extra)
+    assert refused.status_code == 400 and SECRET not in refused.text and "hidden" in refused.text
+
+
 # ===== an agent export always waits for the user's click, on the server too =====
 
 

@@ -40,7 +40,7 @@ from swissarmygrid.server.level_zero import (
     view_classes,
 )
 from swissarmygrid.server.routes_agent import Policy, agent_may_see_raw_values
-from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
+from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN
 
 _TABLE_CARD_ROWS: int = 100
 # A diagram is Mermaid text (an ERD from GET /relationships/erd, or any flowchart), drawn by the page.
@@ -126,7 +126,7 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         if agent_may_see_raw_values(request, policy):
             return shown
         described = [{k: v for k, v in c.items() if k in _CARD_META} for c in shown]
-        if policy.level < ENGINE_ERRORS_SHOWN_FROM_LEVEL:
+        if not policy.engine_errors_shown():
             # Why a card could not draw is often DuckDB's message, which can quote a cell value.
             for card in described:
                 if card.get("error"):

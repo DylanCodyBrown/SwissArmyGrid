@@ -609,7 +609,10 @@ def grid_export(a: dict[str, Any]) -> Any:
     approved = api.call(
         "POST", f"/agent/export-approval/{_q(a['grid'])}", params={"format": fmt, "scope": scope}
     )
-    params: dict[str, Any] = dict(a.get("options") or {})
+    options = a.get("options") or {}
+    if not isinstance(options, dict):
+        raise CommandError('table_export: options must be an object, e.g. {"delimiter": ";"}.')
+    params: dict[str, Any] = dict(options)
     params |= {"format": fmt, "save": "1", "ticket": approved.get("ticket")}
     for key in ("file", "scope", "overwrite"):
         if a.get(key):

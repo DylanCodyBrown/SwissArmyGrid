@@ -110,6 +110,15 @@ class Policy:
     def to_json(self) -> dict[str, Any]:
         return {"level": self.level, "auto_rows": self.auto_rows, "masks": self.masks}
 
+    def engine_errors_shown(self) -> bool:
+        """Whether an agent may read DuckDB's own error text, which can quote a cell value: at level
+        3, and at level 2 (which shows rows anyway) unless a column is hidden or hashed, since the
+        quoted cell may be that column's."""
+        if self.level >= 3:
+            return True
+        masked = any(v in ("hide", "hash") for v in self.masks.values())
+        return self.level >= ENGINE_ERRORS_SHOWN_FROM_LEVEL and not masked
+
     def issue_export_ticket(self, grid_id: str) -> str:
         now = time.monotonic()
         self.export_tickets = {k: v for k, v in self.export_tickets.items() if v[1] > now}
@@ -176,7 +185,7 @@ def is_whole_table_aggregate(sql: str) -> bool:
     """True for a single SELECT with no GROUP BY whose every output is an aggregate."""
     try:
         root = sqlglot.parse_one(sql, read="duckdb")
-    except sqlglot.errors.ParseError:
+    except sqlglot.errors.SqlglotError:  # unreadable: the SQL guard refuses it with its own message
         return False
     if not isinstance(root, exp.Select) or root.args.get("group"):
         return False
@@ -206,10 +215,11 @@ def mask_value(value: Any, how: str) -> Any:
     return value
 
 
-def hidden_error(error: duckdb.Error, level: int) -> Response:
+def hidden_error(error: duckdb.Error, policy: Policy) -> Response:
     """A DuckDB error for the agent. Its text can quote a cell value ("Could not convert string
-    'Acme Corp' to INT32"), so below level 2 the agent gets only that something failed."""
-    if level >= ENGINE_ERRORS_SHOWN_FROM_LEVEL:
+    'Acme Corp' to INT32"), so unless the policy shows engine errors the agent gets only that
+    something failed."""
+    if policy.engine_errors_shown():
         return Response(f"DuckDB: {error}", status_code=400)
     return Response(ENGINE_ERROR_HIDDEN, status_code=400)
 
@@ -509,7 +519,7 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                     status_code=408,
                 )
             except duckdb.Error as error:
-                return hidden_error(error, rules.level)
+                return hidden_error(error, rules)
             if aggregate and len(rows) > 1:
                 # It parsed as one aggregate but returned rows (a construct the check above missed):
                 # rows, so they wait for the user's click like any other.
@@ -574,7 +584,7 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             try:
                 row_count, names, types, origins = await ctx.grid_query(grid, None, AGENT, count)
             except duckdb.Error as error:
-                return hidden_error(error, rules.level)
+                return hidden_error(error, rules)
             out: dict[str, Any] = {
                 "grid": grid.id,
                 "dataset": info.name,
@@ -605,7 +615,7 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             try:
                 rows = await ctx.grid_query(grid, None, AGENT, read)
             except duckdb.Error as error:
-                return hidden_error(error, rules.level)
+                return hidden_error(error, rules)
             shown_names, shown_rows, masked = apply_masks(rules, names, types, rows, origins)
             ctx.audit.write("agent", "read", info.name, grid=grid.id, rows=len(shown_rows))
             return json_response(
