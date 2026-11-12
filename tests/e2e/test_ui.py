@@ -699,6 +699,26 @@ def test_a_diagram_card_never_makes_the_page_fetch_anything(
     assert card.locator(".diagram img, .diagram image, .diagram [href*='beacon']").count() == 0
 
 
+def test_a_small_diagram_is_not_blown_up_to_the_cards_width(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # A two-column ERD (155 px wide) was stretched to the card's 760 px: 50 px text, 1,360 px tall.
+    body = "erDiagram\n  ORDERS ||--o{ LINES : has\n  ORDERS {\n    int order_id PK\n  }"
+    call(
+        server,
+        "POST",
+        f"/grids/{grid_of(orders_url)}/cards",
+        {"kind": "diagram", "title": "Tiny", "body": body},
+    )
+    page = open_grid(browser, orders_url)
+    open_agent(page)
+    svg = page.locator(".card", has_text="Tiny").locator(".diagram svg")
+    expect(svg).to_be_visible(timeout=20000)
+    natural = float(svg.get_attribute("viewBox").split()[2])  # type: ignore[union-attr]
+    box = svg.bounding_box()
+    assert box and box["width"] <= natural + 1
+
+
 def test_note_markdown_is_rendered_safely(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     grid = orders_url.split("/g/")[1].split("#")[0]
     call(

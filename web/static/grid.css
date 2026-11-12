@@ -2629,8 +2629,9 @@ button.link {
   max-height: none;
 }
 
+/* A wide diagram shrinks to the card; a small one keeps its own size (stretched to the card's
+   width, a two-table ERD drew 50 px text and stood 1,360 px tall). */
 .workspace[data-view="agent"] .diagram svg {
-  width: 100%;
   max-width: 100%;
   height: auto;
 }
