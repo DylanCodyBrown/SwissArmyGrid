@@ -28,6 +28,7 @@ Standard library only.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -110,6 +111,15 @@ def _csv(columns: list[str], rows: list[list[Any]]) -> str:
     for row in rows:
         writer.writerow(["" if v is None else v for v in row])
     return out.getvalue()
+
+
+_BLOCK_TAG = re.compile(r"<(/?)(untrusted-data)", re.IGNORECASE)
+
+
+def _defuse(text: str) -> str:
+    """Data text with the block's tags broken (`<\\/untrusted-data`), so a cell cannot close the
+    block it sits in and have what follows read as the tool's own words."""
+    return _BLOCK_TAG.sub(lambda m: f"<\\/{m.group(2)}" if m.group(1) else f"<\\{m.group(2)}", text)
 
 
 def _row_count(grid: str) -> int | None:
@@ -400,7 +410,7 @@ def read_grid(a: dict[str, Any]) -> Any:
     header = "\n".join(f"{k}: {v}" for k, v in summary.items())
     return (
         f'{header}\n{DATA_NOTE}\n<untrusted-data source={json.dumps(result["dataset"])} format="csv">\n'
-        f"{_csv(result['columns'], result['rows'])}</untrusted-data>"
+        f"{_defuse(_csv(result['columns'], result['rows']))}</untrusted-data>"
     )
 
 
@@ -1454,7 +1464,9 @@ def _coerce(cmd: Command, arg: Arg, value: Any) -> Any:
 
 
 def _wrap(source: str, payload: Any) -> str:
-    return f"{DATA_NOTE}\n<untrusted-data source={json.dumps(source)}>\n{json.dumps(payload, default=str)}\n</untrusted-data>"
+    # "<" as \u003c is the same JSON, and no value can then spell the block's closing tag.
+    data = json.dumps(payload, default=str).replace("<", "\\u003c")
+    return f"{DATA_NOTE}\n<untrusted-data source={json.dumps(source)}>\n{data}\n</untrusted-data>"
 
 
 def execute_result(name: str, raw: dict[str, Any] | None = None) -> str | ImageResult:
