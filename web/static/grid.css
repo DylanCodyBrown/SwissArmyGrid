@@ -2898,11 +2898,11 @@ body.agent-view .titlebar {
 
 /* ===== the steps strip under the title (the panel itself opens in its own window) ===== */
 
+/* The table's name has its line to itself; the steps strip sits on its own line under it. */
 .titlebar {
-  display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   align-items: center;
-  gap: 4px 14px;
+  gap: 2px;
 }
 
 .steps-strip {
