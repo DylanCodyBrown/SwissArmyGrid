@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -58,13 +59,26 @@ def main() -> None:
         else:
             sys.exit("The server did not start:\n" + (state / "server.log").read_text())
         info = json.loads(info_path.read_text())
-        print(f"Server {info['version']} on port {info['port']}")
+        print(f"Server {info['version']} on port {info['port']} from {info.get('executable')}")
 
         from swissarmygrid.client import push
 
         tables = make_store()
         for name, frame in tables.items():
             push(frame, name=name)
+        # A time-zone-aware column: DuckDB needs pytz in the server's install to hand it back.
+        import pandas as pd
+
+        stamps = pd.DataFrame({"at": pd.to_datetime(["2024-01-01 09:30"]).tz_localize("UTC"), "n": [1]})
+        grid = push(stamps, name="time_zones").split("/g/")[1].split("#")[0]
+        try:
+            rows = get(info, f"/grids/{grid}/rows?start=0&end=10")["rows"]
+        except urllib.error.HTTPError as error:
+            sys.exit(f"A time-zone column failed: {error.read().decode()[:300]}")
+        if len(rows) != 1:
+            sys.exit(f"A time-zone column did not come back: {rows}")
+        print(f"A time-zone column comes back: {rows[0]}")
+        tables["time_zones"] = stamps
         datasets = {d["name"] for d in get(info, "/datasets")["datasets"]}
         missing = set(tables) - datasets
         if missing:

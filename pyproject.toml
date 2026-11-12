@@ -20,6 +20,9 @@ server = [
     # Excel workbooks (.xlsx), read sheet by sheet in read-only mode.
     "openpyxl>=3.1.5",
     "pyarrow>=19",
+    # DuckDB needs it to hand back TIMESTAMP WITH TIME ZONE values (pandas' tz-aware columns): without
+    # it every window of such a table fails with "Required module 'pytz' failed to import".
+    "pytz>=2024.1",
     "sqlglot>=30.24.0",
     "starlette>=0.46",
     "uvicorn>=0.34",
