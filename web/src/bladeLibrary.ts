@@ -8,7 +8,7 @@
  */
 import { api, download } from "./api";
 import { append, button, clear, h, openDialog, toast } from "./dom";
-import { type BladeKind, kindLabel } from "./bladeEditor";
+import { type BladeKind, type BladeSetting, kindLabel, settingField } from "./bladeEditor";
 
 interface ImportedBlade {
   name: string;
@@ -25,6 +25,7 @@ interface PreviewItem {
   blade?: ImportedBlade;
   secrets?: string[];
   conflict?: { name: string; source: "saved" | "folder" } | null;
+  settings?: BladeSetting[];
 }
 
 interface ImportResult {
@@ -99,6 +100,8 @@ export async function importBlades(files: File[], onDone: () => void): Promise<v
   }
   const { body, foot, close } = openDialog("Import blades", true);
   const choices: Record<string, string> = {};
+  // What the person fills in per blade: new values for its settings, and the secrets it asks for.
+  const fill: Filled = {};
   body.append(
     h(
       "p",
@@ -134,7 +137,7 @@ export async function importBlades(files: File[], onDone: () => void): Promise<v
       h("h3", {}, h("span", { class: `blade-kind ${blade.kind}` }, kindLabel(blade.kind)), " ", blade.name, h("span", { class: "hint" }, `  ${item.file}`)),
       blade.description ? h("p", {}, blade.description) : null,
       blade.tags?.length ? h("div", { class: "chips" }, ...blade.tags.map((t) => h("span", { class: "chip" }, t))) : null,
-      item.secrets?.length ? h("p", { class: "hint" }, `It asks for: ${item.secrets.join(", ")}. You type them in after importing; they never travel in the file.`) : null,
+      fillIn(item, fill),
       conflict,
       blade.code ? h("details", {}, h("summary", {}, "The code"), h("pre", { class: "code-box" }, blade.code)) : null,
     );
@@ -151,13 +154,14 @@ export async function importBlades(files: File[], onDone: () => void): Promise<v
   foot.append(
     button("Cancel", close, { class: "ghost" }),
     button(`Import ${importable} blade${importable === 1 ? "" : "s"}`, () => {
-      void api<{ results: ImportResult[] }>("/blades/import", "POST", { files: sent, apply: true, choices, folder: where.value || null }).then(
+      void api<{ results: ImportResult[] }>("/blades/import", "POST", { files: sent, apply: true, choices, fill, folder: where.value || null }).then(
         (answer) => {
           close();
           const saved = answer.results.filter((r) => r.status === "saved");
           const failed = answer.results.filter((r) => r.status === "error");
           toast(`Imported ${saved.length} blade${saved.length === 1 ? "" : "s"}${saved.length ? ": " + saved.map((r) => r.name).join(", ") : ""}.`);
           for (const r of failed) toast(`${r.name ?? r.file}: ${r.message ?? "not imported"}`, "error");
+          for (const r of saved) if (r.message) toast(`${r.name}: ${r.message}`, "error");
           onDone();
         },
         (error: Error) => toast(error.message, "error"),
@@ -165,6 +169,46 @@ export async function importBlades(files: File[], onDone: () => void): Promise<v
     }, { class: "primary", icon: "plus" }),
   );
   if (!importable) foot.querySelector<HTMLButtonElement>("button.primary")!.disabled = true;
+}
+
+/** The values this blade needs from the person importing it: its settings (server, database, path...)
+ * with suggestions, and the secrets its code asks for (kept in this computer's vault, never in a file). */
+type Filled = Record<string, { settings: Record<string, string>; secrets: Record<string, string> }>;
+
+function fillIn(item: PreviewItem, fill: Filled): HTMLElement | null {
+  const settings = item.settings ?? [];
+  const secrets = item.secrets ?? [];
+  if (!settings.length && !secrets.length) return null;
+  const mine = (fill[String(item.index)] ??= { settings: {}, secrets: {} });
+  const waiting = settings.filter((s) => s.placeholder).length;
+  return h(
+    "fieldset",
+    { class: "fill-in" },
+    h("legend", {}, "Fill in your values"),
+    h(
+      "p",
+      { class: "hint" },
+      waiting
+        ? `${waiting} of these ${waiting === 1 ? "is an example value" : "are example values"} from whoever wrote the blade. Put in your own; they are written into its code when you import.`
+        : "The values its code is written with. Change any that differ for you; they are written into its code when you import.",
+    ),
+    ...settings.map((setting) =>
+      settingField(setting, (value) => {
+        if (value === String(setting.value)) delete mine.settings[setting.id];
+        else mine.settings[setting.id] = value;
+      }),
+    ),
+    ...secrets.map((secret) => {
+      const input = h("input", { type: "password", autocomplete: "new-password", placeholder: "optional: type it now or later", "aria-label": `secret ${secret}` });
+      input.addEventListener("input", () => (mine.secrets[secret] = input.value));
+      return h(
+        "div",
+        { class: "setting-row" },
+        h("label", {}, h("span", { class: "setting-key" }, `secret("${secret}")`), h("span", { class: "hint" }, " kept in this computer's vault, never in the file")),
+        input,
+      );
+    }),
+  );
 }
 
 /** The blade folders: add, remove, see what each holds and which files could not be read. */

@@ -397,3 +397,75 @@ def test_a_blade_the_agent_proposes_shows_its_code_here_and_is_saved_on_allow(
     expect(page.locator("section.approval")).to_have_count(0)
     assert page.errors == []  # type: ignore[attr-defined]
     page.close()
+
+
+POSTGRES_STARTER = (
+    "import psycopg\n\nconn = psycopg.connect(\n"
+    '    host="my-server",\n    port=5432,\n    dbname="my_database",\n'
+    '    user="my_user",\n    password=secret("password"),\n)\n'
+)
+
+
+def test_import_suggests_values_for_a_blades_settings_and_writes_them_in(
+    browser: Browser, server: dict[str, Any], warehouse: str, tmp_path: Path
+) -> None:
+    from swissarmygrid.blade_core.portable import write_blade
+
+    mine = 'import psycopg\nconn = psycopg.connect(host="db01.corp.local", dbname="sales")\n'
+    call(server, "POST", "/blades", {"name": "Sales DB", "kind": "sql", "dialect": "postgres", "code": mine})
+    blade_file = tmp_path / "orders_db.blade.py"
+    blade_file.write_text(
+        write_blade(
+            {
+                "name": "Orders DB",
+                "kind": "sql",
+                "dialect": "postgres",
+                "code": POSTGRES_STARTER,
+                "variable": "conn",
+            }
+        ),
+        encoding="utf-8",
+    )
+    page = open_page(browser, warehouse)
+    with page.expect_file_chooser() as chooser:
+        page.get_by_role("button", name="Import blades").click()
+    chooser.value.set_files(str(blade_file))
+    fill = page.locator("dialog fieldset.fill-in")
+    expect(fill.locator(".needs-value-badge")).to_have_count(3)  # host, dbname, user
+    host = fill.locator(".setting-row", has=page.get_by_label("host (server)"))
+    host.get_by_role("button", name="db01.corp.local").click()
+    expect(page.get_by_label("host (server)")).to_have_value("db01.corp.local")
+    page.get_by_label("dbname (database)").fill("orders")
+    page.locator("dialog").get_by_role("button", name="Import 1 blade").click()
+    expect(page.locator("dialog")).to_have_count(0)
+    saved = call(server, "GET", "/blades/Orders%20DB")["code"]
+    assert 'host="db01.corp.local"' in saved and 'dbname="orders"' in saved and 'user="my_user"' in saved
+    assert page.errors == []  # type: ignore[attr-defined]
+    page.close()
+
+
+def test_the_save_screen_changes_a_setting_in_the_code(
+    browser: Browser, server: dict[str, Any], warehouse: str
+) -> None:
+    call(
+        server,
+        "POST",
+        "/blades",
+        {"name": "Orders DB", "kind": "sql", "dialect": "postgres", "code": POSTGRES_STARTER},
+    )
+    page = open_page(browser, warehouse)
+    blade_item(page, "Orders DB").locator(".blade-name").click()
+    settings = page.locator("#detail fieldset", has=page.locator("legend", has_text="Settings"))
+    expect(settings).to_contain_text("3 still hold example values")
+    host = page.get_by_label("host (server)")
+    host.fill("db07.corp.local")
+    host.press("Enter")
+    expect(page.get_by_label("Blade code")).to_have_value(
+        POSTGRES_STARTER.replace("my-server", "db07.corp.local")
+    )
+    expect(settings).to_contain_text("2 still hold example values")
+    page.get_by_role("button", name="Save", exact=True).click()
+    expect(page.locator(".status-line")).to_contain_text("Saved Orders DB.")
+    assert 'host="db07.corp.local"' in call(server, "GET", "/blades/Orders%20DB")["code"]
+    assert page.errors == []  # type: ignore[attr-defined]
+    page.close()

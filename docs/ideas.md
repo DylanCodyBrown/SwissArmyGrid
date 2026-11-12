@@ -157,6 +157,26 @@ relation, not the user's variable, so they were marked verified anyway.
   `SELECT *` shows one column fewer than the grid. A list of dicts, a file or the clipboard has no
   variable DuckDB can read; the copy expects a DataFrame of that name and says so.
 
+## Fill in your values (2026-11-12, the owner's request; confirm or change)
+
+"Have blades auto detect ... the variables that are defined inside of the blades, so when somebody imports
+a new blade it will suggest what variables to enter."
+
+- **Read from the code, not declared in the header.** Any blade works, with no extra writing by its
+  author; a header list would go stale the moment the code changed.
+- **What counts:** connection keyword arguments (`host=`, `port=`, `dbname=`, `user=`, `account=`,
+  `warehouse=`, `http_path=`, `vault_url=`, ...); the known parts of a connection string (Server,
+  Database, UID, DSN, DBQ, Driver, Port, HOSTNAME...); top-level names given a literal or `Path(...)`; a
+  path passed to `connect`, `read_csv` and the like. Never anything named like a password, token or key.
+- **Placeholders:** `my-`/`my_`/`your-`, `example`, `<...>`, `changeme`, and a starter's own example path.
+- **Suggestions:** the same setting in the user's other blades (most used first), then a short list of
+  standard environment variables (`PGHOST`, `SNOWFLAKE_ACCOUNT`, `AWS_REGION`...), never a password one.
+- **Writing back** replaces only that value's characters; a raw string stays raw; a backslash in a plain
+  connection string is written doubled; a value that would break the code (a `;` in a connection string,
+  a line break) is refused with a plain message.
+- **Open:** suggestions from a loaded catalog's server name; settings for the agent's `blades_create`
+  (it already lists them in the approval window).
+
 ## The agent makes blades (2026-11-12, the owner's request; confirm or change)
 
 "Make it possible for the agents through MCP to create blades for you." Three commands:

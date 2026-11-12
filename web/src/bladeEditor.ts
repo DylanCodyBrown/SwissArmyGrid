@@ -65,7 +65,56 @@ interface Inspection {
   packages: Package[];
   install_here: string | null;
   install_yours: string | null;
+  settings?: BladeSetting[];
   error?: string;
+}
+
+/** A value in a blade's code that each person fills in for themselves (blade_core/fill.py). */
+export interface BladeSetting {
+  id: string; // its place in this code: changes when the code does
+  name: string; // server, database, user, path...
+  key: string; // as the code writes it: host, Server, dbname...
+  value: string | number;
+  type: "text" | "number";
+  line: number;
+  where: string;
+  placeholder: boolean; // still a stand-in such as my-server
+  suggestions: { value: string; from: string }[];
+}
+
+/** One field for a setting: its value, a "needs your value" mark on a placeholder, and the suggested
+ * values as buttons (from the user's other blades, or a standard environment variable). `onValue` gets
+ * every change; `commit` (optional) a finished one: Enter, leaving the field, or a suggestion. */
+export function settingField(setting: BladeSetting, onValue: (value: string) => void, commit?: () => void): HTMLElement {
+  const input = h("input", {
+    type: setting.type === "number" ? "number" : "text",
+    value: String(setting.value),
+    spellcheck: "false",
+    "aria-label": `${setting.key} (${setting.name})`,
+    class: setting.placeholder ? "needs-value" : undefined,
+  });
+  input.addEventListener("input", () => onValue(input.value));
+  if (commit) input.addEventListener("change", commit);
+  const chips = setting.suggestions.slice(0, 4).map((s) =>
+    button(s.value, () => {
+      input.value = s.value;
+      onValue(s.value);
+      commit?.();
+    }, { class: "chip suggestion", title: `Use ${s.value}: ${s.from}` }),
+  );
+  return h(
+    "div",
+    { class: "setting-row" },
+    h(
+      "label",
+      {},
+      h("span", { class: "setting-key" }, setting.key),
+      h("span", { class: "hint" }, setting.name !== setting.key.toLowerCase() ? ` ${setting.name}, line ${setting.line}` : ` line ${setting.line}`),
+      setting.placeholder ? h("span", { class: "needs-value-badge" }, "needs your value") : null,
+    ),
+    input,
+    chips.length ? h("div", { class: "chips suggestions" }, h("span", { class: "hint" }, "Suggested:"), ...chips) : null,
+  );
 }
 
 export interface Template {
@@ -390,6 +439,7 @@ export async function editBlade(
   const codeBox = h("textarea", { class: "code-box", rows: "12", spellcheck: "false", "aria-label": "Blade code" }) as HTMLTextAreaElement;
   codeBox.value = draft.code;
   const madeHost = h("div", {});
+  const settingsHost = h("fieldset", { hidden: true });
   const secretsHost = h("div", {});
   const packagesHost = h("div", {});
   const kindHost = h("div", {});
@@ -415,7 +465,7 @@ export async function editBlade(
       return;
     }
     try {
-      inspection = await api<Inspection>("/blades/inspect", "POST", { code: draft.code });
+      inspection = await api<Inspection>("/blades/inspect", "POST", { code: draft.code, template: draft.template, name: name ?? undefined });
     } catch (error) {
       say((error as Error).message, "error");
       return;
@@ -426,7 +476,51 @@ export async function editBlade(
     renderInspection();
   }
 
+  /** The code's settings: one field each; a finished change is written into the code by the server. */
+  function renderSettings(): void {
+    const settings = draft.kind === "secret" ? [] : (inspection?.settings ?? []);
+    settingsHost.hidden = !settings.length;
+    const waiting = settings.filter((s) => s.placeholder).length;
+    clear(
+      settingsHost,
+      h("legend", {}, "Settings"),
+      h(
+        "p",
+        { class: "hint" },
+        waiting
+          ? `${waiting} still ${waiting === 1 ? "holds an example value" : "hold example values"}: put in your own. Each field changes that value in the code below.`
+          : "The values this code is written with. Each field changes that value in the code below.",
+      ),
+      ...settings.map((setting) => {
+        let typed = String(setting.value);
+        return settingField(setting, (value) => (typed = value), () => {
+          if (typed === String(setting.value)) return;
+          void writeSetting(setting.id, typed);
+        });
+      }),
+    );
+  }
+
+  async function writeSetting(id: string, value: string): Promise<void> {
+    try {
+      const answer = await api<{ code: string; settings: BladeSetting[] }>("/blades/fill", "POST", {
+        code: draft.code,
+        values: { [id]: value },
+        template: draft.template,
+        name: name ?? undefined,
+      });
+      draft.code = codeBox.value = answer.code;
+      if (inspection) inspection.settings = answer.settings;
+      renderSettings();
+      say("Changed in the code.", "ok");
+    } catch (error) {
+      say((error as Error).message, "error");
+      renderSettings();
+    }
+  }
+
   function renderInspection(): void {
+    renderSettings();
     const found = inspection;
     if (found?.error) {
       clear(madeHost, h("span", { class: "warning-text" }, found.error));
@@ -729,6 +823,7 @@ export async function editBlade(
     h("label", {}, h("span", {}, "Tags (commas between; search finds a blade by any of them)"), tagsInput),
     name ? null : whereLabel,
     h("div", {}, h("div", { class: "hint" }, "Kind"), kinds),
+    settingsHost,
     codeFieldset,
     kindHost,
     h(
