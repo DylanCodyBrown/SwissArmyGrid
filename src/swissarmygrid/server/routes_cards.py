@@ -225,39 +225,39 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         return json_response({"removed": card["id"]})
 
     async def select(request: Request) -> Response:
-        """Cross-filtering: clicking a bar adds `x = value` (or the time bucket's range)."""
+        """Cross-filtering: clicking a bar adds `x = value` (or the time bucket's range); a heatmap
+        cell adds its row's value too ({"value": x, "y": y}). The new steps must compile on the
+        grid's view, or none is added (a value its column cannot hold used to break the grid)."""
         try:
             card = cards.get(request.path_params["card_id"])
             if card is None or card["kind"] != "chart":
                 return Response("No such chart.", status_code=404)
             grid, info = ctx.grid_and_info(card["grid"])
             body = await read_json(request)
-            value = body.get("value") if isinstance(body, dict) else None
-            x = card["spec"]["x"]
-            field = x["field"]
-
-            def column_type(cur: duckdb.DuckDBPyConnection) -> str:
-                columns = ctx.compiled(cur, grid, info).columns
-                return next(c.type for c in columns if c.name == field)
-
-            family = type_family(await ctx.grid_query(grid, None, BACKGROUND, column_type))
-            if value is None:
-                params: dict[str, Any] = {"column": field, "op": "blank"}
-            elif "time_unit" in x:
-                params = {
-                    "column": field,
-                    "op": "date_between",
-                    "low": str(value)[:10],
-                    "high": _bucket_end(str(value)[:10], x["time_unit"]),
-                }
-            elif family == "number" and card["spec"]["mark"] == "histogram":
+            if not isinstance(body, dict):
+                raise ValueError('Send {"value": ...}.')
+            spec = card["spec"]
+            if spec["mark"] == "histogram":
                 raise ValueError("Select a histogram range from the column profile instead.")
-            else:
-                params = {"column": field, "op": "eq", "value": value}
-            grid.steps = [
-                *grid.steps,
-                Step(kind="filter", params=params | {"from_chart": card["id"]}),
-            ]
+
+            def added(cur: duckdb.DuckDBPyConnection) -> list[Step]:
+                columns = ctx.compiled(cur, grid, info).columns
+                validate(spec, columns)  # its columns may have left the view since
+                families = {c.name: type_family(c.type) for c in columns}
+                x = spec["x"]
+                picked = [
+                    _click_filter(x["field"], families[x["field"]], body.get("value"), x.get("time_unit"))
+                ]
+                if spec["mark"] == "heatmap" and "y" in body:
+                    y_field = spec["y"]["field"]
+                    picked.append(_click_filter(y_field, families[y_field], body["y"], None))
+                steps = [Step(kind="filter", params=p | {"from_chart": card["id"]}) for p in picked]
+                trial = ctx.views.compile(cur, info, [*grid.steps, *steps], grid.settings)
+                if trial.error is not None:
+                    raise ValueError(str(trial.error))
+                return steps
+
+            grid.steps = [*grid.steps, *await ctx.grid_query(grid, None, BACKGROUND, added)]
             await ctx.live.broadcast(
                 {"type": "grid_updated", "grid": grid.id, "by": actor(request), "gen": grid.gen}
             )
@@ -289,6 +289,21 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
         Route("/cards/{card_id}/select", select, methods=["POST"]),
         Route("/cards/{card_id}/code", code),
     ]
+
+
+def _click_filter(field: str, family: str, value: Any, time_unit: str | None) -> dict[str, Any]:
+    """The filter for one clicked value: a blank, a whole time bucket, or the value itself."""
+    if value is None:
+        return {"column": field, "op": "blank"}
+    if time_unit is None:
+        return {"column": field, "op": "eq", "value": value}
+    if not isinstance(value, str):
+        raise ValueError(f"A {time_unit} of {field} is picked by its first day, as YYYY-MM-DD.")
+    start = value[:10]
+    end = _bucket_end(start, time_unit)
+    if family == "timestamp":
+        end += "T23:59:59.999999"  # the whole last day, not just its midnight
+    return {"column": field, "op": "date_between", "low": start, "high": end}
 
 
 def _bucket_end(start: str, unit: str) -> str:

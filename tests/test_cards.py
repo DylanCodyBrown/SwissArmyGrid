@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pyarrow as pa
@@ -227,3 +227,83 @@ def test_one_sandbox_lists_every_tables_cards(client: TestClient) -> None:
     # A card whose grid is closed drops out of the sandbox.
     client.delete(f"/grids/{second}", headers=AUTH)
     assert [c["title"] for c in client.get("/cards", headers=AUTH).json()["cards"]] == ["on first"]
+
+
+def chart(client: TestClient, grid: str, spec: dict[str, Any]) -> str:
+    made = add(client, grid, {"kind": "chart", "spec": spec})
+    assert made.status_code == 200, made.text
+    return str(made.json()["card"])
+
+
+def row_count(client: TestClient, grid: str) -> int:
+    return int(client.get(f"/grids/{grid}/count", headers=AUTH).json()["row_count"])
+
+
+def hours() -> pa.Table:
+    start = datetime(2026, 1, 1)
+    return pa.table(
+        {
+            "at": pa.array([start + timedelta(hours=i) for i in range(24 * 59)]),  # January, February
+            "zoned": pa.array(
+                [datetime(2026, 1, 1, tzinfo=UTC) + timedelta(hours=i) for i in range(24 * 59)],
+                pa.timestamp("us", tz="UTC"),
+            ),
+            "day": pa.array([date(2026, 1, 1) + timedelta(days=i // 24) for i in range(24 * 59)]),
+            "kind": pa.array([("a", "b", "c")[i % 3] for i in range(24 * 59)]),
+        }
+    )
+
+
+def test_a_month_of_a_timestamp_column_keeps_its_last_day(client: TestClient) -> None:
+    # The bucket ended at 2026-01-31 00:00, so 23 hours of 31 January were left out (721 of 744).
+    grid = grid_id(push(client, "o", hours()))
+    month = {"mark": "bar", "x": {"field": "at", "time_unit": "month"}, "y": {"aggregate": "count"}}
+    card = chart(client, grid, month)
+    assert client.post(f"/cards/{card}/select", json={"value": "2026-01-01"}, headers=AUTH).status_code == 200
+    assert row_count(client, grid) == 31 * 24
+
+
+def test_a_raw_date_or_time_click_filters_on_that_value(client: TestClient) -> None:
+    grid = grid_id(push(client, "o", hours()))
+    by_day = chart(client, grid, {"mark": "bar", "x": {"field": "day"}, "y": {"aggregate": "count"}})
+    picked = client.post(f"/cards/{by_day}/select", json={"value": "2026-01-05"}, headers=AUTH)
+    assert picked.status_code == 200, picked.text
+    assert row_count(client, grid) == 24
+    client.post(f"/grids/{grid}/steps", json={"steps": []}, headers=AUTH)
+    by_hour = chart(client, grid, {"mark": "point", "x": {"field": "zoned"}, "y": {"aggregate": "count"}})
+    picked = client.post(
+        f"/cards/{by_hour}/select", json={"value": "2026-01-01T05:00:00+00:00"}, headers=AUTH
+    )
+    assert picked.status_code == 200, picked.text
+    assert row_count(client, grid) == 1
+
+
+def test_a_click_value_the_column_cannot_hold_is_refused_and_adds_no_step(client: TestClient) -> None:
+    # The page sent Vega's epoch milliseconds for a date; the step was saved and the grid broke.
+    grid = grid_id(push(client, "o", hours()))
+    by_day = chart(client, grid, {"mark": "bar", "x": {"field": "day"}, "y": {"aggregate": "count"}})
+    month = {"mark": "bar", "x": {"field": "day", "time_unit": "month"}, "y": {"aggregate": "count"}}
+    by_month = chart(client, grid, month)
+    for card, value in ((by_day, 1767225600000), (by_day, "not a date"), (by_month, 1767225600000)):
+        refused = client.post(f"/cards/{card}/select", json={"value": value}, headers=AUTH)
+        assert refused.status_code == 400, (value, refused.text)
+    assert client.get(f"/grids/{grid}", headers=AUTH).json()["steps"] == []
+
+
+def test_a_click_on_a_chart_whose_column_left_the_view_says_so(client: TestClient) -> None:
+    # It never answered: the column lookup's StopIteration cannot be set on an asyncio future.
+    grid = grid_id(push(client, "o", hours()))
+    card = chart(client, grid, {"mark": "bar", "x": {"field": "kind"}, "y": {"aggregate": "count"}})
+    keep = {"steps": [{"kind": "columns", "params": {"keep": ["day"]}}]}
+    client.post(f"/grids/{grid}/steps", json=keep, headers=AUTH)
+    refused = client.post(f"/cards/{card}/select", json={"value": "a"}, headers=AUTH)
+    assert refused.status_code == 400 and "kind" in refused.text
+
+
+def test_a_heatmap_click_filters_on_both_axes(client: TestClient) -> None:
+    grid = grid_id(push(client, "o", hours()))
+    cells = {"mark": "heatmap", "x": {"field": "kind"}, "y": {"field": "day", "aggregate": "count"}}
+    card = chart(client, grid, cells)
+    picked = client.post(f"/cards/{card}/select", json={"value": "a", "y": "2026-01-02"}, headers=AUTH)
+    assert picked.status_code == 200, picked.text
+    assert row_count(client, grid) == 8

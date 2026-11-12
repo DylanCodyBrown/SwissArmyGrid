@@ -73,4 +73,8 @@ def _set_result(future: asyncio.Future[Any], result: Any) -> None:
 
 def _set_exception(future: asyncio.Future[Any], error: BaseException) -> None:
     if not future.cancelled():
+        if isinstance(error, StopIteration):
+            # A future refuses StopIteration (TypeError in this callback), and the request that
+            # awaits it never answered (a stray next() on a missing column did that).
+            error = RuntimeError(f"StopIteration{f': {error}' if str(error) else ''}")
         future.set_exception(error)

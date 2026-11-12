@@ -163,13 +163,27 @@ export interface Drawn {
   toPng: () => Promise<string>;
 }
 
+// The clicked values as the server sent them. Vega-Lite parses a temporal field in place (a date
+// becomes epoch milliseconds), so the filter step gets these copies instead.
+const RAW_X = "sag_raw_x";
+const RAW_Y = "sag_raw_y2";
+
+/** Keep each point's own x (and a heatmap's y2) beside the fields Vega-Lite may parse. */
+function withRawValues(spec: Record<string, unknown>): Record<string, unknown> {
+  const data = spec.data as { values?: Record<string, unknown>[] } | undefined;
+  if (!data?.values) return spec;
+  // A histogram's bars (bin_start, bin_end) name a range, not one value: they keep none.
+  const raw = (v: Record<string, unknown>): Record<string, unknown> => ("x" in v ? { ...v, [RAW_X]: v.x, [RAW_Y]: v.y2 } : v);
+  return { ...spec, data: { ...data, values: data.values.map(raw) } };
+}
+
 export async function drawChart(
   element: HTMLElement,
   spec: Record<string, unknown>,
-  options: { onSelect?: (value: unknown) => void; zoomable?: boolean; height?: number; large?: boolean; fontScale?: number } = {},
+  options: { onSelect?: (value: unknown, y2?: unknown) => void; zoomable?: boolean; height?: number; large?: boolean; fontScale?: number } = {},
 ): Promise<Drawn> {
   installPatterns();
-  let copy: Record<string, unknown> = withPatterns(structuredClone(spec));
+  let copy: Record<string, unknown> = withRawValues(withPatterns(structuredClone(spec)));
   // The server names the Vega-Lite 5 schema (Altair's, for the code it exports); the page draws
   // with its own Vega-Lite, which warned in the console for every chart about the version.
   delete copy.$schema;
@@ -189,9 +203,16 @@ export async function drawChart(
     tooltip: { theme: "custom" },
   });
   if (options.onSelect) {
+    const heatmap = (copy.mark as { type?: string } | undefined)?.type === "rect";
     result.view.addEventListener("click", (_event, item) => {
-      const datum = (item as { datum?: Record<string, unknown> } | null)?.datum;
-      if (datum && "x" in datum) options.onSelect?.(datum.x);
+      // Bars, points and heatmap cells name one value. A line or area path carries only its
+      // first point's datum, so a click on the path itself filtered to the first x.
+      const picked = item as { datum?: Record<string, unknown>; mark?: { marktype?: string } } | null;
+      if (picked?.mark?.marktype !== "rect" && picked?.mark?.marktype !== "symbol") return;
+      const datum = picked.datum;
+      if (!datum || !(RAW_X in datum)) return;
+      if (heatmap) options.onSelect?.(datum[RAW_X], datum[RAW_Y]);
+      else options.onSelect?.(datum[RAW_X]);
     });
   }
   // Exports carry the pattern definitions inside the SVG, so they render anywhere.

@@ -282,16 +282,18 @@ function cardElement(card: Card): HTMLElement {
     content.append(smallTable(card.columns ?? [], card.rows ?? []));
     if (card.capped) foot.textContent = "Showing the first 100 rows.";
   } else if (card.vega_lite) {
-    const chart = h("div", { class: "chart", role: "img", "aria-label": `${chartTitle(card)}: ${card.points ?? 0} points. Click a mark to filter the grid.` });
+    // A histogram's bar is a range, which the column profile filters on; every other mark is one value.
+    const clickable = markOf(card) !== "histogram";
+    const chart = h("div", { class: "chart", role: "img", "aria-label": `${chartTitle(card)}: ${card.points ?? 0} points.${clickable ? " Click a mark to filter the grid." : ""}` });
     content.append(chart);
-    foot.textContent = [card.note, `${formatCount(card.points ?? 0)} points · click a mark to filter`].filter(Boolean).join(" · ");
+    foot.textContent = [card.note, `${formatCount(card.points ?? 0)} points${clickable ? " · click a mark to filter" : ""}`].filter(Boolean).join(" · ");
     void charts().then(async (m) => {
       const max = workspace.dataset.panel === "max";
       const roomy = max || viewingAgent(); // the Agent tab gives each chart a full-width, tall card
       const room = workspace.getBoundingClientRect().height;
       const maxHeight = Math.min(480, Math.max(320, Math.round(room * (workspace.dataset.layout === "bottom" ? 0.55 : 0.4))));
       const height = Math.round((roomy ? maxHeight : workspace.dataset.layout === "bottom" ? 150 : 280) * (roomy ? 1 : panelZoom));
-      drawn = await m.drawChart(chart, card.vega_lite!, { onSelect: (value) => void crossFilter(card, value), height, fontScale: panelZoom, large: max });
+      drawn = await m.drawChart(chart, card.vega_lite!, { onSelect: (value, y2) => void crossFilter(card, value, y2), height, fontScale: panelZoom, large: max });
     });
   }
   return element;
@@ -331,10 +333,18 @@ function smallTable(columns: string[], rows: unknown[][]): HTMLElement {
   );
 }
 
-async function crossFilter(card: Card, value: unknown): Promise<void> {
+function markOf(card: Card): string {
+  return (card.spec as { mark?: string } | undefined)?.mark ?? "";
+}
+
+async function crossFilter(card: Card, value: unknown, y2?: unknown): Promise<void> {
+  const spec = card.spec as { x?: { field?: string }; y?: { field?: string } } | undefined;
+  const shown = (v: unknown): string => (v === null ? "(blank)" : String(v));
+  // A heatmap cell is a pair: its row's value filters too.
+  const cell = markOf(card) === "heatmap" && y2 !== undefined;
   try {
-    await api(`/cards/${card.id}/select`, "POST", { value });
-    toast(`Filtered the grid to ${String((card.spec as { x?: { field?: string } })?.x?.field)} = ${value === null ? "(blank)" : String(value)}.`);
+    await api(`/cards/${card.id}/select`, "POST", cell ? { value, y: y2 } : { value });
+    toast(`Filtered the grid to ${String(spec?.x?.field)} = ${shown(value)}${cell ? ` and ${String(spec?.y?.field)} = ${shown(y2)}` : ""}.`);
     // The card's own table gets the filter step, whichever table is in front.
     const owner = contextOf(card.grid)?.state ?? state;
     // A new generation before load() redraws the panels, so their requests are not stale (409).
@@ -349,19 +359,26 @@ async function crossFilter(card: Card, value: unknown): Promise<void> {
 async function expandChart(card: Card): Promise<void> {
   const { body, foot, close } = openDialog(card.title || chartTitle(card), true);
   const chart = h("div", { class: "expanded-chart" });
-  const mark = (card.spec as { mark?: string } | undefined)?.mark ?? "";
+  const mark = markOf(card);
   const zoomable = ["point", "line", "area"].includes(mark);
-  body.append(h("p", { class: "hint" }, zoomable ? "Scroll to zoom and drag to pan; double-click resets. Click a point to filter the grid." : "Click a bar to filter the grid."), chart);
+  const hint = zoomable
+    ? "Scroll to zoom and drag to pan; double-click resets. Click a point to filter the grid."
+    : mark === "histogram"
+      ? "Hover a bar for its range and count; the column profile filters on a range."
+      : mark === "heatmap"
+        ? "Click a cell to filter the grid to its pair of values."
+        : "Click a bar to filter the grid.";
+  body.append(h("p", { class: "hint" }, hint), chart);
   foot.append(button("Close", close, { class: "primary" }));
   const m = await charts();
-  await m.drawChart(chart, card.vega_lite!, { zoomable, large: true, height: Math.round(window.innerHeight * 0.6), onSelect: (v) => { close(); void crossFilter(card, v); } });
+  await m.drawChart(chart, card.vega_lite!, { zoomable, large: true, height: Math.round(window.innerHeight * 0.6), onSelect: (v, y2) => { close(); void crossFilter(card, v, y2); } });
 }
 
 async function exportHtml(card: Card, drawn: Drawn | null): Promise<void> {
   if (!drawn) return;
   const svg = await drawn.toSvg();
   const title = card.title || chartTitle(card);
-  const page = `<!doctype html><meta charset="utf-8"><title>${title.replace(/</g, "&lt;")}</title><body style="font-family:Segoe UI,sans-serif;background:#fff;margin:24px">${svg}<p style="color:#57606a">From SwissArmyGrid, dataset ${state.info?.dataset ?? ""}, ${new Date().toISOString()}</p></body>`;
+  const page = `<!doctype html><meta charset="utf-8"><title>${title.replace(/</g, "&lt;")}</title><body style="font-family:Segoe UI,sans-serif;background:#fff;margin:24px">${svg}<p style="color:#57606a">From SwissArmyGrid, dataset ${card.dataset.replace(/</g, "&lt;")}, ${new Date().toISOString()}</p></body>`;
   saveBlob(new Blob([page], { type: "text/html" }), `${title.replace(/[^A-Za-z0-9_-]+/g, "_") || "chart"}.html`);
 }
 

@@ -539,6 +539,49 @@ def test_chart_card_draws_zooms_and_cross_filters(browser: Browser, orders_url: 
     expect(page.locator("#status")).to_contain_text("of 1,250", timeout=15000)
 
 
+def test_chart_clicks_filter_by_date_by_heatmap_cell_and_never_by_a_whole_line(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    # Vega hands a clicked date over as epoch milliseconds: every date chart's click failed
+    # ("month must be in 1..12"), and a raw date's became a filter on a number.
+    grid = grid_of(orders_url)
+
+    def add_chart(title: str, spec: dict[str, Any]) -> None:
+        call(server, "POST", f"/grids/{grid}/cards", {"kind": "chart", "title": title, "spec": spec})
+
+    def steps() -> list[dict[str, Any]]:
+        return call(server, "GET", f"/grids/{grid}")["steps"]  # type: ignore[no-any-return]
+
+    count = {"aggregate": "count"}
+    add_chart("By month", {"mark": "bar", "x": {"field": "order_date", "time_unit": "month"}, "y": count})
+    add_chart("By week", {"mark": "line", "x": {"field": "order_date", "time_unit": "week"}, "y": count})
+    add_chart("By day", {"mark": "point", "x": {"field": "order_date"}, "y": count})
+    add_chart("Cells", {"mark": "heatmap", "x": {"field": "product"}, "y": {"field": "region", **count}})
+    add_chart("Prices", {"mark": "histogram", "x": {"field": "unit_price"}})
+    page = open_grid(browser, orders_url)
+    open_agent(page)
+    for title in ("By month", "By week", "By day", "Cells", "Prices"):
+        expect(page.locator(".card", has_text=title).locator(".chart svg")).to_be_visible(timeout=20000)
+    # The line itself is not one week (it was the first one): only its points filter.
+    page.locator(".card", has_text="By week").locator(".mark-line path").first.dispatch_event("click")
+    page.wait_for_timeout(700)
+    assert steps() == []
+    page.locator(".card", has_text="By month").locator(".mark-rect path").first.click()
+    expect(page.locator(".toast").last).to_contain_text("2026-01-01")
+    assert [(s["params"]["op"], s["params"]["low"]) for s in steps()] == [("date_between", "2026-01-01")]
+    assert call(server, "GET", f"/grids/{grid}/count")["row_count"] == 31 * 14
+    call(server, "POST", f"/grids/{grid}/steps", {"steps": []})
+    page.locator(".card", has_text="By day").locator(".mark-symbol path").first.dispatch_event("click")
+    expect(page.locator(".toast").last).to_contain_text("Filtered the grid to order_date = 2026-")
+    assert [s["params"]["op"] for s in steps()] == ["eq"]
+    call(server, "POST", f"/grids/{grid}/steps", {"steps": []})
+    page.locator(".card", has_text="Cells").locator(".mark-rect path").first.click()
+    expect(page.locator(".toast").last).to_contain_text(" and region = ")
+    assert sorted(s["params"]["column"] for s in steps()) == ["product", "region"]
+    # A histogram bar does not filter, so its card does not say it does.
+    expect(page.locator(".card", has_text="Prices").locator(".card-foot")).not_to_contain_text("click")
+
+
 def test_note_markdown_is_rendered_safely(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
     grid = orders_url.split("/g/")[1].split("#")[0]
     call(
