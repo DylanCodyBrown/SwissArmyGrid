@@ -27,8 +27,8 @@ only has these MCP tools, not code already running with the user's rights.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import secrets
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -41,7 +41,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.engine.datasets import DatasetInfo
+from swissarmygrid.engine.datasets import DatasetInfo, quote
 from swissarmygrid.engine.export import FORMATS
 from swissarmygrid.engine.profile import profile_column, profile_table
 from swissarmygrid.engine.sql_guard import guard
@@ -49,6 +49,14 @@ from swissarmygrid.engine.steps import filter_condition, type_family
 from swissarmygrid.engine.workers import AGENT
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.masking import (
+    Origins,
+    column_rules,
+    has_strings,
+    hash_value,
+    is_plain_number,
+    mask_strings,
+)
 from swissarmygrid.server.security import ENGINE_ERROR_HIDDEN, ENGINE_ERRORS_SHOWN_FROM_LEVEL
 from swissarmygrid.settings import EXCEL_MAX_ROWS
 
@@ -56,6 +64,25 @@ from swissarmygrid.settings import EXCEL_MAX_ROWS
 LEVEL_ROW_CAPS: dict[int, int] = {0: 0, 1: 20, 2: 200, 3: EXCEL_MAX_ROWS}
 DEFAULT_LEVEL: int = 3
 APPROVAL_TIMEOUT_SECONDS: float = 180.0
+# Type families whose values are not text: level 1 masks every other one (text, lists, JSON...).
+_NOT_TEXT: frozenset[str] = frozenset({"number", "date", "timestamp", "boolean"})
+# What a column profile says about the values themselves, which a hidden column leaves out.
+_PROFILE_VALUE_KEYS: tuple[str, ...] = (
+    "top_values",
+    "case_groups",
+    "min",
+    "max",
+    "mean",
+    "median",
+    "q1",
+    "q3",
+    "sum",
+    "stddev",
+    "histogram",
+    "earliest",
+    "latest",
+    "by_month",
+)
 # How long the user's click on an export stays good for the export it approved.
 EXPORT_TICKET_SECONDS: float = 120.0
 
@@ -127,6 +154,9 @@ def is_whole_table_aggregate(sql: str) -> bool:
         return False
     if not isinstance(root, exp.Select) or root.args.get("group"):
         return False
+    # A window (max(x) OVER (...)) or an unnest of an aggregate returns one row per input row.
+    if any(root.find(kind) for kind in (exp.Window, exp.Unnest, exp.Explode)):
+        return False
     for projection in root.expressions:
         target = projection.this if isinstance(projection, exp.Alias) else projection
         if not isinstance(target, exp.AggFunc) and not target.find(exp.AggFunc):
@@ -139,12 +169,14 @@ def is_whole_table_aggregate(sql: str) -> bool:
 
 
 def mask_value(value: Any, how: str) -> Any:
+    """One value under a column rule: hash it, mask every string in it, or leave it."""
     if value is None:
         return None
     if how == "hash":
-        return hashlib.sha256(str(value).encode()).hexdigest()[:10]
-    text = str(value)
-    return (text[:1] + "•" * min(len(text) - 1, 6)) if text else ""
+        return hash_value(value)
+    if how == "mask":
+        return mask_strings(value)
+    return value
 
 
 def hidden_error(error: duckdb.Error, level: int) -> Response:
@@ -156,31 +188,27 @@ def hidden_error(error: duckdb.Error, level: int) -> Response:
 
 
 def apply_masks(
-    rules: Policy, names: list[str], types: list[str], rows: list[list[Any]]
+    rules: Policy,
+    names: list[str],
+    types: list[str],
+    rows: list[list[Any]],
+    origins: list[Origins] | None = None,
 ) -> tuple[list[str], list[list[Any]], list[str]]:
     """(shown column names, masked rows, the masked column names) under the policy: "hide"
-    drops a column, "hash" hashes it, and level 1 masks every text column not marked "show".
-    Level 3 sees everything, so no mask applies there."""
+    drops a column, "hash" hashes it, and level 1 masks every string not marked "show". Each
+    column's rule comes from the columns it was computed from (`origins`, see masking.py), so a
+    rename does not lift it. Level 3 sees everything, so no mask applies there."""
     if rules.level >= 3:
         return names, rows, []
-    keep: list[int] = []
-    how: list[str] = []
-    for i, (name, type_name) in enumerate(zip(names, types, strict=True)):
-        rule = rules.masks.get(name)
-        if rule == "hide":
-            continue
-        keep.append(i)
-        if rule == "hash":
-            how.append("hash")
-        elif rules.level == 1 and rule != "show" and "VARCHAR" in type_name.upper():
-            how.append("mask")
-        else:
-            how.append("show")
-    shown = [
-        [row[i] if h == "show" else mask_value(row[i], h) for i, h in zip(keep, how, strict=True)]
-        for row in rows
+    decided = column_rules(rules.level, rules.masks, names, origins)
+    keep = [i for i, how in enumerate(decided) if how != "hide"]
+    shown = [[mask_value(row[i], decided[i]) for i in keep] for row in rows]
+    masked = [
+        names[i]
+        for i in keep
+        if decided[i] == "hash"
+        or (decided[i] == "mask" and ("VARCHAR" in types[i].upper() or any(has_strings(r[i]) for r in rows)))
     ]
-    masked = [names[i] for i, h in zip(keep, how, strict=True) if h != "show"]
     return [names[i] for i in keep], shown, masked
 
 
@@ -188,6 +216,14 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
     """`rules`: the one policy for every table; the level the user picks in Settings applies
     to all of them. app.py makes it and shares it with routes_context."""
     approvals: dict[str, Approval] = {}
+
+    def rule_for(dataset: str, column: str) -> str:
+        """The mask rule for one column of a dataset, following a query-made table to its sources."""
+        return column_rules(rules.level, rules.masks, [column], [ctx.column_origins(dataset, column)])[0]
+
+    def traced(sql: str) -> list[Origins] | None:
+        """Where each column of `sql` came from, when a rule could depend on it (levels 1-2 with masks)."""
+        return ctx.trace(sql) if rules.level in (1, 2) and rules.masks else None
 
     def dataset_for(body: dict[str, Any]) -> tuple[DatasetInfo, Grid | None]:
         grid_id = body.get("grid")
@@ -264,15 +300,20 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             level = rules.level
 
             def compute(cur: duckdb.DuckDBPyConnection) -> Any:
-                names = ", ".join(f'"{c.name}"' for c in info.columns)
+                names = ", ".join(quote(c.name) for c in info.columns)
                 sql = f"SELECT {names} FROM {info.table}"
                 return profile_table(cur, sql, info.columns)
 
             profiled = await ctx.workers.run(AGENT, lambda: compute(ctx.store.cursor()))
             for row in profiled["columns"]:
-                if level == 0 and type_family(row["type"]) not in ("number",):
+                how = rule_for(info.name, row["column"])
+                if (level == 0 and type_family(row["type"]) != "number") or how == "hide":
                     row.pop("min", None)
                     row.pop("max", None)
+                elif how != "show" and (how == "hash" or type_family(row["type"]) not in _NOT_TEXT):
+                    for key in ("min", "max"):
+                        if key in row:
+                            row[key] = mask_value(row[key], how)
             ctx.audit.write("agent", "describe", info.name)
             return json_response(
                 {
@@ -300,14 +341,22 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             level = rules.level
             sql = f"SELECT * FROM {info.table}"
             result = await ctx.workers.run(AGENT, lambda: profile_column(ctx.store.cursor(), sql, column))
+            how = rule_for(info.name, column.name)
             if level == 0 and result["family"] != "number":
                 for key in ("top_values", "case_groups", "by_month", "earliest", "latest"):
                     result.pop(key, None)
-            elif level == 1 and rules.masks.get(column.name) != "show":
-                result["top_values"] = [
-                    {"value": mask_value(v["value"], "mask"), "count": v["count"]}
-                    for v in result.get("top_values", [])
-                ]
+            if how == "hide":
+                for key in _PROFILE_VALUE_KEYS:
+                    result.pop(key, None)
+            elif how == "hash" or (how == "mask" and result["family"] not in _NOT_TEXT):
+                if "top_values" in result:
+                    result["top_values"] = [
+                        {"value": mask_value(v["value"], how), "count": v["count"]}
+                        for v in result["top_values"]
+                    ]
+                for key in ("min", "max", "earliest", "latest"):
+                    if key in result:
+                        result[key] = mask_value(result[key], how)
                 result.pop("case_groups", None)
             ctx.audit.write("agent", "profile", info.name, column=column.name)
             return json_response(result | {"privacy_level": level})
@@ -329,10 +378,12 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                     "the level in the grid's Settings.",
                     status_code=403,
                 )
+            asked = False
             if not aggregate and not rules.auto_rows and rules.level < 3:
                 if not await ask_user(info.name, "query", text):
                     ctx.audit.write("agent", "query_declined", info.name, query=text)
                     return Response("The user declined (or did not answer) this query.", status_code=403)
+                asked = True
             cap = 1 if aggregate and rules.level == 0 else LEVEL_ROW_CAPS[rules.level]
 
             def execute(cur: duckdb.DuckDBPyConnection) -> Any:
@@ -345,17 +396,49 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                 guarded = guard(text, {i.name for i in ctx.store.all()}, grid_sql)
                 if guarded.kind != "select":
                     raise ValueError("Agents may only run SELECT queries; use steps_save_result to pin.")
-                result = cur.execute(guarded.sql)
-                names = [d[0] for d in result.description or []]
-                types = [str(d[1]) for d in result.description or []]
-                return names, types, [list(r) for r in result.fetchmany(cap + 1)]
+                timer = threading.Timer(ctx.settings.query_timeout_seconds, cur.interrupt)
+                timer.start()
+                try:
+                    result = cur.execute(guarded.sql)
+                    names = [d[0] for d in result.description or []]
+                    types = [str(d[1]) for d in result.description or []]
+                    fetched = [list(r) for r in result.fetchmany(max(cap, 1) + 1)]
+                finally:
+                    timer.cancel()
+                return names, types, fetched, traced(guarded.sql)
 
             try:
-                names, types, rows = await ctx.workers.run(AGENT, lambda: execute(ctx.store.cursor()))
+                names, types, rows, origins = await ctx.workers.run(
+                    AGENT, lambda: execute(ctx.store.cursor())
+                )
+            except duckdb.InterruptException:
+                return Response(
+                    f"The query was stopped: it ran past {ctx.settings.query_timeout_seconds:.0f} seconds.",
+                    status_code=408,
+                )
             except duckdb.Error as error:
                 return hidden_error(error, rules.level)
+            if aggregate and len(rows) > 1:
+                # It parsed as one aggregate but returned rows (a construct the check above missed):
+                # rows, so they wait for the user's click like any other.
+                if rules.level == 0:
+                    return Response(
+                        "At privacy level 0 a query may return one row of whole-table aggregates.",
+                        status_code=403,
+                    )
+                if not rules.auto_rows and rules.level < 3 and not asked:
+                    if not await ask_user(info.name, "query", text):
+                        ctx.audit.write("agent", "query_declined", info.name, query=text)
+                        return Response("The user declined (or did not answer) this query.", status_code=403)
+            if rules.level == 0 and not all(is_plain_number(v) for row in rows for v in row):
+                return Response(
+                    "At privacy level 0 an aggregate may return numbers only (count, sum, avg, and the "
+                    "min or max of a number), never text, dates or lists of values. The user can raise "
+                    "the level in Settings.",
+                    status_code=403,
+                )
             capped = len(rows) > cap
-            shown_names, shown_rows, masked = apply_masks(rules, names, types, rows[:cap])
+            shown_names, shown_rows, masked = apply_masks(rules, names, types, rows[:cap], origins)
             ctx.audit.write("agent", "query", info.name, query=text, rows=len(shown_rows))
             await ctx.live.broadcast(
                 {"type": "agent_query", "dataset": info.name, "sql": text, "rows": len(shown_rows)}
@@ -386,13 +469,16 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
             cap = LEVEL_ROW_CAPS[rules.level]
             take = min(limit, cap)
 
-            def count(cur: duckdb.DuckDBPyConnection) -> tuple[int, list[str], list[str]]:
+            def count(
+                cur: duckdb.DuckDBPyConnection,
+            ) -> tuple[int, list[str], list[str], list[Origins] | None]:
                 n = ctx.views.row_count(cur, info, grid.steps, grid.settings, None)
-                columns = ctx.compiled(cur, grid, info).columns
-                return n, [c.name for c in columns], [c.type for c in columns]
+                compiled = ctx.compiled(cur, grid, info)
+                columns = compiled.columns
+                return n, [c.name for c in columns], [c.type for c in columns], traced(compiled.sql())
 
             try:
-                row_count, names, types = await ctx.grid_query(grid, None, AGENT, count)
+                row_count, names, types, origins = await ctx.grid_query(grid, None, AGENT, count)
             except duckdb.Error as error:
                 return hidden_error(error, rules.level)
             out: dict[str, Any] = {
@@ -426,7 +512,7 @@ def routes(ctx: Context, rules: Policy) -> list[BaseRoute]:
                 rows = await ctx.grid_query(grid, None, AGENT, read)
             except duckdb.Error as error:
                 return hidden_error(error, rules.level)
-            shown_names, shown_rows, masked = apply_masks(rules, names, types, rows)
+            shown_names, shown_rows, masked = apply_masks(rules, names, types, rows, origins)
             ctx.audit.write("agent", "read", info.name, grid=grid.id, rows=len(shown_rows))
             return json_response(
                 out

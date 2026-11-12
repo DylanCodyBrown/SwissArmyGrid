@@ -49,6 +49,7 @@ from swissarmygrid.server.context import (
     read_json,
 )
 from swissarmygrid.server.grids import Grid
+from swissarmygrid.server.masking import Origins
 
 ARROW_STREAM: str = "application/vnd.apache.arrow.stream"
 
@@ -90,13 +91,21 @@ async def store_table(
     who: str,
     query: str | None = None,
     follow: bool = False,
+    origins: dict[str, Origins] | None = None,
 ) -> dict[str, Any]:
     """The common end of every way data arrives: store, pick a grid, notify, audit.
 
     `follow` is a Python session keeping an open table current after its variable was assigned
     again. It refreshes the grid where it is: no jump to the front, and no new tab if the user
-    closed the old one (the data stays fresh for when they open it again)."""
+    closed the old one (the data stays fresh for when they open it again).
+
+    `origins`: for a table made by a query, where each column came from (masking.py); any other
+    arrival replaces the data, so whatever the name was derived from no longer applies."""
     info: DatasetInfo = await ctx.workers.run(BACKGROUND, ctx.store.replace, name, table, source_kind, query)
+    if origins is None:
+        ctx.derived_columns.pop(name, None)
+    else:
+        ctx.derived_columns[name] = origins
     ctx.views.forget_dataset(name)
     existing = ctx.grids.first_for(name)
     if follow and existing is None:
@@ -240,6 +249,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
         if not await ctx.workers.run(INTERACTIVE, ctx.store.close, name):
             return Response("No such dataset.", status_code=404)
         ctx.views.forget_dataset(name)
+        ctx.derived_columns.pop(name, None)
         for grid in ctx.grids.for_dataset(name):
             ctx.grids.close(grid.id)
         await ctx.live.broadcast({"type": "dataset_closed", "dataset": name})
@@ -306,7 +316,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
                     return f"SELECT * FROM {quote('ds_' + dataset)}"  # noqa: S608 (a quoted dataset name)
                 return ctx.compiled(cursor, grid, info).sql()
 
-            def execute(cursor: duckdb.DuckDBPyConnection) -> pa.Table:
+            def execute(cursor: duckdb.DuckDBPyConnection) -> tuple[pa.Table, dict[str, Origins]]:
                 datasets = {i.name for i in ctx.store.all()}
                 guarded = guard(text, datasets, None, lambda dataset: tab_view(cursor, dataset))
                 if guarded.kind != "select":
@@ -314,19 +324,22 @@ def routes(ctx: Context) -> list[BaseRoute]:
                 timer = threading.Timer(settings.query_timeout_seconds, cursor.interrupt)
                 timer.start()
                 try:
-                    return cursor.sql(guarded.sql).to_arrow_table()
+                    result = cursor.sql(guarded.sql).to_arrow_table()
                 finally:
                     timer.cancel()
+                return result, ctx.origins_of_result(guarded.sql, result.column_names)
 
             try:
-                table = await ctx.workers.run(BACKGROUND, lambda: execute(ctx.store.cursor()))
+                table, origins = await ctx.workers.run(BACKGROUND, lambda: execute(ctx.store.cursor()))
             except duckdb.InterruptException:
                 return Response(
                     f"The query was stopped: it ran past {settings.query_timeout_seconds:.0f} seconds.",
                     status_code=408,
                 )
             who = actor(request)
-            result = await store_table(ctx, name, table, "sql_result", False, who, query=text)
+            result = await store_table(
+                ctx, name, table, "sql_result", False, who, query=text, origins=origins
+            )
             ctx.audit.write(who, "sql_query", name, query=text, rows=table.num_rows)
             return json_response(result | {"rows": table.num_rows})
         except Exception as error:

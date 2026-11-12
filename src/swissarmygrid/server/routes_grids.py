@@ -433,7 +433,8 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
                 timer.start()
                 try:
                     if guarded.kind == "create":
-                        return guarded, cur.sql(guarded.sql).to_arrow_table(), None, 0.0
+                        made = cur.sql(guarded.sql).to_arrow_table()
+                        return guarded, made, ctx.origins_of_result(guarded.sql, made.column_names), 0.0
                     result = cur.execute(guarded.sql)
                     names = [d[0] for d in result.description or []]
                     fetched = result.fetchmany(row_cap + 1)
@@ -455,7 +456,9 @@ def routes(ctx: Context, policy: Policy) -> list[BaseRoute]:
             except duckdb.Error as error:
                 return Response(f"DuckDB: {error}", status_code=400)
             if guarded.kind == "create" and guarded.new_table:
-                result = await store_table(ctx, guarded.new_table, names, "sql_result", True, who)
+                result = await store_table(
+                    ctx, guarded.new_table, names, "sql_result", True, who, origins=fetched
+                )
                 ctx.audit.write(who, "sql_pin", guarded.new_table, query=text, rows=names.num_rows)
                 return json_response({"pinned": guarded.new_table} | result)
             # A CREATE TABLE pins a dataset and returns no cells, so it is open to the agent at every
