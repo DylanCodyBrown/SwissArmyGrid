@@ -115,3 +115,11 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   LIMIT 100` 94 -> 6 ms; CSV export 6.2 -> 2.1 s (byte for byte the same); Excel export 50 ->
   45.6 s (xlsxwriter's own writes and close are the rest). `tests/test_performance.py` after:
   first window 13 ms, sort 247 ms, filter 51 ms, profile 39 ms.
+- (2026-11-12) Agent tool sweep (`tests/test_tool_sweep.py`): all 88 MCP tools through the MCP
+  server's `call_tool`, at levels 0-3, with sensible and hostile arguments, against the sample
+  store on a real port: 706 cases pass in about 75 s. Found and fixed on the way: 500s from a
+  malformed step's description and from sqlglot's TokenError (an unclosed quote), a raw exception
+  from `table_export` options, the column tracer counting `rowid` in `SELECT *` (every stepped grid
+  untraced), and DuckDB error text at level 2 quoting a hidden column. sqlglot 30.24.0 qualifies a
+  whole-row reference (`to_json(t)`) as `exp.TableColumn` and `#1` as `exp.PositionalColumn`;
+  `server/level_zero.py` treats both as untraceable.
