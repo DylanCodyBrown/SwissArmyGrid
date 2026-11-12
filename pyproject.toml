@@ -30,7 +30,7 @@ client = ["pyarrow>=19"]
 # relationships view and its autodetection replace that feature. See Plans/standalone-workspaces.plan.md.)
 
 [project.scripts]
-swissarmygrid = "swissarmygrid.server.__main__:main"
+swissarmygrid = "swissarmygrid.server.launcher:main"
 swissarmygrid-mcp = "swissarmygrid.mcp.server:main"
 sag = "swissarmygrid.cli.main:main"
 swissarmygrid-context = "swissarmygrid.client.context_hook:main"
