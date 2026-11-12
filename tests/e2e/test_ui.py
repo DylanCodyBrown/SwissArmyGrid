@@ -748,8 +748,11 @@ def test_agent_privacy_controls(browser: Browser, orders_url: str, server: dict[
     page = open_grid(browser, orders_url)
     # One policy for the whole (shared) test server: start from the default, level 3.
     call(server, "POST", "/agent/policy", {"level": 3, "auto_rows": False, "masks": {}})
+    sql = "SELECT count(*) AS activity_check FROM grid"
+    call(server, "POST", "/agent/query", {"dataset": "orders", "sql": sql}, agent=True)
     page.get_by_role("button", name="Settings").click()
     dialog = page.locator("dialog")
+    expect(dialog.locator(".activity li").first).to_contain_text(sql)  # newest first
     expect(dialog.get_by_role("radio", name=re.compile("Level 3"))).to_be_checked()
     dialog.get_by_text("Level 1: masked samples").click()
     expect(page.locator(".toast").last).to_contain_text("level 1")

@@ -118,7 +118,9 @@ function masksFieldset(policy: Policy, save: (next: Partial<Policy>) => void): H
 async function activityFieldset(): Promise<HTMLElement> {
   let entries: { time: string; actor: string; action: string; dataset: string | null; query?: string; rows?: number }[] = [];
   try {
-    entries = (await api<{ entries: typeof entries }>(`/audit${query({ limit: 200 })}`)).entries.filter((e) => e.actor === "agent").reverse().slice(0, 30);
+    // The agent's own last 30: filtered from the last 200 of everyone's, they were gone once the
+    // user had done 200 things since.
+    entries = (await api<{ entries: typeof entries }>(`/audit${query({ limit: 30, actor: "agent" })}`)).entries.reverse();
   } catch {
     // no history
   }

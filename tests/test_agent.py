@@ -205,6 +205,19 @@ def test_every_agent_action_is_audited(tmp_path: Path) -> None:
     assert "Acme" not in json.dumps(audit)
 
 
+def test_the_activity_list_keeps_the_agents_entries_however_busy_the_user_was(tmp_path: Path) -> None:
+    # The page read the last 200 entries and kept the agent's: 200 step changes later the
+    # Settings window said "No agent activity yet".
+    with make_client(tmp_path) as client:
+        grid = grid_id(push(client, "clients", CLIENTS))
+        client.get("/agent/describe/clients", headers=AGENT)
+        for _ in range(210):
+            client.post(f"/grids/{grid}/steps", json={"steps": []}, headers=AUTH)
+        entries = client.get("/audit?limit=30&actor=agent", headers=AUTH).json()["entries"]
+        assert [e["action"] for e in entries] == ["describe"]
+        assert len(client.get("/audit?limit=30", headers=AUTH).json()["entries"]) == 30
+
+
 def test_refusals_reach_the_agent_with_their_reason(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
