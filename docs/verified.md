@@ -242,3 +242,9 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   a plugin with no blades or tangs is not a pack. In Chrome for Testing 153, a pack blade opens
   read-only with Save a copy, and New marketplace plus Add to pack write a marketplace that takes
   saved blades.
+- (2026-11-13) The tour (tour.ts), in Chrome for Testing 153, light and dark: the New here? bubble
+  shows on a first visit and never again once the tour is opened (localStorage, so per browser); each
+  card's spotlight surrounds its control (the grid's tab, Relationships, Blades and catalog) or the
+  card sits in the middle when the control is off screen; the arrow keys and Escape work; five game
+  rounds end on the score knife. Full suite: 1,563 passed (one older test listed the Application
+  row's buttons exactly and now lists the four row buttons).

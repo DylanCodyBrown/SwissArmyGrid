@@ -2153,7 +2153,7 @@ def test_the_application_row_sits_above_the_ribbon_on_every_tab(browser: Browser
     page = open_grid(browser, orders_url, width=1440)
     app = page.locator(".app-row")
     expect(app.locator(".ribbon-caption strong")).to_have_text("Application")
-    expect(app.get_by_role("button")).to_have_text(["Settings", "Blades and catalog", "Notebook"])
+    expect(app.locator(".ribbon-btn")).to_have_text(["Settings", "Blades and catalog", "Notebook", "Tour"])
     table_row = page.locator(".ribbon .ribbon-group").first
     assert app.bounding_box()["y"] < table_row.bounding_box()["y"]  # type: ignore[index]
     expect(page.locator(".tabbar").get_by_role("button", name="Settings")).to_have_count(0)
