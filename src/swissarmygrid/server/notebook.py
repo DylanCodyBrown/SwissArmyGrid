@@ -272,7 +272,7 @@ class NotebookControl:
         self, file: str, session: str, ids: list[str], codes: list[str], lines: list[str]
     ) -> list[str]:
         """Put the lines the notebook does not make yet in a new cell above the first, and run it."""
-        from swissarmygrid.blade_core.code import missing_imports
+        from swissarmygrid.domain.blades import missing_imports
 
         needed = missing_imports("\n\n".join(codes), lines)
         if not needed:

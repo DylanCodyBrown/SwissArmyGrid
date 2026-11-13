@@ -275,7 +275,7 @@ def test_blades_are_found_by_name_description_or_tag_and_favourites_come_first(
 def test_an_imported_blade_file_is_reviewed_first_and_a_taken_name_keeps_both(
     browser: Browser, server: dict[str, Any], warehouse: str, tmp_path: Path
 ) -> None:
-    from swissarmygrid.blade_core.portable import write_blade
+    from swissarmygrid.domain.blades import write_blade
 
     marker = tmp_path / "ran.txt"
     code = f"open({str(marker)!r}, 'w').write('ran')\nconn = 1\n"
@@ -319,7 +319,7 @@ def test_an_imported_blade_file_is_reviewed_first_and_a_taken_name_keeps_both(
 def test_a_blade_folder_lists_its_blade_files_and_the_save_screen_exports(
     browser: Browser, server: dict[str, Any], warehouse: str, tmp_path: Path
 ) -> None:
-    from swissarmygrid.blade_core.portable import write_blade
+    from swissarmygrid.domain.blades import write_blade
 
     folder = tmp_path / "team blades"
     (folder / "apps").mkdir(parents=True)
@@ -409,7 +409,7 @@ POSTGRES_STARTER = (
 def test_import_suggests_values_for_a_blades_settings_and_writes_them_in(
     browser: Browser, server: dict[str, Any], warehouse: str, tmp_path: Path
 ) -> None:
-    from swissarmygrid.blade_core.portable import write_blade
+    from swissarmygrid.domain.blades import write_blade
 
     mine = 'import psycopg\nconn = psycopg.connect(host="db01.corp.local", dbname="sales")\n'
     call(server, "POST", "/blades", {"name": "Sales DB", "kind": "sql", "dialect": "postgres", "code": mine})

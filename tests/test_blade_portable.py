@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from swissarmygrid.blade_core.portable import PortableError, read_blade, read_blades, write_blade
+from swissarmygrid.domain.blades import PortableError, read_blade, read_blades, write_blade
 from swissarmygrid.server.blade_templates import TEMPLATES
 
 SQL_BLADE: dict[str, Any] = {
@@ -146,7 +146,7 @@ def test_several_blades_from_a_zip_or_files() -> None:
 
 
 def test_only_a_header_at_the_top_makes_a_file_a_blade() -> None:
-    from swissarmygrid.blade_core.portable import is_blade
+    from swissarmygrid.domain.blades import is_blade
 
     blade = write_blade(SQL_BLADE)
     assert is_blade(blade)

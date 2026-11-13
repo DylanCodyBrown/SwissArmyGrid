@@ -31,13 +31,14 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from swissarmygrid.adapters.blades import BladeStore
+from swissarmygrid.adapters.catalogs import CatalogStore
 from swissarmygrid.adapters.codegen import Verifier
 from swissarmygrid.adapters.database import PriorityWorkers, duckdb_grammar, open_database
 from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.adapters.views import ViewEngine
 from swissarmygrid.domain.grids import GridRegistry
 from swissarmygrid.engine.audit import AuditLog
-from swissarmygrid.engine.catalog import CatalogStore
 from swissarmygrid.server import (
     routes_agent,
     routes_cards,
@@ -52,7 +53,6 @@ from swissarmygrid.server import (
     routes_processes,
     routes_snapshots,
 )
-from swissarmygrid.server.blade_store import BladeStore
 from swissarmygrid.server.context import Context
 from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.notebook import NotebookServer

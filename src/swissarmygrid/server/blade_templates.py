@@ -6,7 +6,7 @@ the variable it makes, and a catalog command that lists the source's tables and 
 catalogs are SQL in the source's own dialect; file catalogs are Python that reads only headers and a
 few rows; vault templates make `get`, a function from a secret's name to its value.
 
-The packages each needs are read from the code itself (packages.py), so the save screen can offer
+The packages each needs are read from the code itself (domain/blades.py), so the save screen can offer
 to install them.
 """
 

@@ -11,7 +11,7 @@ Every blade has an optional description and tags, for finding and grouping blade
 
 Blades also live in **blade folders** (the owner's request): folders the user lists (Settings, or the
 SWISSARMYGRID_BLADE_FOLDERS environment variable) are searched for portable blade files, Python files whose
-frontmatter is a `# /// swissarmygrid-blade` header (blade_core/portable.py). Such a blade's file is its
+frontmatter is a `# /// swissarmygrid-blade` header (domain/blades.py). Such a blade's file is its
 source of truth: saving it writes the file, a change to the file (a `git pull`) shows on the next look, and
 removing one is the user's to do in their folder. A saved blade with the same name comes first.
 
@@ -28,230 +28,28 @@ import os
 import re
 import threading
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from swissarmygrid.blade_core import code as blade_code
-from swissarmygrid.engine.catalog import CatalogError, check_name, normalize_dialect
+from swissarmygrid.domain import blades as rules
+from swissarmygrid.domain.blades import Blade, BladeError, file_name, is_blade, read_blade, write_blade
 
-KINDS: tuple[str, ...] = ("sql", "other", "vault", "secret")
 KEYRING_SERVICE: str = "SwissArmyGrid"
-_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
-_MAX_CODE_CHARS: int = 200_000
-
-
-class BladeError(ValueError):
-    """The blade cannot be saved or used as asked. The message says why in plain words."""
 
 
 class VaultUnavailableError(RuntimeError):
     """This computer has no operating system vault that keyring can use."""
 
 
-@dataclass
-class Blade:
-    name: str
-    kind: str
-    code: str = ""
-    variable: str | None = None
-    dialect: str = "other"
-    catalog_language: str | None = None
-    catalog_command: str | None = None
-    vault_mapping: dict[str, str] = field(default_factory=dict)  # environment variable -> vault secret name
-    env_names: list[str] = field(default_factory=list)  # a secret blade's variables
-    template: str | None = None
-    description: str = ""
-    tags: list[str] = field(default_factory=list)
-    path: str | None = None  # a blade folder's file; None for a blade saved in the app
-    created_at: float = 0.0
-    updated_at: float = 0.0
-
-    @property
-    def secrets(self) -> list[str]:
-        """The names its code asks for with secret("...")."""
-        if not self.code:
-            return []
-        try:
-            return blade_code.read(self.code, self.name).secrets
-        except blade_code.BladeCodeError:
-            return []
-
-    @property
-    def has_catalog(self) -> bool:
-        return bool(self.catalog_language and self.catalog_command)
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "kind": self.kind,
-            "code": self.code,
-            "variable": self.variable,
-            "dialect": self.dialect,
-            "catalog": (
-                {"language": self.catalog_language, "command": self.catalog_command}
-                if self.has_catalog
-                else None
-            ),
-            "vault_mapping": [{"env": e, "secret": s} for e, s in self.vault_mapping.items()],
-            "env_names": list(self.env_names),
-            "template": self.template,
-            "description": self.description,
-            "tags": list(self.tags),
-            "path": self.path,
-            "source": "folder" if self.path else "saved",
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-        }
+def parse_blade(data: Any, previous: Blade | None = None) -> Blade:
+    """A blade from the save screen's JSON, checked (domain/blades.py) and stamped with the time now."""
+    return rules.parse_blade(data, previous, time.time())
 
 
 def _file_name(name: str) -> str:
     key = name.casefold()
     readable = re.sub(r"[^a-z0-9_-]+", "_", key).strip("_")[:40] or "blade"
     return f"{readable}-{hashlib.sha256(key.encode()).hexdigest()[:8]}.json"
-
-
-def _text(data: dict[str, Any], key: str, limit: int = 1_000) -> str:
-    value = data.get(key, "")
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise BladeError(f"{key} must be text.")
-    if len(value) > limit:
-        raise BladeError(f"{key} is too long ({len(value):,} characters; at most {limit:,}).")
-    return value
-
-
-def _env_name(value: Any, where: str) -> str:
-    if not isinstance(value, str) or not _ENV_NAME.fullmatch(value):
-        raise BladeError(
-            f"{where}: {value!r} is not an environment variable name. Use letters, digits and '_', "
-            "not starting with a digit (WAREHOUSE_PASSWORD)."
-        )
-    return value
-
-
-_TAG = re.compile(r"[\w][\w .+#-]{0,39}")
-
-
-def _tags(value: Any) -> list[str]:
-    """Tags as typed (trimmed), each 1 to 40 letters, digits, spaces or . + # - _, at most 20, without
-    repeats (ignoring case)."""
-    if value is None:
-        return []
-    if isinstance(value, str):
-        value = [part for part in value.split(",")]
-    if not isinstance(value, list):
-        raise BladeError("Tags are a list of words, such as warehouse, finance.")
-    tags: dict[str, str] = {}
-    for raw in value:
-        if not isinstance(raw, str):
-            raise BladeError("Each tag is text.")
-        tag = " ".join(raw.split())
-        if not tag:
-            continue
-        if not _TAG.fullmatch(tag):
-            raise BladeError(f"Tag {tag!r}: use 1 to 40 letters, digits, spaces or . + # - _.")
-        tags.setdefault(tag.casefold(), tag)
-    if len(tags) > 20:
-        raise BladeError("A blade has at most 20 tags.")
-    return list(tags.values())
-
-
-def parse_blade(data: Any, previous: Blade | None = None) -> Blade:
-    """A blade from the save screen's JSON, checked. Raises BladeError with a plain message."""
-    if not isinstance(data, dict):
-        raise BladeError("Send the blade as a JSON object.")
-    try:
-        name = check_name(_text(data, "name", 64))
-    except CatalogError as error:
-        raise BladeError(str(error).replace("Catalog name", "Blade name")) from None
-    kind = _text(data, "kind", 10)
-    if kind not in KINDS:
-        raise BladeError(f"A blade's kind is one of {', '.join(KINDS)}, not {kind!r}.")
-    now = time.time()
-    blade = Blade(
-        name=name,
-        kind=kind,
-        template=_text(data, "template", 64) or None,
-        description=_text(data, "description", 2_000).strip(),
-        tags=_tags(data.get("tags")),
-        path=previous.path if previous else None,
-        created_at=previous.created_at if previous else now,
-        updated_at=now,
-    )
-    if kind == "secret":
-        names = data.get("env_names")
-        if not isinstance(names, list) or not names:
-            raise BladeError("A secret blade lists at least one environment variable name.")
-        blade.env_names = list(dict.fromkeys(_env_name(n, "A secret blade's variable") for n in names))
-        if len(blade.env_names) > 100:
-            raise BladeError("A secret blade holds at most 100 variables.")
-        return blade
-
-    blade.code = _text(data, "code", _MAX_CODE_CHARS)
-    if not blade.code.strip():
-        raise BladeError(
-            "The blade has no code. Paste or write the Python that reaches outside to load something."
-        )
-    try:
-        found = blade_code.read(blade.code, f"Blade {name!r}")
-    except blade_code.BladeCodeError as error:
-        raise BladeError(str(error)) from None
-    variable = _text(data, "variable", 128).strip() or found.variable
-    if not variable:
-        raise BladeError(
-            "The code makes no variable to hand back. End it with an assignment, such as conn = ..., "
-            "or name the variable."
-        )
-    if variable not in found.assigned:
-        raise BladeError(
-            f"The code never makes {variable!r}. It makes: {', '.join(found.assigned) or 'nothing'}."
-        )
-    blade.variable = variable
-
-    if kind == "sql":
-        try:
-            blade.dialect = normalize_dialect(_text(data, "dialect", 32) or None)
-        except CatalogError as error:
-            raise BladeError(str(error)) from None
-
-    if kind == "vault":
-        mapping = data.get("vault_mapping") or []
-        if not isinstance(mapping, list) or not mapping:
-            raise BladeError(
-                "A vault blade maps at least one secret in the vault to an environment variable."
-            )
-        for row in mapping:
-            if not isinstance(row, dict):
-                raise BladeError(
-                    'Each vault mapping is {"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-pwd"}.'
-                )
-            env = _env_name(row.get("env"), "A vault mapping's variable")
-            secret = row.get("secret")
-            if not isinstance(secret, str) or not secret.strip() or len(secret) > 500:
-                raise BladeError(f"Name the secret in the vault for {env}.")
-            if env in blade.vault_mapping:
-                raise BladeError(f"{env} is mapped twice.")
-            blade.vault_mapping[env] = secret.strip()
-        return blade
-
-    catalog = data.get("catalog")
-    if catalog:
-        if not isinstance(catalog, dict):
-            raise BladeError('The catalog is {"language": "sql" or "python", "command": "..."}.')
-        language = _text(catalog, "language", 10)
-        command = _text(catalog, "command", _MAX_CODE_CHARS)
-        if language not in ("sql", "python"):
-            raise BladeError("A catalog command is sql or python.")
-        if command.strip():
-            if language == "python":
-                try:
-                    blade_code.parse(command, "The catalog command")
-                except blade_code.BladeCodeError as error:
-                    raise BladeError(str(error)) from None
-            blade.catalog_language, blade.catalog_command = language, command
-    return blade
 
 
 class BladeStore:
@@ -317,8 +115,6 @@ class BladeStore:
     @staticmethod
     def _write_file(blade: Blade) -> None:
         """A folder blade goes back into its own file, as a portable blade."""
-        from swissarmygrid.blade_core.portable import write_blade
-
         path = Path(blade.path or "")
         temporary = path.with_name(path.name + ".tmp")
         temporary.write_text(write_blade(blade.to_json()), encoding="utf-8")
@@ -398,8 +194,6 @@ class BladeStore:
         """Every blade in the blade folders, in folder order (the first of a name wins). Hidden folders,
         virtual environments, site-packages and caches are skipped; at most 4 levels and 5,000 Python
         files per folder are looked at."""
-        from swissarmygrid.blade_core.portable import is_blade, read_blade
-
         found: list[Blade] = []
         problems: list[dict[str, str]] = []
         skip = {"__pycache__", "node_modules", "site-packages", "venv", "env", "build", "dist"}
@@ -512,8 +306,6 @@ class BladeStore:
             return blade
 
     def _new_file(self, folder: str, name: str) -> Path:
-        from swissarmygrid.blade_core.portable import file_name
-
         listed = {os.path.normcase(os.path.abspath(f["path"])) for f in self.folders()}
         if os.path.normcase(os.path.abspath(folder)) not in listed:
             raise BladeError(f"{folder} is not one of your blade folders. Add it first.")

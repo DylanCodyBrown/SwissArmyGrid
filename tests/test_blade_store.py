@@ -15,9 +15,10 @@ from typing import Any
 
 import pytest
 
+from swissarmygrid.adapters.blades import BladeStore, VaultUnavailableError, parse_blade
+from swissarmygrid.domain.blades import BladeError
 from swissarmygrid.server import blade_runner
 from swissarmygrid.server.blade_runner import RefreshError, payload
-from swissarmygrid.server.blade_store import BladeError, BladeStore, VaultUnavailableError, parse_blade
 from tests.fake_keyring import MemoryKeyring, memory_keyring
 
 

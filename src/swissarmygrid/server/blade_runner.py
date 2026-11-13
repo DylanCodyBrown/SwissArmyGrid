@@ -19,7 +19,8 @@ import os
 import sys
 from typing import Any
 
-from swissarmygrid.server.blade_store import Blade, BladeStore
+from swissarmygrid.adapters.blades import BladeStore
+from swissarmygrid.domain.blades import Blade
 
 _MAX_ANSWER_BYTES: int = 512 * 1024 * 1024
 
@@ -93,7 +94,13 @@ async def run(job: dict[str, Any], timeout: float) -> dict[str, Any]:
 
 
 def _child(job: dict[str, Any]) -> dict[str, Any]:
-    from swissarmygrid.blade_core.run import BladeRunError, close_quietly, run_catalog, run_code, run_vault
+    from swissarmygrid.adapters.blade_run import (
+        BladeRunError,
+        close_quietly,
+        run_catalog,
+        run_code,
+        run_vault,
+    )
 
     os.environ.update({k: str(v) for k, v in job.get("env", {}).items()})
     secrets: dict[str, str] = dict(job.get("secrets", {}))

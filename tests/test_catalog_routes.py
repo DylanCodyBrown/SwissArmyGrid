@@ -383,7 +383,7 @@ def test_csv_starter_path_needs_a_value(client: TestClient) -> None:
 def test_import_review_offers_settings_and_import_writes_them_and_keeps_typed_secrets(
     client: TestClient,
 ) -> None:
-    from swissarmygrid.blade_core.portable import write_blade
+    from swissarmygrid.domain.blades import write_blade
 
     text = write_blade(
         {"name": "Orders DB", "kind": "sql", "dialect": "postgres", "code": POSTGRES_CODE, "variable": "conn"}

@@ -16,11 +16,18 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from swissarmygrid.adapters.blade_run import (
+    BladeRunError,
+    needed,
+    run_catalog,
+    run_code,
+    run_vault,
+    table_rows,
+)
+from swissarmygrid.adapters.catalogs import CatalogStore
 from swissarmygrid.adapters.database import open_database
-from swissarmygrid.blade_core import code as blade_code
-from swissarmygrid.blade_core.packages import install_command, missing_module_hint, needed
-from swissarmygrid.blade_core.run import BladeRunError, run_catalog, run_code, run_vault, table_rows
-from swissarmygrid.engine.catalog import CatalogStore
+from swissarmygrid.domain import blades as blade_code
+from swissarmygrid.domain.blades import install_command, missing_module_hint
 from swissarmygrid.server.blade_templates import BY_ID, TEMPLATES
 from tests.fake_keyring import memory_keyring
 
@@ -28,7 +35,7 @@ from tests.fake_keyring import memory_keyring
 
 
 def test_the_variable_is_the_last_value_the_code_makes() -> None:
-    found = blade_code.read(
+    found = blade_code.read_code(
         "import pyodbc\nimport os as o\nhost = o.environ['HOST']\n"
         "conn = pyodbc.connect(host, password=secret('pw'))\n"
     )
@@ -43,14 +50,14 @@ def test_variables_inside_with_if_and_try_count_but_functions_and_imports_do_not
         "try:\n    import polars as engine\nexcept ImportError:\n    import pandas as engine\n"
         "if True:\n    folder = Path('.')\nelse:\n    folder = Path('/')\n"
     )
-    assert blade_code.read(code).variable == "folder"
-    assert blade_code.read(code + "def get(name):\n    return name\n").variable == "get"
-    assert blade_code.read("import duckdb\n").variable is None
+    assert blade_code.read_code(code).variable == "folder"
+    assert blade_code.read_code(code + "def get(name):\n    return name\n").variable == "get"
+    assert blade_code.read_code("import duckdb\n").variable is None
 
 
 def test_bad_python_is_refused_with_its_line() -> None:
     with pytest.raises(blade_code.BladeCodeError, match="line 2"):
-        blade_code.read("conn = 1\nconn = (\n")
+        blade_code.read_code("conn = 1\nconn = (\n")
 
 
 def test_imports_already_in_a_script_are_not_added_again() -> None:
@@ -167,10 +174,10 @@ def test_every_template_reads_as_python_and_names_its_variable(template: object)
     from swissarmygrid.server.blade_templates import Template
 
     assert isinstance(template, Template)
-    found = blade_code.read(template.code, template.label)
+    found = blade_code.read_code(template.code, template.label)
     assert found.variable == template.variable, (found.variable, found.assigned)
     if template.catalog_language == "python":
-        blade_code.parse(template.catalog_command or "", "catalog")
+        blade_code.parse_code(template.catalog_command or "", "catalog")
     if template.catalog_language == "sql":
         assert "SELECT" in (template.catalog_command or "").upper()
     assert json.dumps(template.to_json())

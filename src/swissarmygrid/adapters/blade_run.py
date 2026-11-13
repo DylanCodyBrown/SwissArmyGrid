@@ -19,11 +19,15 @@ The catalog command is SQL or Python:
 from __future__ import annotations
 
 import ast
+import importlib.util
 import os
 from collections.abc import Callable
 from typing import Any
 
-from swissarmygrid.blade_core.code import parse, read
+from swissarmygrid.domain import blades
+from swissarmygrid.domain.blades import Package
+from swissarmygrid.domain.blades import parse_code as parse
+from swissarmygrid.domain.blades import read_code as read
 
 
 class BladeRunError(RuntimeError):
@@ -222,3 +226,19 @@ def close_quietly(value: Any) -> None:
             close()
         except Exception:  # noqa: S110 (closing is a courtesy; the catalog is already read)
             pass
+
+
+# ===== what this Python has installed =====
+
+
+def installed(dotted: str) -> bool:
+    """Whether this Python can import the module."""
+    try:
+        return importlib.util.find_spec(dotted) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def needed(code: str) -> list[Package]:
+    """Every package the blade needs (domain/blades.py), each marked installed in this Python or not."""
+    return blades.needed(code, installed)

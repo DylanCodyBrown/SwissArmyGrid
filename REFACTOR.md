@@ -98,7 +98,7 @@ Considered for the live-update broadcasts and the agent approvals, and left out:
 | code generation | `codegen/*` | `codegen.py` | `codegen.py` | `adapters/codegen.py` (verify) |
 | charts and cards | `charts/spec.py`, `server/routes_cards.py` | `charts.py` | `charts.py` | `server/routes_cards.py` |
 | recipes, audit, info file | `engine/recipes.py`, `engine/audit.py`, `server/info_file.py` | | (in `grids.py`, `datasets.py`) | `adapters/state_files.py` |
-| blades | `blade_core/*`, `server/blade_store.py`, `server/blade_runner.py`, `server/blade_templates.py`, half of `server/routes_catalog.py` | `blades.py` (code, packages, portable file, Blade), `blade_templates.py` | `blades.py` | `adapters/blades.py`, `adapters/blade_run.py`, `server/blade_runner.py`, `server/routes_blades.py` |
+| blades | `blade_core/*`, `server/blade_store.py`, `server/blade_runner.py`, `server/blade_templates.py`, half of `server/routes_catalog.py` | `blades.py` (code, packages, portable file, settings, Blade) | `blades.py` | `adapters/blades.py`, `adapters/blade_run.py`, `server/blade_runner.py`, `server/blade_templates.py`, `server/routes_blades.py` |
 | catalogs | `engine/catalog.py`, half of `server/routes_catalog.py` | `catalogs.py` | `catalogs.py` | `adapters/catalogs.py`, `server/routes_catalog.py` |
 | notebook | `server/notebook.py`, `server/routes_notebook.py` | | `notebook.py` | `server/notebook.py`, `server/routes_notebook.py` |
 | agent door and approvals | `server/routes_agent.py`, `server/routes_context.py` | | `agent.py` (approvals, tickets, reads, current table) | `server/routes_agent.py` |
@@ -136,9 +136,22 @@ Considered for the live-update broadcasts and the agent approvals, and left out:
   (`domain/export.py`, `adapters/export.py`), relationships with the key finder and compare
   (`domain/relationships.py`, `services/relationships.py`). `codegen/` and `charts/` are gone.
 
+- [x] 3b. Re-checked step 3 after the restart (1,394 passed), then merged the main line (release 1.6.0,
+  blade settings): 1,457 passed.
+- [x] 4. Blades and catalogs. `domain/blades.py` is a blade as text and as a record (its code, its
+  packages, the portable file, its settings, `Blade` and `parse_blade`); `domain/catalogs.py` the
+  catalog rules; `adapters/blades.py` the saved blades and the vault; `adapters/catalogs.py` the loaded
+  catalogs in DuckDB; `adapters/blade_run.py` runs a blade in this Python and says what it has
+  installed. `blade_core/` is gone; the client imports `domain/blades.py` and `adapters/blade_run.py`.
+  The domain reads no clock, environment or installed packages: `parse_blade(..., now)`,
+  `suggest_settings(..., environ)` and `needed(code, installed)` are given them. 1,462 tests.
+
 ## Left alone, and why
 
-(Filled in as the work goes.)
+- `server/blade_templates.py` (the 35 starter blades) stays in `server/`. It is plain data and would sit
+  in the domain, but one starter's code (the 1Password vault) contains the word `subprocess`, and
+  `tests/test_client_install.py` refuses that word in any file outside `server/`. The test is not
+  weakened, so the file stays where the test allows it.
 
 - `tests/e2e/test_notebook_page.py::test_phase_2_done_when_a_notebook_table_is_a_grid_and_its_steps_go_back`
   failed in the first full run on this machine, before any change (two SQL cells where the test

@@ -34,16 +34,15 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.blade_core import fill
-from swissarmygrid.blade_core.code import BladeCodeError
-from swissarmygrid.blade_core.packages import needed
-from swissarmygrid.blade_core.portable import write_blade
+from swissarmygrid.adapters.blade_run import needed
+from swissarmygrid.adapters.blades import parse_blade
+from swissarmygrid.domain import blades as blade_code
+from swissarmygrid.domain.blades import BladeCodeError, write_blade
 from swissarmygrid.domain.datasets import DatasetInfo, quote
 from swissarmygrid.domain.export import FORMATS
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import filter_condition
-from swissarmygrid.server.blade_store import parse_blade
 from swissarmygrid.server.blade_templates import TEMPLATES
 from swissarmygrid.server.context import (
     Context,
@@ -447,7 +446,7 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
             if missing:
                 notes.append(f"Not installed here yet: {', '.join(missing)}.")
             try:
-                settings = fill.detect(blade.code) if blade.code else []
+                settings = blade_code.detect_settings(blade.code) if blade.code else []
             except BladeCodeError:
                 settings = []
             if settings:

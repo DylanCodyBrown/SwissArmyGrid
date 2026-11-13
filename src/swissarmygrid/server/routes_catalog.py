@@ -32,6 +32,7 @@ import asyncio
 import base64
 import binascii
 import json
+import os
 import re
 import shutil
 import sys
@@ -44,15 +45,22 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from swissarmygrid.adapters.blade_run import needed
+from swissarmygrid.adapters.blades import VaultUnavailableError
 from swissarmygrid.adapters.datasets import arrow_stream_to_table, split_json_to_arrow
-from swissarmygrid.blade_core import code as blade_code
-from swissarmygrid.blade_core import fill
-from swissarmygrid.blade_core.packages import install_command, needed, pip_name
-from swissarmygrid.blade_core.portable import file_name as portable_file_name
-from swissarmygrid.blade_core.portable import read_blades, write_blade, write_zip
-from swissarmygrid.engine.catalog import CatalogInfo, select_sql
+from swissarmygrid.domain import blades as blade_code
+from swissarmygrid.domain.blades import (
+    Blade,
+    BladeError,
+    install_command,
+    pip_name,
+    read_blades,
+    write_blade,
+    write_zip,
+)
+from swissarmygrid.domain.blades import file_name as portable_file_name
+from swissarmygrid.domain.catalogs import CatalogInfo, select_sql
 from swissarmygrid.server import blade_runner
-from swissarmygrid.server.blade_store import Blade, BladeError, VaultUnavailableError
 from swissarmygrid.server.blade_templates import TEMPLATES
 from swissarmygrid.server.context import (
     Context,
@@ -259,15 +267,17 @@ def routes(ctx: Context) -> list[BaseRoute]:
     def blade_settings(
         code: str, template: str | None = None, name: str | None = None, everything: list[Blade] | None = None
     ) -> list[dict[str, Any]]:
-        """The values in the code each person fills in (blade_core/fill.py), with suggestions from the
+        """The values in the code each person fills in (domain/blades.py), with suggestions from the
         user's other blades. A path still as the starter wrote it (C:\\data\\orders.csv) is a placeholder."""
         try:
-            found = fill.detect(code)
+            found = blade_code.detect_settings(code)
         except blade_code.BladeCodeError:
             return []
         starter = next((t for t in TEMPLATES if t.id == template), None) if template else None
         if starter is not None:
-            examples = {(s.key, str(s.value)) for s in fill.detect(starter.code) if s.name == "path"}
+            examples = {
+                (s.key, str(s.value)) for s in blade_code.detect_settings(starter.code) if s.name == "path"
+            }
             for setting in found:
                 if (setting.key, str(setting.value)) in examples:
                     setting.placeholder = True
@@ -277,10 +287,10 @@ def routes(ctx: Context) -> list[BaseRoute]:
             for b in (everything or blades.all())
             if b.code and b.name.casefold() != mine
         ]
-        return [s.to_json() for s in fill.suggest(found, others)]
+        return [s.to_json() for s in blade_code.suggest_settings(found, others, os.environ)]
 
     def inspect(code: str, template: str | None = None, name: str | None = None) -> dict[str, Any]:
-        found = blade_code.read(code, "The code")
+        found = blade_code.read_code(code, "The code")
         packages = needed(code)
         missing = [p.pip for p in packages if not p.installed]
         return {
@@ -384,7 +394,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
             code, values = body.get("code"), body.get("values")
             if not isinstance(code, str) or not isinstance(values, dict):
                 raise ValueError('Send {"code": "...", "values": {"<setting id>": "new value"}}.')
-            changed = fill.apply(code, values)
+            changed = blade_code.apply_settings(code, values)
             template, name = body.get("template"), body.get("name")
             return json_response(
                 {
@@ -601,7 +611,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
                         taken = existing.get(str(item.blade["name"]).casefold())
                         row |= {
                             "blade": item.blade,
-                            "secrets": blade_code.read(item.blade.get("code") or "").secrets
+                            "secrets": blade_code.read_code(item.blade.get("code") or "").secrets
                             if item.blade.get("code")
                             else [],
                             "conflict": {"name": taken.name, "source": "folder" if taken.path else "saved"}
@@ -637,7 +647,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
                         results.append({"file": item.file, "name": data["name"], "status": "skipped"})
                         continue
                     if values and data.get("code"):  # the person's own values, written into the code
-                        data["code"] = fill.apply(str(data["code"]), values)
+                        data["code"] = blade_code.apply_settings(str(data["code"]), values)
                     if taken is not None and choice == "replace":
                         saved = blades.save(data, previous_name=taken.name)
                     else:

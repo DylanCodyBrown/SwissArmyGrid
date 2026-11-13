@@ -22,9 +22,13 @@ import sqlglot
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
+from swissarmygrid.adapters.blades import BladeStore
+from swissarmygrid.adapters.catalogs import CatalogStore
 from swissarmygrid.adapters.database import PriorityWorkers
 from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.adapters.views import ViewEngine
+from swissarmygrid.domain.blades import BladeError
+from swissarmygrid.domain.catalogs import CatalogError
 from swissarmygrid.domain.datasets import (
     DatasetError,
     DatasetInfo,
@@ -37,8 +41,6 @@ from swissarmygrid.domain.grids import Grid, GridLimitError, GridRegistry, Stale
 from swissarmygrid.domain.sql_guard import SqlGrammar, SqlRefused
 from swissarmygrid.domain.steps import CompiledView, StepError
 from swissarmygrid.engine.audit import AuditLog
-from swissarmygrid.engine.catalog import CatalogError, CatalogStore
-from swissarmygrid.server.blade_store import BladeError, BladeStore
 from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.notebook import NotebookServer
 from swissarmygrid.server.processes import ProcessRegistry
@@ -67,7 +69,7 @@ class Context:
     on_shutdown: Callable[[], None]
     # The Python sessions offering tables to the Open list (processes.py).
     processes: ProcessRegistry
-    # Source databases' names and types (engine/catalog.py) and the saved blades (blade_store.py).
+    # Source databases' names and types (adapters/catalogs.py) and the saved blades (adapters/blades.py).
     catalogs: CatalogStore
     blades: BladeStore
     # The notebook (marimo), started on first use, and the cookie its frame is let in with.
