@@ -32,7 +32,8 @@ import { button, clear, formatCount, h, icon, isDateType, isNumericType, openDia
 import { renderMarkdown } from "./markdown";
 import { saveBlob } from "./profileView";
 import { state } from "./state";
-import { effectiveTheme, onThemeChange } from "./theme";
+import { PAPERS, fitPages, makeMovable, moveCard, paginate, printPages, type Paper } from "./sandboxPages";
+import { effectiveTheme, onThemeChange, setTheme, themeChoice } from "./theme";
 import type { Drawn } from "./lazy/charts";
 
 type CardKind = "chart" | "note" | "table" | "diagram" | "graphviz" | "plotly" | "echarts" | "image";
@@ -56,6 +57,7 @@ interface Card {
   grid: string; // the grid the card is drawn on (the sandbox shows every table's cards)
   dataset: string;
   size?: { w: number; h: number }; // columns of 12, rows of ROW_HEIGHT; else the kind's default
+  new_page?: boolean; // in Page view (and the PDF), this card starts a new page
 }
 
 // ===== the dashboard grid =====
@@ -375,6 +377,20 @@ async function renderCards(body: HTMLElement): Promise<void> {
       { class: "add-step", style: { marginTop: "0", marginBottom: "10px" } },
       button("Add chart", () => chartDialog(), { icon: "profile" }),
       button("Add note", () => noteDialog(), { icon: "edit" }),
+      h("span", { class: "toolbar-gap" }),
+      button(pageView() ? "Back to the board" : "Page view", () => setPageView(!pageView()), {
+        icon: pageView() ? "columns" : "rows",
+        pressed: pageView(),
+        title: "See the Sandbox as letter or landscape pages, as it will print",
+      }),
+      pageView()
+        ? h(
+            "select",
+            { "aria-label": "Paper", onchange: (event: Event) => setPaper((event.target as HTMLSelectElement).value as Paper) },
+            ...(Object.keys(PAPERS) as Paper[]).map((key) => h("option", { value: key, selected: key === paper() }, PAPERS[key].label)),
+          )
+        : null,
+      button("Print to PDF", () => void printSandbox(), { icon: "export", title: "Print the pages (choose Save as PDF in the print dialog)" }),
     ),
   );
   let cards: Card[];
@@ -396,12 +412,58 @@ async function renderCards(body: HTMLElement): Promise<void> {
     );
     return;
   }
+  const order = cards.map((c) => c.id);
+  const elements = cards.map((card, i) => cardElement(card, order, i));
+  if (pageView()) {
+    const pages = paginate(cards.map((card, i) => ({ element: elements[i]!, size: sizeOf(card), newPage: Boolean(card.new_page) })), paper(), body);
+    body.append(pages);
+    requestAnimationFrame(() => fitPages(pages, body.clientWidth));
+    return;
+  }
   const list = h("div", { class: "cards" });
   body.append(list);
-  for (const card of cards) list.append(cardElement(card));
+  list.append(...elements);
 }
 
-function cardElement(card: Card): HTMLElement {
+// ===== pages and printing =====
+
+const pageView = (): boolean => recall("sandbox.pages") === "1";
+const paper = (): Paper => (recall("sandbox.paper") === "landscape" ? "landscape" : "letter");
+
+function setPageView(on: boolean): void {
+  remember("sandbox.pages", on ? "1" : "0");
+  void render();
+}
+
+function setPaper(next: Paper): void {
+  remember("sandbox.paper", next);
+  void render();
+}
+
+/** Page view, on light paper, then the print dialog (Save as PDF); the theme and view come back after. */
+async function printSandbox(): Promise<void> {
+  const wasPages = pageView();
+  const theme = themeChoice();
+  const dark = effectiveTheme() !== "light";
+  await printPages(
+    paper(),
+    async () => {
+      if (!wasPages) remember("sandbox.pages", "1");
+      if (dark) setTheme("light");
+      await render();
+      // Charts draw as they come into view and settle; give them a moment before the dialog.
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      document.querySelectorAll<HTMLElement>(".pages").forEach((p) => p.style.setProperty("zoom", "1"));
+    },
+    () => {
+      if (dark) setTheme(theme);
+      if (!wasPages) remember("sandbox.pages", "0");
+      void render();
+    },
+  );
+}
+
+function cardElement(card: Card, order: string[], index: number): HTMLElement {
   const content = h("div", { class: "card-body" });
   const foot = h("div", { class: "card-foot" });
   let drawn: Drawn | null = null;
@@ -411,23 +473,31 @@ function cardElement(card: Card): HTMLElement {
     card.created_by === "agent" ? h("span", { class: "badge agent", title: "Added by the agent" }, icon("agent"), "Agent") : null,
     button(card.pinned ? "Unpin" : "Pin to the top", () => void api(`/cards/${card.id}`, "PATCH", { pinned: !card.pinned }).then(() => render()), { icon: "pin", iconOnly: true, class: "ghost", pressed: card.pinned }),
     card.kind === "chart" && !card.error ? button("Open large (zoom)", () => void expandChart(card), { icon: "zoom", iconOnly: true, class: "ghost" }) : null,
-    card.kind === "chart" && !card.error
-      ? button("More chart actions", (event) => openMenu(event, [
-          ["image", "Download image (PNG)", () => void drawn?.toPng().then((url) => { const a = h("a", { href: url, download: `${card.title || "chart"}.png` }); a.click(); })],
-          ["export", "Download as HTML", () => void exportHtml(card, drawn)],
-          ["code", "Copy as Python (Altair)", () => void copyAltair(card)],
-        ]), { icon: "more", iconOnly: true, class: "ghost" })
-      : null,
+    button("More card actions", (event) => openMenu(event, [
+      ...(card.kind === "note" ? [["edit", "Edit note", () => noteDialog(card)] as [string, string, () => void]] : []),
+      ...(card.kind === "chart" && !card.error
+        ? ([
+            ["image", "Download image (PNG)", () => void drawn?.toPng().then((url) => { const a = h("a", { href: url, download: `${card.title || "chart"}.png` }); a.click(); })],
+            ["export", "Download as HTML", () => void exportHtml(card, drawn)],
+            ["code", "Copy as Python (Altair)", () => void copyAltair(card)],
+          ] as [string, string, () => void][])
+        : []),
+      ...(index > 0 ? [["up", "Move earlier", () => void moveCard(card.id, order[index - 1]!).then(() => render())] as [string, string, () => void]] : []),
+      ...(index < order.length - 1 ? [["down", "Move later", () => void moveCard(card.id, order[index + 2] ?? null).then(() => render())] as [string, string, () => void]] : []),
+      ["rows", card.new_page ? "Don't start a new page" : "Start a new page here", () => void api(`/cards/${card.id}`, "PATCH", { new_page: !card.new_page }).then(() => render())],
+    ]), { icon: "more", iconOnly: true, class: "ghost" }),
     h("span", { class: "danger-gap" }, button("Remove", () => void api(`/cards/${card.id}`, "DELETE").then(() => render()), { icon: "trash", iconOnly: true, class: "ghost" })),
   );
+  const header = h("div", { class: "card-header" }, h("h3", {}, card.title || (card.kind === "chart" ? chartTitle(card) : KIND_NAMES[card.kind])), h("span", { class: "badge card-table", title: `Drawn on ${card.dataset}` }, card.dataset), actions);
   const element = h(
     "article",
-    { class: `card card-${card.kind} ${card.pinned ? "pinned" : ""}`, "aria-label": card.title || KIND_NAMES[card.kind] },
-    h("div", { class: "card-header" }, h("h3", {}, card.title || (card.kind === "chart" ? chartTitle(card) : KIND_NAMES[card.kind])), h("span", { class: "badge card-table", title: `Drawn on ${card.dataset}` }, card.dataset), actions),
+    { class: `card card-${card.kind} ${card.pinned ? "pinned" : ""} ${card.new_page ? "new-page" : ""}`, "aria-label": card.title || KIND_NAMES[card.kind] },
+    header,
     content,
     foot,
   );
   element.append(resizeGrip(card, element));
+  makeMovable(element, header, card.id, order[index + 1] ?? null, () => void render());
   const dark = effectiveTheme() !== "light";
   const failed = (slot: HTMLElement, e: unknown): void => {
     slot.textContent = `This could not be drawn: ${(e as Error).message}`;
@@ -437,6 +507,8 @@ function cardElement(card: Card): HTMLElement {
     content.append(h("p", { class: "error-text" }, `⚠ ${card.error}`));
   } else if (card.kind === "note") {
     content.append(renderMarkdown(card.body ?? ""));
+    content.addEventListener("dblclick", () => noteDialog(card));
+    content.title = "Double-click to edit";
   } else if (card.kind === "diagram") {
     // Mermaid text (an ERD from the relationship model), drawn by the lazy Mermaid chunk.
     const slot = h("div", { class: "diagram", role: "img", "aria-label": card.title || "Diagram" });
@@ -645,12 +717,20 @@ function chartDialog(): void {
   );
 }
 
-function noteDialog(): void {
-  const title = h("input", { type: "text", "aria-label": "Title", placeholder: "optional" });
-  const text = h("textarea", { rows: "8", "aria-label": "Note (markdown)", placeholder: "**Bold**, *italic*, `code`, - lists, # headings" });
-  const { body, foot, close } = openDialog("Add a note");
-  body.append(h("label", { class: "field" }, h("span", {}, "Title"), title), h("label", { class: "field" }, h("span", {}, "Note (markdown)"), text), h("p", { class: "hint" }, `The note is filed with ${state.info?.dataset ?? "the table in front"}.`));
-  foot.append(button("Cancel", close), button("Add note", () => void api(`${grid}/cards`, "POST", { kind: "note", title: title.value, body: text.value }).then(() => { close(); void render(); }).catch((e: Error) => toast(e.message, "error")), { class: "primary" }));
+/** Add a note, or edit one (an analysis's note too: add your own words to it). */
+function noteDialog(existing?: Card): void {
+  const title = h("input", { type: "text", "aria-label": "Title", placeholder: "optional", value: existing?.title ?? "" });
+  const text = h("textarea", { rows: "14", "aria-label": "Note (markdown)", placeholder: "# Headings, **bold**, *italic*, `code`, - lists, > cautions, and tables:\n| Region | Late |\n|---|---:|\n| West | 46% |" });
+  text.value = existing?.body ?? "";
+  const { body, foot, close } = openDialog(existing ? "Edit the note" : "Add a note", true);
+  body.append(
+    h("label", { class: "field" }, h("span", {}, "Title"), title),
+    h("label", { class: "field" }, h("span", {}, "Note (markdown)"), text),
+    h("p", { class: "hint" }, existing ? "Changes show for everyone looking at the Sandbox." : `The note is filed with ${state.info?.dataset ?? "the table in front"}.`),
+  );
+  const save = (): Promise<unknown> =>
+    existing ? api(`/cards/${existing.id}`, "PATCH", { title: title.value, body: text.value }) : api(`${grid}/cards`, "POST", { kind: "note", title: title.value, body: text.value });
+  foot.append(button("Cancel", close), button(existing ? "Save" : "Add note", () => void save().then(() => { close(); void render(); }).catch((e: Error) => toast(e.message, "error")), { class: "primary" }));
 }
 
 export function refreshPanel(): void {

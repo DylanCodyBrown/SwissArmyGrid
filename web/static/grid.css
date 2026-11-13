@@ -3090,12 +3090,14 @@ body.popout .app-row {
   gap: 12px;
 }
 
-.cards > .card {
+.cards > .card,
+.page-row > .card {
   position: relative;
   min-height: 0;
 }
 
-.cards > .card > .card-body {
+.cards > .card > .card-body,
+.page-row > .card > .card-body {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -3105,6 +3107,9 @@ body.popout .app-row {
 .cards > .card > .card-body > .chart,
 .cards > .card > .card-body > .figure,
 .cards > .card > .card-body > .diagram,
+.page-row > .card > .card-body > .chart,
+.page-row > .card > .card-body > .figure,
+.page-row > .card > .card-body > .diagram,
 .workspace[data-view="agent"] .cards .card-body .chart {
   flex: 1;
   min-height: 0;
@@ -3733,4 +3738,160 @@ body.popout .app-row {
 .small-btn {
   padding: 1px 8px;
   font-size: 12px;
+}
+
+/* ===== The Sandbox as pages (sandboxPages.ts) ===== */
+.toolbar-gap {
+  flex: 1;
+}
+
+.card-handle {
+  cursor: grab;
+}
+
+.card.dragging {
+  opacity: 0.45;
+}
+
+.card.drop-before {
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.card.drop-after {
+  box-shadow: inset -4px 0 0 var(--accent);
+}
+
+/* On the board, a card that starts a page says so (inside the card: it clips what overflows). */
+.cards .card.new-page::before {
+  content: "new page";
+  position: absolute;
+  top: 0;
+  right: 50%;
+  z-index: 2;
+  padding: 0 8px;
+  border-radius: 0 0 6px 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.pages {
+  display: grid;
+  gap: 24px;
+  justify-content: center;
+  padding: 8px 0 24px;
+}
+
+.page {
+  position: relative;
+  box-sizing: border-box;
+  width: var(--page-w);
+  height: var(--page-h);
+  padding: 48px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+
+.page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.page-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.page-row > .card {
+  flex-shrink: 1;
+}
+
+.page-number {
+  position: absolute;
+  right: 48px;
+  bottom: 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media print {
+  body.sandbox-printing {
+    background: #ffffff;
+  }
+
+  body.sandbox-printing > *:not(.workspace),
+  body.sandbox-printing .workspace > *:not(#ai-panel),
+  body.sandbox-printing #ai-panel .panel-header,
+  body.sandbox-printing #ai-panel .sandbox-title,
+  body.sandbox-printing #ai-panel .add-step,
+  body.sandbox-printing .card-grip,
+  body.sandbox-printing .card-header .actions,
+  body.sandbox-printing .toasts {
+    display: none !important;
+  }
+
+  body.sandbox-printing,
+  body.sandbox-printing .workspace,
+  body.sandbox-printing #ai-panel,
+  body.sandbox-printing #ai-panel .panel-body {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.sandbox-printing .pages {
+    display: block;
+    padding: 0;
+    zoom: 1 !important;
+  }
+
+  body.sandbox-printing .page {
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+    break-after: page;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body.sandbox-printing .page:last-child {
+    break-after: auto;
+  }
+}
+
+.page-measure {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  visibility: hidden;
+}
+
+/* Numbers stay on one line; a narrow card's table is set smaller rather than squeezed. */
+.md-table td.align-right,
+.md-table th.align-right {
+  white-space: nowrap;
+}
+
+.card {
+  container-type: inline-size;
+}
+
+@container (max-width: 480px) {
+  .md-table {
+    font-size: 0.8em;
+  }
+
+  .md-table th,
+  .md-table td {
+    padding: 2px 4px;
+  }
 }
