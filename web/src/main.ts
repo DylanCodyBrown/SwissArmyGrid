@@ -13,7 +13,7 @@
  *           openMenu (the Open dialog: tables in running Python sessions) ·
  *           valueViewer · bottomBar · theme
  * ROUTING:  [TITLE]            -> read-only, the dataset name and version (centered, large)
- *           [SETTINGS]         the cog, far left of the tab bar -> settingsWindow.openSettings()
+ *           [SETTINGS]         the Application row (above the ribbon) -> settingsWindow.openSettings()
  *                              (theme, header profiles, what the agent may see)
  *           [RIBBON]           Table / Column / Cell tools -> ribbon.ts (Profile, Key Finder, Export in Table)
  *           [TRANSFORMATIONS]  -> read-only placement: the panel is always shown (it can still pop out)
@@ -185,7 +185,16 @@ async function start(): Promise<void> {
     // The browser tab always reads SwissArmyGrid; the tab bar names the grids.
     document.title = "SwissArmyGrid";
   });
-  $(".tabbar-start").append(settingsButton(), bladesButton(), notebookButton());
+  // The Application row: app-wide commands, with their words, above the ribbon's Table row.
+  clear(
+    $(".app-row"),
+    h(
+      "div",
+      { class: "ribbon-group", role: "toolbar", "aria-label": "Application tools" },
+      h("div", { class: "ribbon-caption", title: "SwissArmyGrid itself" }, h("strong", {}, "Application"), h("span", {}, "SwissArmyGrid")),
+      h("div", { class: "ribbon-tools" }, settingsButton(), bladesButton(), notebookButton()),
+    ),
+  );
   mountRibbon($(".ribbon"), openColumnProfile);
   mountPanes($(".tabs-row"), $(".panes"), () => refreshPanel());
   // A new split opens the key picker with the Key Finder already run; Close keeps it key-less.
@@ -249,7 +258,7 @@ function bladesButton(): HTMLButtonElement {
   return button(
     "Blades and catalog",
     () => window.open(`/catalog#token=${encodeURIComponent(token)}`, "swissarmygrid-catalog")?.focus(),
-    { icon: "key", iconOnly: true, class: "ghost prefs-btn", title: "Blades and the catalog (opens in its own tab)" },
+    { icon: "key", class: "ribbon-btn", title: "Blades and the catalog (opens in its own tab)" },
   );
 }
 
@@ -259,6 +268,6 @@ function notebookButton(): HTMLButtonElement {
   return button(
     "Notebook",
     () => window.open(`/notebook#token=${encodeURIComponent(token)}`, "swissarmygrid-notebook")?.focus(),
-    { icon: "code", iconOnly: true, class: "ghost prefs-btn", title: "The notebook (opens in its own tab)" },
+    { icon: "code", class: "ribbon-btn", title: "The notebook (opens in its own tab)" },
   );
 }

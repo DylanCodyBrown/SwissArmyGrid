@@ -26,8 +26,9 @@ sag.push(orders, name="orders", new_grid=True)
 
 The page has these parts:
 
-- **Tab bar.** The cog at the far left opens Settings. The Agent tab comes next and cannot be closed. Each open grid has its own tab after it, and the + after the last tab starts a new table from a query (see below).
+- **Tab bar.** The Agent tab comes first and cannot be closed. Each open grid has its own tab after it, and the + after the last tab starts a new table from a query (see below).
 - **Title.** The dataset name and its version. A new push to the same dataset raises the version. Beside it, the **steps strip**: how many steps the grid has, with Undo (the last step), Clear, Edit steps, Copy as SQL, Copy as Python and To notebook.
+- **Application row.** Above the ribbon, on every tab: **Settings**, **Blades and catalog** and **Notebook**.
 - **Ribbon.** Three rows, each named for what its buttons act on. **Table** works on the whole view. **Column** works on the selected column or columns. **Cell** works on the selected cells. Buttons that have nothing to act on are greyed out, and the caption under each row name says what it is looking at.
 - **Grid.** The rows, with the column headers above them.
 - **The grid has the whole page.** The steps themselves (Table Transformations) open in a tab of their own from Edit steps, and SQL is written in the notebook.
@@ -35,7 +36,7 @@ The page has these parts:
 
 ### Settings
 
-Open Settings with the cog. It holds the settings for this browser (the theme, and whether column headers show their profile), the setup prompt for connecting an agent and the agent activity list described below.
+Open **Settings** from the Application row. It holds the settings for this browser (the theme, and whether column headers show their profile), the setup prompt for connecting an agent and the agent activity list described below.
 
 ![The Settings window: the header profile switch, the theme, the setup prompt with its copy button and the agent activity list.](images/02-preferences.png)
 
@@ -161,13 +162,15 @@ The Compare row in the ribbon switches the mode.
 - **Cross compare** keeps each grid on its own rows. Click a row on one side to filter the other side to that key.
 - **Stop compare** returns to two independent grids. The side-by-side view stays, with no keys.
 
-## The Agent tab
+## The Sandbox tab
 
-The Agent tab is the first tab. It holds the Analysis Sandbox, one for every table, where charts, notes and diagrams live. Each card names the table it is drawn on.
+The Sandbox tab is the first tab. It is one dashboard for every table, where charts, notes, result tables, diagrams (Mermaid and Graphviz), Plotly and ECharts figures and images live. Each card names the table it is drawn on.
+
+**Resize a card** by dragging the grip in its bottom right corner: it snaps to the dashboard's twelve columns and rows, and the chart inside redraws to fill it. With the grip focused, the arrow keys do the same (left and right for width, up and down for height); a double-click returns the card's usual size. Sizes are kept in this browser.
 
 To add a chart, press Add chart. Choose the table, the chart type, the column for the X axis, the aggregate (such as sum) and the column for the Y axis. To add a note, press Add note, give it a title and write its text in Markdown.
 
-![The Analysis Sandbox with a bar chart of summed quantity by product and a note with a title and a short list.](images/16-analysis-sandbox.png)
+![The Sandbox with a bar chart of summed quantity by product and a note with a title and a short list.](images/16-analysis-sandbox.png)
 
 Clicking a bar in a chart filters the grid to that value. Each card has a pin, a zoom button for a larger view, and a remove button.
 
@@ -183,13 +186,13 @@ Relationships, on the Table row, holds each table's primary key and the joins be
 - Splitting two tables that have a known join pre-ticks its columns in the key picker, with a crown.
 - The Key Finder marks known pairs with a crown.
 
-The window lists the shared models found in the library folders (the ones shipped with the package, `~/.swissarmygrid/models`, and any folder named in `SWISSARMYGRID_MODELS`); Apply sets one. Import a model file loads one from disk, Export downloads the current keys and joins as a file, and Draw ERD adds a copy of the diagram to the Analysis Sandbox. The ERD tab always shows the current one. Tables are matched by the names you pushed them with, so push with the names the model uses.
+The window lists the shared models found in the library folders (the ones shipped with the package, `~/.swissarmygrid/models`, and any folder named in `SWISSARMYGRID_MODELS`); Apply sets one. Import a model file loads one from disk, Export downloads the current keys and joins as a file, and Draw ERD adds a copy of the diagram to the Sandbox. The ERD tab always shows the current one. Tables are matched by the names you pushed them with, so push with the names the model uses.
 
 You can also ask an agent to work them out: it checks each key's uniqueness and each join's match rate, then sets them for you. To share a model, export it and put the file in a library folder: `~/.swissarmygrid/models` for yourself, or a shared folder that everyone names in `SWISSARMYGRID_MODELS`.
 
 ## The ERD tab
 
-The ERD tab sits right after the Agent tab and can't be closed. It draws the keys and joins between the open tables as an entity relationship diagram: one box per table holding only its key columns (PK for a primary key, FK for a column a join uses), with crow's-foot lines showing one-to-many and one-to-one joins. A line's label is the join's note, such as an outlier or a caveat about how it matches; joins without one carry no text. In a star schema the central table is drawn in the middle, with its spokes above and below it.
+The ERD tab sits right after the Sandbox tab and can't be closed. It draws the keys and joins between the open tables as an entity relationship diagram: one box per table holding only its key columns (PK for a primary key, FK for a column a join uses), with crow's-foot lines showing one-to-many and one-to-one joins. A line's label is the join's note, such as an outlier or a caveat about how it matches; joins without one carry no text. In a star schema the central table is drawn in the middle, with its spokes above and below it.
 
 ![The ERD tab with no relationships yet, offering to import a file or apply a model.](images/18-erd-empty.png)
 
@@ -208,7 +211,7 @@ Settings lists the agent's activity: what it asked for, newest first. It never i
 
 ## Blades and the catalog
 
-The key button beside Settings opens the blades page in a tab of its own, so it can sit on another screen.
+**Blades and catalog** in the Application row opens the blades page in a tab of its own, so it can sit on another screen.
 
 - **A blade** is any Python that reaches outside Python to load something: a database connection, a CSV file, an Excel workbook, an API, a vault. Press **New blade**, pick a starter (21 databases, 5 file patterns, 8 vaults) or paste your own code, and save it. Then in any Python: `conn = sag.blade("Warehouse")`.
 - **Passwords** go in the code as `secret("password")`. Type the value on the save screen: it is kept in Windows Credential Manager (or macOS Keychain), never in the blade.
@@ -227,7 +230,7 @@ The key button beside Settings opens the blades page in a tab of its own, so it 
 
 ## The notebook
 
-The code button beside Settings opens the notebook (marimo) in a tab of its own, with your blades and the catalog on the left. It starts the first time you open it.
+**Notebook** in the Application row opens the notebook (marimo) in a tab of its own, with your blades and the catalog on the left. It starts the first time you open it.
 
 - **Drag a blade** onto a cell to get its `sag.blade(...)` line. An empty cell takes it; otherwise it goes in a new cell just after.
 - **Drag a table** from the catalog to get a SQL cell over that blade's connection, ready to run. **Drag a column** for its name.

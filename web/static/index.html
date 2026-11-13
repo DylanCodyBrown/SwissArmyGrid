@@ -3,6 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- What the page may load and run: only its own files. Script a drawing or a card's text might
+         carry (an inline handler, a javascript: link) never runs, and nothing is fetched from any other
+         host, the internet included. 'unsafe-eval': Vega compiles chart expressions;
+         'wasm-unsafe-eval': Graphviz runs as WebAssembly. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'" />
     <title>SwissArmyGrid</title>
     <!-- The icon inline (a red square with a white cross), so the browser never requests
          /favicon.ico, which would need the token. -->
@@ -10,13 +15,14 @@
     <link rel="stylesheet" href="/static/grid.css" />
   </head>
   <body>
-    <!-- ===== TAB BAR: Preferences, then the Agent tab and one tab per open grid (panes.ts) ===== -->
+    <!-- ===== TAB BAR: the Agent tab and one tab per open grid (panes.ts) ===== -->
     <nav class="tabbar" aria-label="Open grids">
-      <div class="tabbar-start"></div>
       <div class="tabs-row" role="tablist" aria-label="Open grids"></div>
     </nav>
     <!-- ===== TITLE ===== -->
     <header class="titlebar"><h1 id="grid-title">&nbsp;</h1></header>
+    <!-- ===== APPLICATION: Settings, Blades and catalog, Notebook (every tab, the empty page too) ===== -->
+    <div class="app-row" role="group" aria-label="Application"></div>
     <!-- ===== RIBBON: Table / Column / Cell transformations ===== -->
     <div class="ribbon" role="group" aria-label="Transformations"></div>
     <!-- ===== WORKSPACE: grid | splitter | analysis panel | steps (the steps panel is on the right, collapsible) ===== -->

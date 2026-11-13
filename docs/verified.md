@@ -207,3 +207,14 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   for Testing 153: the import review marks host, dbname and user as needing a value, a suggestion button
   fills the field, and Import writes the values into the saved blade's code; on the save screen a
   changed setting rewrites the code box. Full suite: 1,431 passed.
+- (2026-11-13) The Sandbox, page part (aiPanel.ts, lazy/plotly.ts, lazy/echarts.ts, lazy/graphviz.ts,
+  lazy/svgSafe.ts, the grid page's Content Security Policy). In Chrome for Testing 153: Plotly 4.2.0,
+  ECharts 6.1.0 and Graphviz (@viz-js/viz 3.31.0) cards draw, and the page requested nothing outside
+  127.0.0.1 while a Plotly figure named an outside picture, an ECharts option an outside symbol and
+  graphic image, and a DOT node a javascript: URL (the SVG kept no outside link). A Plotly map trace,
+  text that is not JSON and an image that is not inline say so instead of drawing. With the policy, an
+  injected <img onerror> handler does not run; the whole suite passes under it (Monaco, snapshots,
+  Vega, the live socket). Dragging a card's corner grip grows it on the grid and the chart redraws
+  taller; the arrow keys resize it and the size is kept after a reload. A card not resized fills its
+  row; a small Mermaid diagram keeps its own size. A drawn Vega chart resizes in place (view.width /
+  height), so a click while the page settles lands on the live marks. Full suite: 1,439 passed.

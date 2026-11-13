@@ -113,7 +113,9 @@ src/swissarmygrid/
                          agent), main.py (the `sag` terminal command)
   mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (95 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
-web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco and Vega;
+web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
+                         Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
+                         aiPanel.ts is the Sandbox tab (a 12-column dashboard of resizable cards);
                          catalogRail.ts (blades + catalog navigation) is shared by the blades page
                          (catalogPage.ts, static/catalog.html) and the notebook tab (notebookPage.ts,
                          static/notebook.html: the rail left of marimo); bladeEditor.ts is the save screen;

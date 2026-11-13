@@ -8,67 +8,71 @@
 
 :root,
 html[data-theme="light"] {
+  /* Steel and Swiss army knife red: brushed-steel greys for the structure, one red for the brand and
+     the main action. Errors keep their own deeper red, always with an icon or words beside it. */
   color-scheme: light;
   --bg: #ffffff;
-  --surface: #f6f8fa;
-  --surface-2: #eef1f4;
+  --surface: #eef1f4;
+  --surface-2: #e1e6eb;
   --raised: #ffffff;
-  --fg: #1b1f24;
-  --muted: #57606a;
-  --border: #d0d7de;
-  --border-strong: #8c959f;
-  --accent: #0b5cad;
+  --fg: #1c2228;
+  --muted: #525c66;
+  --border: #c8d0d8;
+  --border-strong: #7d8893;
+  --accent: #c8102e;
   --accent-fg: #ffffff;
-  --accent-soft: #ddebfa;
-  --focus: #0b5cad;
-  --ok: #1a7f37;
+  --accent-soft: #fbe6e9;
+  --focus: #38434e;
+  --ok: #17722f;
   --ok-fg: #ffffff;
   --warn: #855800;
   --warn-soft: #fff4d6;
-  --error: #b42318;
+  --error: #a3141f;
   --error-soft: #fde8e7;
   --agent: #6639ba;
   --agent-soft: #efe9fb;
   --highlight: #fff1b8;
   --changed: #dcf4e3;
-  --selected: #dbeafe;
-  --row-hover: #f3f6f9;
-  --shadow: 0 8px 24px rgba(27, 31, 36, 0.14);
+  --selected: #dbe3ec;
+  --row-hover: #f2f4f7;
+  --steel-sheen: linear-gradient(180deg, #f4f6f8 0%, #dfe4e9 100%);
+  --shadow: 0 8px 24px rgba(28, 34, 40, 0.16);
   --focus-width: 2px;
-  --cat-1: #0b5cad; --cat-2: #c45500; --cat-3: #1a7f37; --cat-4: #a3248f;
-  --cat-5: #6a5c00; --cat-6: #0a7c86; --cat-7: #b42318; --cat-8: #57606a;
+  --cat-1: #c8102e; --cat-2: #3b6e96; --cat-3: #17722f; --cat-4: #a3248f;
+  --cat-5: #6a5c00; --cat-6: #0a7c86; --cat-7: #5b4bb7; --cat-8: #57606a;
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f1419;
-  --surface: #161b22;
-  --surface-2: #1d242d;
-  --raised: #1d242d;
-  --fg: #e6edf3;
-  --muted: #9da7b3;
-  --border: #30363d;
-  --border-strong: #6e7681;
-  --accent: #58a6ff;
-  --accent-fg: #0b1220;
-  --accent-soft: #15304f;
-  --focus: #79b8ff;
+  --bg: #121518;
+  --surface: #191d22;
+  --surface-2: #21272d;
+  --raised: #21272d;
+  --fg: #e8ecef;
+  --muted: #a2acb6;
+  --border: #343c45;
+  --border-strong: #707b86;
+  --accent: #ff6b73;
+  --accent-fg: #1c0a0c;
+  --accent-soft: #3d1c21;
+  --focus: #c4ccd4;
   --ok: #3fb950;
   --ok-fg: #0b1220;
   --warn: #d29922;
   --warn-soft: #3a2e10;
-  --error: #ff7b72;
+  --error: #ff8a80;
   --error-soft: #3d1a19;
   --agent: #b392f0;
   --agent-soft: #2c2244;
   --highlight: #4a3f10;
   --changed: #133d24;
-  --selected: #1b3657;
-  --row-hover: #1a2129;
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --selected: #253342;
+  --row-hover: #1d2228;
+  --steel-sheen: linear-gradient(180deg, #262c33 0%, #1a1f24 100%);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
   --focus-width: 2px;
-  --cat-1: #58a6ff; --cat-2: #ffa657; --cat-3: #56d364; --cat-4: #f778ba;
-  --cat-5: #e3b341; --cat-6: #39c5cf; --cat-7: #ff7b72; --cat-8: #b1bac4;
+  --cat-1: #ff6b73; --cat-2: #7fb2dc; --cat-3: #56d364; --cat-4: #f778ba;
+  --cat-5: #e3b341; --cat-6: #39c5cf; --cat-7: #a99cf0; --cat-8: #b1bac4;
 }
 
 /* High contrast themes aim for 7:1 text, thick always-visible focus, strong borders. */
@@ -140,9 +144,9 @@ html[data-theme="hc-dark"] {
 @media (prefers-color-scheme: dark) {
   html:not([data-theme]) {
     color-scheme: dark;
-    --bg: #0f1419; --surface: #161b22; --surface-2: #1d242d; --raised: #1d242d;
-    --fg: #e6edf3; --muted: #9da7b3; --border: #30363d; --border-strong: #6e7681;
-    --accent: #58a6ff; --accent-fg: #0b1220; --accent-soft: #15304f; --focus: #79b8ff;
+    --bg: #121518; --surface: #191d22; --surface-2: #21272d; --raised: #21272d;
+    --fg: #e8ecef; --muted: #a2acb6; --border: #343c45; --border-strong: #707b86;
+    --accent: #ff6b73; --accent-fg: #1c0a0c; --accent-soft: #3d1c21; --focus: #c4ccd4;
   }
 }
 
@@ -683,6 +687,7 @@ body.popout .steps-panel {
   color: var(--fg);
   font-weight: 600;
   margin-bottom: -1px;
+  box-shadow: inset 0 3px 0 var(--accent); /* the open tab's red edge */
 }
 
 .panel-body {
@@ -1142,7 +1147,7 @@ table.small td.num {
   inset: 0 auto 0 0;
   width: var(--share, 0%);
   border-radius: 3px;
-  background: var(--accent-soft);
+  background: var(--selected); /* a steel bar with a red tip */
   border-right: 2px solid var(--accent);
   z-index: 0;
 }
@@ -2018,8 +2023,10 @@ body.popout .ribbon {
 }
 
 .ag-cell.row-header.row-active {
-  background: var(--accent-soft);
+  /* Where you are: steel, with a red marker line. A whole selected row or column is solid red. */
+  background: var(--selected);
   color: var(--fg);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .ag-cell.row-header.row-selected {
@@ -2033,7 +2040,8 @@ body.popout .ribbon {
 }
 
 .ag-header-cell.col-active {
-  background: var(--accent-soft);
+  background: var(--selected);
+  box-shadow: inset 0 -3px 0 var(--accent);
 }
 
 .ag-header-cell.col-selected {
@@ -2381,7 +2389,7 @@ button.link {
   min-height: 38px;
   padding: 6px 10px 0;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--steel-sheen, var(--surface-2)); /* brushed steel; the high contrast themes stay flat */
 }
 
 .tabbar.offline {
@@ -2690,12 +2698,33 @@ body.agent-view .titlebar {
   }
 }
 
-/* Preferences: a settings icon at the far left of the tab bar, before the Agent tab. */
-.tabbar-start {
+/* The Application row: styled as the ribbon's top row, but its own element so it stays on every tab
+   (the ribbon itself hides on the Agent, ERD and query tabs) and on the empty page. */
+.app-row {
   display: flex;
-  align-items: center;
-  align-self: center;
-  padding-bottom: 4px;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.app-row + .ribbon {
+  border-top: 0;
+}
+
+.app-row .ribbon-btn {
+  padding: 3px 7px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.app-row .ribbon-btn:hover {
+  border-color: var(--border);
+  background: var(--raised);
+}
+
+body.popout .app-row {
+  display: none; /* the steps window has its own job */
 }
 
 /* Grid zoom at the end of the ribbon's Table row. */
@@ -2941,4 +2970,87 @@ body.agent-view .titlebar {
 
 .steps-strip .btn {
   min-height: 24px;
+}
+
+/* ===== The Sandbox: a dashboard of resizable cards (aiPanel.ts) =====
+   Widths in twelfths of the row and heights in 40px steps, set from each card's corner grip; a card
+   not resized grows to fill its row. What a card draws fills it. */
+.cards,
+.workspace[data-layout="bottom"] .cards,
+.workspace[data-panel="max"] .cards,
+.workspace[data-view="agent"][data-panel][data-layout] .cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cards > .card {
+  position: relative;
+  min-height: 0;
+}
+
+.cards > .card > .card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cards > .card > .card-body > .chart,
+.cards > .card > .card-body > .figure,
+.cards > .card > .card-body > .diagram,
+.workspace[data-view="agent"] .cards .card-body .chart {
+  flex: 1;
+  min-height: 0;
+}
+
+.cards .diagram {
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.fit-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.card-image {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  object-fit: contain;
+}
+
+.card-grip {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: linear-gradient(135deg, transparent 0 55%, var(--border-strong) 55% 62%, transparent 62% 72%, var(--border-strong) 72% 79%, transparent 79%);
+  cursor: nwse-resize;
+  opacity: 0.7;
+  touch-action: none;
+}
+
+.card-grip:hover,
+.card-grip:focus-visible {
+  opacity: 1;
+}
+
+.card.resizing {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+/* A narrow window: one card per line, whatever its width was set to. */
+@media (max-width: 760px) {
+  .cards > .card {
+    flex: 1 1 100% !important;
+  }
 }
