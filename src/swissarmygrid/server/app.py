@@ -5,7 +5,8 @@ Route modules, one per area, like ASP.NET controllers. Each is given its service
 and does nothing but read the request, call the use case and shape the answer:
   routes_datasets.py       push, list, close, load a file, paste, the "+" tab; health and shutdown
   routes_grids.py          rows, steps, profile, SQL, export, code, recipes for one grid
-  routes_analysis.py       the fit test and outliers on one grid's view
+  routes_analysis.py       the Analyze menu's analyses on one grid's view
+  routes_regression.py     regression and what-if predictions
   routes_agent.py          the MCP door: the agent's reads, approvals, the current table
   routes_cards.py          side-panel charts and notes (plan section 11)
   routes_catalog.py        catalogs (a source's names and types)
@@ -45,6 +46,7 @@ from swissarmygrid.server import (
     routes_notebook,
     routes_packs,
     routes_processes,
+    routes_regression,
     routes_relationships,
     routes_snapshots,
 )
@@ -120,6 +122,7 @@ def create_app(
             *routes_datasets.routes(ctx.datasets),
             *routes_grids.routes(ctx.grids, ctx.profiles, ctx.sql, ctx.exports, ctx.codes),
             *routes_analysis.routes(ctx.grids, ctx.analysis),
+            *routes_regression.routes(ctx.grids, ctx.regression),
             *routes_agent.routes(ctx.agent),
             *routes_cards.routes(ctx.cards),
             *routes_catalog.routes(ctx.catalogs),

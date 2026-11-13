@@ -437,3 +437,83 @@ export function rowCards(values: Record<string, unknown>, row: number, dataset: 
   const markdown = [`# Row ${fmt(row + 1)} of ${dataset}`, "", mdTable(["Column", "Value"], Object.entries(values).map(([k, v]) => [k, v === null || v === undefined ? "(blank)" : typeof v === "object" ? JSON.stringify(v) : v]))].join("\n");
   return [{ kind: "note", title: `Row ${fmt(row + 1)} of ${dataset}`, body: markdown, size: { w: 5, h: Math.max(5, Math.min(18, Math.ceil(Object.keys(values).length * 0.6) + 3)) } }];
 }
+
+// ===== regression =====
+
+export interface RegressionTerm {
+  term: string;
+  column: string;
+  kind: string;
+  coefficient: number;
+  se: number;
+  p: number;
+  low: number;
+  high: number;
+  odds_ratio?: number;
+  words: string;
+}
+
+export interface RegressionResult {
+  kind: "linear" | "logistic";
+  target: string;
+  outcome: string | null;
+  predictors: string[];
+  n: number;
+  left_out: number;
+  references: Record<string, string>;
+  verdict: string;
+  warnings?: string[];
+  coefficients: RegressionTerm[];
+  fit: { r2?: number; adj_r2?: number; rmse?: number; accuracy?: number; majority?: number; pseudo_r2?: number };
+  model: { kind: string; terms: { column: string; kind: string; mean?: number; level?: string }[] } & Record<string, unknown>;
+  steps: { predicted: { kind: string; params: Record<string, unknown> }; miss: { kind: string; params: Record<string, unknown> } | null };
+}
+
+export function regressionCards(r: RegressionResult): SandboxCard[] {
+  const linear = r.kind === "linear";
+  const terms = r.coefficients.slice(1);
+  const fit = linear
+    ? mdTable(["R-squared", "Adjusted", "Typical miss", "Rows used"], [[fmt(r.fit.r2), fmt(r.fit.adj_r2), fmt(r.fit.rmse), fmt(r.n)]], [true, true, true, true])
+    : mdTable(["Right", "Guessing", "McFadden R-squared", "Rows used"], [[pct(r.fit.accuracy ?? 0), pct(r.fit.majority ?? 0), fmt(r.fit.pseudo_r2), fmt(r.n)]], [true, true, true, true]);
+  const lines = [
+    `# ${linear ? "What moves" : "What raises the odds of"} ${linear ? r.target : r.outcome}`,
+    `**${r.verdict}**`,
+    "",
+    fit,
+    "",
+    "#### Each effect, the others held steady",
+    mdTable(
+      ["Term", "In words", linear ? "Effect" : "Odds ratio", "95% range", "p"],
+      terms.slice(0, 15).map((c) => [`${c.p < 0.05 ? "**" : ""}${c.term}${c.p < 0.05 ? "**" : ""}`, c.words, fmt(linear ? c.coefficient : c.odds_ratio), `${fmt(c.low)} to ${fmt(c.high)}`, pText(c.p)]),
+      [false, false, true, true, true],
+    ),
+  ];
+  if (Object.keys(r.references).length) lines.push("", `Categories are compared with ${Object.entries(r.references).map(([k, v]) => `${k} = ${v}`).join(", ")}.`);
+  if (r.left_out) lines.push("", `${fmt(r.left_out)} row${r.left_out === 1 ? "" : "s"} with a blank in a used column ${r.left_out === 1 ? "was" : "were"} left out.`);
+  lines.push("", "> It shows what goes together, not what causes what.", ...(r.warnings ?? []).map((w) => `> ${w}`));
+  const shown = [...terms.slice(0, 20)].reverse();
+  const figure = {
+    data: [
+      {
+        type: "scatter",
+        mode: "markers",
+        x: shown.map((c) => (linear ? c.coefficient : c.odds_ratio)),
+        y: shown.map((c) => c.term),
+        error_x: { type: "data", symmetric: false, array: shown.map((c) => c.high - (linear ? c.coefficient : (c.odds_ratio ?? 1))), arrayminus: shown.map((c) => (linear ? c.coefficient : (c.odds_ratio ?? 1)) - c.low), color: "theme:muted", thickness: 1.5, width: 4 },
+        marker: { size: 10, color: shown.map((c) => (c.p >= 0.05 ? "theme:muted" : (linear ? c.coefficient > 0 : (c.odds_ratio ?? 1) > 1) ? "theme:accent" : "theme:ok")) },
+        hovertemplate: "%{y}: %{x:.3g}<extra></extra>",
+      },
+    ],
+    layout: {
+      ...BASE_LAYOUT,
+      margin: { l: 140, r: 16, t: 12, b: 48 },
+      xaxis: linear
+        ? { title: { text: `Effect on ${r.target} (per 1 unit, or against the reference)` }, zeroline: true, zerolinewidth: 2 }
+        : { type: "log", title: { text: `Odds ratio for ${r.outcome} (log scale)` }, ...logTicks(shown.flatMap((c) => [c.low, c.high])) },
+      yaxis: { automargin: true, type: "category" },
+      shapes: linear ? [] : [{ type: "line", x0: 1, x1: 1, yref: "paper", y0: 0, y1: 1, line: { color: "theme:fg", width: 1, dash: "dot" } }],
+      showlegend: false,
+    },
+  };
+  return pair(`Regression: ${linear ? r.target : r.outcome}`, lines.join("\n"), figure);
+}

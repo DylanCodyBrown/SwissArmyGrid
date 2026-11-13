@@ -49,6 +49,7 @@ from swissarmygrid.services.notebook import NotebookCells
 from swissarmygrid.services.packs import Packs
 from swissarmygrid.services.processes import ProcessRegistry, Sessions
 from swissarmygrid.services.profile import Profiles
+from swissarmygrid.services.regression import Regression
 from swissarmygrid.services.relationships import Compares, Finder, KeyFinder, Models
 from swissarmygrid.services.snapshots import Snapshots
 from swissarmygrid.services.sql import SqlBox
@@ -68,6 +69,7 @@ class Services:
     grids: GridService
     profiles: Profiles
     analysis: Analysis
+    regression: Regression
     sql: SqlBox
     exports: Exports
     codes: CodeService
@@ -176,6 +178,7 @@ def bootstrap(
         grids=GridService(ws, recipes, processes),
         profiles=Profiles(ws),
         analysis=Analysis(ws, verifier),
+        regression=Regression(ws),
         sql=SqlBox(ws, datasets, table_reader),
         exports=Exports(ws, export_writer, tickets, now=lambda: datetime.now(UTC)),
         codes=CodeService(ws, verifier),

@@ -270,3 +270,18 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   window's results for all four analyses, to 1e-9 (sums in another order differ in the last digit).
   A JSON push takes pandas' split shape, not records (Open as grid sends that). In Chrome for Testing
   153: odds, Test together, find predictors, Open as grid, Send to Sandbox and Exclude these.
+- (2026-11-13) The Sandbox as a report and the regression (Plans/sandbox-report.plan.md,
+  Plans/analyze-menu.plan.md phase B). Cards keep the server-side order, size and new-page flag; Plotly,
+  ECharts, Graphviz and image cards are accepted from the server (they were refused before). Page view
+  printed through Chromium's own print engine gives landscape letter pages on light paper with the
+  charts drawn and no controls; notes measured at their page width grow so no table row is cut. The
+  markdown export embeds Plotly figures as PNG (Plotly.toImage) and Mermaid drawings as PNG or, with HTML
+  labels, as SVG. Playwright's simulated mouse drag does not raise HTML drag events in the Sandbox's
+  scrolled panel; the tests fire the browser's own DragEvents (and use Move earlier). Regression on
+  made-up orders with planted effects: linear recovers units 3.005 (3), West +19.93 (+20), East -4.88
+  (-5), equal to numpy's least squares to 1e-9; logistic recovers West's odds ratio 4.52 (e^1.5 = 4.48)
+  and units 0.021 (0.02) in 5 rounds; what-if gives 99.8 (100) and a chance of 0.498 (0.5). pandas'
+  missing numbers arrive as NaN, which DuckDB does not count as blank: rows with a non-finite number
+  in a used column are left out and counted. The Data shape check finds a wide table (jan_, feb_,
+  mar_ sales), identifiers and Benford's range (on the values above zero). t quantiles match the
+  printed table (2.228 for 10 degrees of freedom).

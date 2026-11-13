@@ -25,7 +25,7 @@ order the app shows them, so the tool list reads like the screen:
 | `compare_` | two grids side by side | `compare_create`, `compare_change`, `compare_remove` |
 | `sandbox_` | the Sandbox tab | `sandbox_add`, `sandbox_list`, `sandbox_update` |
 | `app_` | the page itself | `app_snapshot` |
-| `analyze_` | the Table row's **Analyze** menu | `analyze_odds`, `analyze_predictors` (with `column_fit_test`, `column_outliers`) |
+| `analyze_` | the Table row's **Analyze** menu | `analyze_odds`, `analyze_predictors`, `analyze_regression`, `analyze_predict`, `analyze_shape` (with `column_fit_test`, `column_outliers`) |
 | `agent_` | what only an agent has: reads and queries, the user's live events | `agent_read_grid`, `agent_query`, `agent_context`, `agent_events` |
 
 `guide` (this page), `commands` and `health` have no prefix. `commands` returns the full catalog
@@ -144,6 +144,13 @@ step), `sandbox_code` returns the Altair Python, `sandbox_list` and `sandbox_all
 - `analyze_predictors`: which columns go with a target, strongest first, before a regression. Read
   `strength` (from Cramér's V), not just `p`; follow `redundant` (keep one of each pair); a `note`
   says when a number is related but not in a straight line.
+- `analyze_regression`: after analyze_predictors, the strong ones (one of each redundant pair) as
+  `predictors`. Linear for a number target; with `outcome`, logistic (odds ratios). Report the
+  verdict and the clearly non-zero effects in words; it shows what goes together, not what causes
+  what. `analyze_predict` answers what-if questions from its `model`. Its `steps.miss` added with
+  steps_add, then column_outliers on that column, finds the rows the model cannot explain.
+- `analyze_shape`: before an analysis on an unfamiliar table, check its shape (a wide table needs
+  unpivoting first).
 - These and the fit test and outliers chain: odds and the fit test say whether two columns are
   related and by how much; find predictors ranks the candidates; outliers checks the target before a
   model is fitted. Say what you found in words, and leave decisions to the user.

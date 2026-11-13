@@ -57,8 +57,16 @@ What a grid page does:
   late 46% of the time, against 15% elsewhere: 4.85 times the odds"). **Find predictors**: every column
   tested against a target by chi-square, ranked by strength, with the pairs that say the same thing.
   **Fit test** and **Outliers** (below). Every result can go to the Sandbox, open as a grid, or go to
-  the notebook as Python (`swissarmygrid.stats`, the same code the window ran). Regression, time series
-  and forecasting are next (Plans/analyze-menu.plan.md).
+  the notebook as Python (`swissarmygrid.stats`, the same code the window ran). **Regression**: linear or
+  logistic (odds ratios), effects in words with ranges, what-if predictions, predicted and miss columns,
+  and Check the misses (outliers of what the model cannot explain). Each form has a **Data shape**
+  cheat sheet: a made-up table in the shape it needs, one that does not work, and a check of your grid.
+  Time series and forecasting are next (Plans/analyze-menu.plan.md).
+- **The Sandbox as a report:** results arrive as a readable note (with real tables) and a chart side by
+  side; drag cards to arrange them, edit any note, see it as letter or landscape pages, **Print to PDF**,
+  or **Export markdown** (one file, charts embedded as pictures, ready for an AI model). Right-click a
+  cell or a header to send a value, a row, a profile or distinct values; every details window has
+  Send to Sandbox.
 - **Fit test and outliers:** select columns and ask whether their values spread as expected (chi-square
   against even shares, Benford's law on the first one or two digits, another grid's spread, or two
   columns together), with the verdict in words and an effect size; or find the outliers in a column, by

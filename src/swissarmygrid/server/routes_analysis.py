@@ -13,6 +13,8 @@
                               value's rate against the rest and its odds ratio with a 95% range
   POST /grids/{id}/predictors {"target", "candidates", "buckets"} -> each candidate tested together with
                               the target, ranked by Cramér's V; correlations; pairs that say the same
+  POST /grids/{id}/shape-check {"analysis", "columns"} -> {"notes": [{"level": ok | warn, "text"}]}: does
+                              the grid suit the analysis (the Data shape panel)
   POST /grids/{id}/analysis-code {"analysis", "body"} -> {"code", "imports"}: the analysis as Python for
                               the notebook (the steps as checked SQL, then the swissarmygrid.stats call)
 
@@ -82,5 +84,10 @@ def routes(grids: GridService, analysis: Analysis) -> list[BaseRoute]:
             methods=["POST"],
         ),
         Route("/grids/{grid_id}/predictors", one("predictors", '{"target": name}'), methods=["POST"]),
+        Route(
+            "/grids/{grid_id}/shape-check",
+            one("shape", '{"analysis": "odds", "columns": [...]}'),
+            methods=["POST"],
+        ),
         Route("/grids/{grid_id}/analysis-code", code, methods=["POST"]),
     ]

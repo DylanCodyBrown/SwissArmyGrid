@@ -21,8 +21,10 @@ from typing import Any
 import duckdb
 
 from swissarmygrid.domain.datasets import Column
+from swissarmygrid.domain.regression import predict as _predict
 from swissarmygrid.domain.stats import chi_square_p, correlation_p, f_p, normal_quantile, t_p
 from swissarmygrid.services import analysis as _analysis
+from swissarmygrid.services import regression as _regression
 
 __all__ = [
     "chi_square_p",
@@ -32,7 +34,9 @@ __all__ = [
     "normal_quantile",
     "odds",
     "outliers",
+    "predict",
     "predictors",
+    "regression",
     "t_p",
 ]
 
@@ -107,3 +111,19 @@ def predictors(
     return _analysis.run_predictors(
         con, relation, view, _body(target=target, candidates=candidates, buckets=buckets)
     )
+
+
+def regression(
+    data: Any, target: str, predictors: list[str], outcome: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Linear regression of a number `target` on `predictors`, or logistic with `outcome` (what counts
+    as yes: {"column", "values"} or {"column", "op", "value"}). The result's "model" goes to predict()."""
+    con, relation, view = _open(data)
+    return _regression.run_regression(
+        con, relation, view, _body(target=target, predictors=predictors, outcome=outcome)
+    )
+
+
+def predict(model: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+    """A fitted model's estimate for one what-if row, with its 95% range."""
+    return _predict(model, values)

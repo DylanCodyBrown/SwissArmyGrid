@@ -15,6 +15,7 @@ import { api, grid } from "./api";
 import { amountCards, fitCards, frequencyCards, oddsCards, predictorsCards } from "./analysisCards";
 import { datasetName, registerAnalysis, resultButtons, tableName } from "./analyzeMenu";
 import { cheatSheet } from "./cheatSheets";
+import { openRegression } from "./modelDialog";
 import { button, clear, formatCount, h, isNumericType, openDialog, toast } from "./dom";
 import { selection, viewColumns } from "./gridView";
 import { state } from "./state";
@@ -592,8 +593,11 @@ export async function openPredictors(target?: string): Promise<void> {
     try {
       const answer = await api<PredictorsResult>(`${grid}/predictors`, "POST", sent);
       clear(results, predictorsView(answer, (column) => { close(); void openFitTest([answer.target, column], "together"); }));
+      // The strong and moderate candidates, one of each redundant pair: the regression's predictors.
+      const picks = answer.candidates.filter((c) => (c.strength === "strong" || c.strength === "moderate") && !c.same_as).map((c) => c.column);
       clear(
         actions,
+        picks.length ? button("Regression with these", () => { close(); void openRegression(answer.target, picks); }, { icon: "fit", class: "primary", title: `A regression of ${answer.target} on ${picks.join(", ")}` }) : null,
         ...resultButtons({
           analysis: "predictors",
           body: sent,

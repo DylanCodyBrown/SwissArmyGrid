@@ -63,7 +63,10 @@ src/swissarmygrid/
     stats.py             the shared statistics: chi-square, t, F and normal distributions, effect sizes
     analysis.py          the Analyze menu's math and query text: the fit test (Benford, Nigrini), outliers
                          (amount fences, frequency on two scales), odds (ratios, Woolf's range), buckets,
-                         find predictors' rules, and the notebook code (one swissarmygrid.stats call)
+                         find predictors' rules, the Data shape check, and the notebook code (one
+                         swissarmygrid.stats call)
+    regression.py        linear and logistic regression: the terms as SQL, the sums, Cholesky, ranges,
+                         what-if predictions, the model as SQL (predicted and miss columns)
     packs.py             a pack (a Claude Code plugin with blades/ and tangs/): names, the new marketplace's
                          files, Claude Code's install record read loosely, which plugins are switched off
 
@@ -75,7 +78,8 @@ src/swissarmygrid/
     grids.py             rows, counts, steps and step changes, highlights, the selection, recipes
     profile.py           column and table profiles, kept by view key
     analysis.py          the Analyze menu on a grid's view: run_* functions over any cursor (the same code
-                         swissarmygrid.stats runs on a DataFrame), and the notebook code
+                         swissarmygrid.stats runs on a DataFrame), the Data shape check, the notebook code
+    regression.py        regression on a grid's view (run_regression, over any cursor) and what-if
     sql.py               the SQL box
     export.py            CSV, Excel, Parquet: a download, or saved (an agent's only with a ticket)
     codegen.py           copy as code: generate, then verify what the user will paste
@@ -110,7 +114,7 @@ src/swissarmygrid/
     app.py               asks bootstrap for the services, mounts the routes behind the guard
     http.py              reading requests, shaping answers, each error as its status
     routes_*.py          one per feature: read the request, call the use case, shape the answer
-                         (datasets, grids, analysis, agent, cards, catalog, blades, notebook, relationships,
+                         (datasets, grids, analysis, regression, agent, cards, catalog, blades, notebook, relationships,
                          processes, snapshots, packs). /catalogs is for everyone; /blades and /packs refuse
                          the agent, whose own door is /agent/blades in routes_agent.py
     security.py          the guard: 127.0.0.1, the token, Host and Origin
@@ -125,7 +129,7 @@ src/swissarmygrid/
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (102 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (105 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
@@ -133,6 +137,10 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          analyzeMenu.ts is the Table row's Analyze menu and every result's Send to Sandbox,
                          Open as grid and To notebook; analysisDialog.ts is its forms (odds, fit test, find
                          predictors, outliers; Fit test and Outliers are also in the Column row);
+                         modelDialog.ts the regression and what-if; cheatSheets.ts each form's Data shape;
+                         analysisCards.ts every result as Sandbox cards (a report-style note and a chart);
+                         sandboxPages.ts Page view, Print to PDF and moving cards; sandboxExport.ts the
+                         markdown export; cellMenu.ts the right-click menus on cells and headers;
                          tour.ts is the first-time tour (the Application row's question mark: a
                          spotlight card per word, then a matching game);
                          catalogRail.ts (blades + catalog navigation) is shared by the blades page

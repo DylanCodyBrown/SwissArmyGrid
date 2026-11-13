@@ -195,7 +195,10 @@ def run_predictors(cur: SqlSession, relation: str, view: Columns, body: dict[str
         item["note"] = A.shape_note(item["v"], item["correlation"])
         exprs[column.name] = expr
         ranked.append(item)
-    ranked.sort(key=lambda c: -c["v"])
+    # Strongest first; equal strengths (to nine digits: sums in another order differ in the last one) keep
+    # the table's own column order, so the window and the notebook rank alike.
+    place = {c.name: i for i, c in enumerate(pool)}
+    ranked.sort(key=lambda c: (-round(c["v"], 9), place[c["column"]]))
     return {
         "target": target.name,
         "target_bucketed": target_bucketed,
@@ -205,7 +208,32 @@ def run_predictors(cur: SqlSession, relation: str, view: Columns, body: dict[str
     }
 
 
+def run_shape(cur: SqlSession, relation: str, view: Columns, body: dict[str, Any]) -> dict[str, Any]:
+    """{"analysis", "columns": [...]}: plain notes on whether the grid suits the analysis (the Data
+    shape panel's check): wide tables, few rows, blanks, identifiers, numbers to bucket, Benford's range."""
+    analysis = body.get("analysis")
+    selected = body.get("columns") or []
+    if not isinstance(analysis, str) or not isinstance(selected, list):
+        raise A.AnalysisError('Send {"analysis": "odds", "columns": [...]}.')
+    flags = [(c.name, _is_number(c)) for c in view]
+    row = cur.execute(A.shape_query(relation, flags)).fetchone() or ()
+    rows = int(row[0]) if row else 0
+    columns = {
+        c.name: (
+            type_family(c.type),
+            int(row[1 + 5 * i]),
+            int(row[2 + 5 * i]),
+            row[3 + 5 * i],
+            row[4 + 5 * i],
+            row[5 + 5 * i],
+        )
+        for i, c in enumerate(view)
+    }
+    return {"notes": A.shape_notes(analysis, rows, columns, [str(s) for s in selected])}
+
+
 RUNS: dict[str, Callable[[SqlSession, str, Columns, dict[str, Any]], dict[str, Any]]] = {
+    "shape": run_shape,
     "outliers": run_outliers,
     "odds": run_odds,
     "predictors": run_predictors,
@@ -273,7 +301,7 @@ class Analysis:
     ) -> dict[str, Any]:
         """The analysis as Python for the notebook: the grid's steps as one DuckDB query (checked
         against the grid, like Copy as SQL), then the `swissarmygrid.stats` call the window made."""
-        if analysis not in (*RUNS, "fit_test"):
+        if analysis not in A.CODE_ARGUMENTS:
             raise A.AnalysisError(f"No analysis {analysis!r}.")
         view_sql: str | None = None
         if grid.steps:

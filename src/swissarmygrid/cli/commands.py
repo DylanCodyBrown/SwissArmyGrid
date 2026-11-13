@@ -803,8 +803,7 @@ _CARD_FIELDS = (
     opt("title", "Card title (up to 200 characters)."),
     opt(
         "body",
-        "Markdown for a note (headings, tables, lists); Mermaid text for a diagram; DOT for graphviz; "
-        "a figure as JSON text for plotly or echarts; a data:image/png;base64 URL for an image.",
+        "note: markdown; diagram: Mermaid; graphviz: DOT; plotly/echarts: figure JSON; image: data URL.",
     ),
     opt(
         "spec",
@@ -1398,14 +1397,13 @@ def column_profile(a: dict[str, Any]) -> Any:
 
 @command(
     "column_fit_test",
-    "Chi-square goodness of fit on one or more columns of the grid's view: does each column's spread of "
-    "values match the expected one? expected: even (default), benford / benford2 (first one or two digits "
-    "of amounts; made-up numbers rarely follow them), grid (another grid's column: reference), shares "
-    "(your own), together (two columns: are they related?). Gives p, an effect size in words, and the "
+    "Chi-square fit test on columns of the grid's view. expected: even (default), benford / benford2 "
+    "(first digits of amounts), grid (another grid: reference), shares, together (two columns "
+    "related?). Gives p, an effect size in words, the values furthest off."
     "values furthest from expected.",
     req("grid", "Grid id."),
-    req("columns", "Column names (a list; one name works too).", "list"),
-    opt("expected", "even | benford | benford2 | grid | shares | together."),
+    req("columns", "Column names.", "list"),
+    opt("expected", "even, benford, benford2, grid, shares or together."),
     opt(
         "reference",
         'With expected=grid: {"grid": id, "column": name} (column defaults to the same name).',
@@ -1426,18 +1424,18 @@ def column_fit_test(a: dict[str, Any]) -> Any:
 
 @command(
     "column_outliers",
-    "Outliers in one column of the grid's view. look=amount (numbers far from the rest: method robust "
-    "(median, the default), iqr (quartile fences) or zscore; `by` judges each group of another column "
-    "separately) or look=frequency (values seen far more often or more rarely than values usually are: "
+    "Outliers in a column. look=amount (method robust (default), iqr or zscore; `by` judges each "
+    "group) or look=frequency (values seen too often or too rarely). show / exclude add the step "
+    "keeping or dropping them."
     "typos, copied amounts). show=true also adds the step that keeps just those rows.",
     req("grid", "Grid id."),
     req("column", "Column name."),
-    opt("look", "amount (default) or frequency."),
-    opt("method", "robust (default), iqr or zscore (amount)."),
-    opt("threshold", "How far out counts as an outlier (robust 3.5, iqr 1.5, zscore 3).", "any"),
-    opt("by", "Judge each group of this column separately (amount)."),
-    opt("show", "Also add the step that keeps just the outliers' rows.", "bool"),
-    opt("exclude", "Also add the step that leaves the outliers out (blank rows stay).", "bool"),
+    opt("look", "amount or frequency."),
+    opt("method", "robust, iqr or zscore."),
+    opt("threshold", "How far out (3.5, 1.5, 3).", "any"),
+    opt("by", "Judge each group of this column."),
+    opt("show", "Add the step keeping them.", "bool"),
+    opt("exclude", "Add the step dropping them.", "bool"),
     values=True,
 )
 def column_outliers(a: dict[str, Any]) -> Any:
@@ -1456,14 +1454,16 @@ def column_outliers(a: dict[str, Any]) -> Any:
 
 @command(
     "analyze_odds",
-    "Odds: how often each value of a column shows up (share, 1 in N, the odds on any one row). With an "
-    'outcome ({"column": "late", "values": ["late"]} or, for a number, {"column": "amount", "op": "gt", '
-    '"value": 1000}), each value\'s rate of it against every other value and the odds ratio with its 95% '
-    "range (clear when the range leaves out 1). Number columns are cut into equal-sized buckets.",
+    "Each value's share and odds; with `outcome` (values, or op and value for a number) each value's "
+    "rate of it against the rest and its odds ratio with a 95% range. Numbers are bucketed.",
     req("grid", "Grid id."),
     req("column", "The column whose values to count."),
-    opt("outcome", "What counts as yes (see above).", "json"),
-    opt("buckets", "Cut a number column into this many equal-sized ranges (2 to 20).", "int"),
+    opt(
+        "outcome",
+        '{"column": "late", "values": ["late"]}, or {"column": "amount", "op": "gt", "value": 1000}.',
+        "json",
+    ),
+    opt("buckets", "Ranges for a number column (2 to 20).", "int"),
     values=True,
 )
 def analyze_odds(a: dict[str, Any]) -> Any:
@@ -1473,19 +1473,61 @@ def analyze_odds(a: dict[str, Any]) -> Any:
 
 @command(
     "analyze_predictors",
-    "Find predictors: every other column (or `candidates`) tested together with the target by chi-square, "
-    "numbers in equal-sized buckets, ranked by Cramér's V (strength none / weak / moderate / strong), with "
-    "the straight-line correlation for number pairs, the columns skipped and why (identifiers, dates), and "
+    "Which columns go with a target: each tested by chi-square (numbers bucketed), ranked by "
+    "Cramér's V with correlations; identifiers and dates skipped; pairs saying the same thing "
+    "flagged."
     "pairs of candidates that say the same thing (give a regression the one to keep).",
     req("grid", "Grid id."),
-    req("target", "The column to predict: a number or a category."),
+    req("target", "A number or a category."),
     opt("candidates", "Only these columns.", "list"),
-    opt("buckets", "How many ranges for number columns (default 4).", "int"),
+    opt("buckets", "Ranges for numbers (4).", "int"),
     values=True,
 )
 def analyze_predictors(a: dict[str, Any]) -> Any:
     body = {k: a[k] for k in ("target", "candidates", "buckets") if a.get(k) is not None}
     return api.call("POST", f"/grids/{_q(a['grid'])}/predictors", body)
+
+
+@command(
+    "analyze_regression",
+    "Regression: linear for a number target, logistic with `outcome` (odds ratios). Effects in words "
+    "with ranges and p, the fit, the verdict, `model` (for analyze_predict) and `steps` (predicted / "
+    "miss columns for steps_add)."
+    "with steps_add). Use analyze_predictors first to choose the predictors.",
+    req("grid", "Grid id."),
+    req("target", "The column to predict."),
+    req("predictors", "Column names.", "list"),
+    opt("outcome", "For yes/no: as in analyze_odds.", "json"),
+    values=True,
+)
+def analyze_regression(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("target", "predictors", "outcome") if a.get(k) is not None}
+    return api.call("POST", f"/grids/{_q(a['grid'])}/regression", body)
+
+
+@command(
+    "analyze_predict",
+    "What-if: a model's (from analyze_regression) estimate for the values given, with its 95% range."
+    "with its 95% range (where a new row would fall; for yes/no, the chance and its range).",
+    req("model", "analyze_regression's model.", "json"),
+    req("values", "{column: value} for every predictor.", "json"),
+)
+def analyze_predict(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/regression/predict", {"model": a["model"], "values": a["values"]})
+
+
+@command(
+    "analyze_shape",
+    "Does the grid suit an analysis (odds, fit_test, predictors, outliers)? Notes on a wide table, "
+    "few rows, blanks, identifiers, bucketing, Benford's range."
+    "(one column per month), few rows, blanks, identifiers, numbers that will be bucketed, Benford's range.",
+    req("grid", "Grid id."),
+    req("analysis", "odds, fit_test, predictors or outliers."),
+    opt("columns", "The columns it would use.", "list"),
+)
+def analyze_shape(a: dict[str, Any]) -> Any:
+    body = {"analysis": a["analysis"], "columns": a.get("columns") or []}
+    return api.call("POST", f"/grids/{_q(a['grid'])}/shape-check", body)
 
 
 @command(
@@ -1565,7 +1607,7 @@ AREAS: tuple[tuple[str, str], ...] = (
     ("table", "Ribbon, Table row"),
     ("column", "Ribbon, Column row"),
     ("cell", "Ribbon, Cell row"),
-    ("analyze", "Ribbon, Table row: the Analyze menu (odds, find predictors)"),
+    ("analyze", "Ribbon, Table row: the Analyze menu (odds, find predictors, regression, data shape)"),
     ("row", "Rows"),
     ("steps", "Table Transformations panel and SQL box"),
     ("key_finder", "Key Finder"),

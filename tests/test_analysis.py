@@ -404,3 +404,40 @@ def test_stats_works_on_a_plain_dataframe() -> None:
     ranked = stats.predictors(frame, target="amount", candidates=["units", "region"])
     assert [c["column"] for c in ranked["candidates"]] == ["units", "region"]
     assert stats.chi_square_p(3.841458820694124, 1) == pytest.approx(0.05)
+
+
+def test_the_data_shape_check_spots_wide_tables_identifiers_and_benford_ranges(client: TestClient) -> None:
+    rng = np.random.default_rng(5)
+    wide = pa.table(
+        {
+            "region": ["West", "North", "East"] * 20,
+            "jan_sales": rng.uniform(10, 20, 60),
+            "feb_sales": rng.uniform(10, 20, 60),
+            "mar_sales": rng.uniform(10, 20, 60),
+        }
+    )
+    grid = grid_id(push(client, "wide_sales", wide))
+
+    def notes(analysis: str, columns: list[str]) -> list[tuple[str, str]]:
+        response = client.post(
+            f"/grids/{grid}/shape-check", json={"analysis": analysis, "columns": columns}, headers=AUTH
+        )
+        assert response.status_code == 200, response.text
+        return [(n["level"], n["text"]) for n in response.json()["notes"]]
+
+    found = notes("odds", ["region"])
+    assert found[0][0] == "warn" and "looks wide" in found[0][1] and "jan_sales" in found[0][1]
+    assert ("ok", "region: 3 values: fine.") in found
+    benford = notes("fit_test", ["jan_sales"])
+    assert any(
+        level == "warn" and "Benford needs several orders of magnitude" in text for level, text in benford
+    )
+    order_grid = grid_id(push(client, "shape_orders", orders(), "?new_grid=1"))
+    ids = client.post(
+        f"/grids/{order_grid}/shape-check", json={"analysis": "odds", "columns": ["order_id"]}, headers=AGENT
+    ).json()
+    assert any("an identifier" in n["text"] for n in ids["notes"])
+    amounts = client.post(
+        f"/grids/{order_grid}/shape-check", json={"analysis": "fit_test", "columns": ["amount"]}, headers=AUTH
+    ).json()
+    assert any("orders of magnitude: suits a Benford test" in n["text"] for n in amounts["notes"])

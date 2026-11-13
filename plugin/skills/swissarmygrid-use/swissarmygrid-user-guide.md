@@ -132,6 +132,10 @@ Select one column, then **Outliers** in the Column row:
 - **Find predictors:** pick a target (a number or a category). Every other column (or the ones you tick) is tested together with it by chi-square, numbers in equal-sized ranges, and ranked by strength (Cramér's V: none, weak, moderate, strong). Number pairs also get their straight-line correlation. Identifiers and dates are skipped with the reason, and two columns that say the same thing are marked, so a regression gets only one. **Test together** on a row opens the fit test for that pair.
 - **Fit test** and **Outliers**, as above.
 
+- **Regression:** a target and its predictors (Find predictors' **Regression with these** fills them in). A number target gets a linear regression: how much it moves with each predictor, the others held steady, with a 95% range, how much of it the model explains (R-squared) and its typical miss. A yes/no target (tick Yes/no and say what counts as yes: late, or above 1000) gets a logistic one, whose effects are odds ratios. Categories are compared with their commonest value. **What if** predicts for values you type, with the range a new row would fall in. **Add predicted column** and **Add miss column** add steps with the fitted formula; **Check the misses** adds the miss column and opens Outliers on it: the rows the model cannot explain. A regression shows what goes together, not what causes what.
+
+Each form has a **Data shape** panel: a made-up table in the shape the analysis needs (long: one row per order, the category and the outcome as columns), one that does not work and why (already counted, wide with one column per month, numbers stored as text), tips, and a check of your grid ("region: 4 values: fine", "this table looks wide"). It can go to the Sandbox too.
+
 Every result has three buttons: **Send to Sandbox** (the result in words, as a note), **Open as grid** (the result's table as a new grid) and **To notebook** (the analysis as Python in the notebook: the grid's steps as checked SQL, then one `swissarmygrid.stats` call, the same code the window ran, so the numbers match).
 
 ### Auto width
@@ -203,6 +207,23 @@ To add a chart, press Add chart. Choose the table, the chart type, the column fo
 ![The Sandbox with a bar chart of summed quantity by product and a note with a title and a short list.](images/16-analysis-sandbox.png)
 
 Clicking a bar in a chart filters the grid to that value. Each card has a pin, a zoom button for a larger view, and a remove button.
+
+### The Sandbox as a report
+
+- **Move a card** by dragging its title bar onto another card (the left half puts it before, the right half after), or with Move earlier and Move later in its **⋯** menu.
+- **Notes** are markdown: headings, **tables** (`| Region | Late |` rows under a `|---|---:|` rule; numbers line up right), lists, `code`, and `>` cautions. Double-click a note (or Edit note in its menu) to change it, an analysis's note too: add your own reading of the result.
+- **Page view** shows the Sandbox as **letter** or **letter landscape** pages, edges drawn, cards in their order; a card never splits across pages, and **Start a new page here** (in a card's menu) begins a page with it. Notes grow on paper so no text is cut.
+- **Print to PDF** prints exactly those pages: choose Save as PDF in the print dialog. A dark theme prints on light paper.
+- **Export markdown** saves the whole Sandbox as one `.md` file: every note as its markdown, tables as markdown tables, every chart and diagram as a picture inside the file. Ready to keep, or to hand to an AI model to help read it.
+
+### Sending things to the Sandbox
+
+Anything that shows details can go to the Sandbox, as a readable note and, where there is one, a chart beside it:
+
+- **Every Analyze result** (odds, fit test, find predictors, outliers, regression): **Send to Sandbox**.
+- **Right-click a cell**: Send value to Sandbox, Send the row to Sandbox (each column and its value), Keep these, Exclude these, View value, Copy.
+- **Right-click a column header**: Profile to Sandbox (its numbers, most common values and a histogram), Distinct values to Sandbox, Profile, and the Analyze entries for that column.
+- **Send to Sandbox** also sits on the column profile, the whole-table profile, the value viewer and the Key Finder.
 
 ### How an agent sees the grids
 

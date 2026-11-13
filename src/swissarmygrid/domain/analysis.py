@@ -22,6 +22,7 @@ library only; no I/O.
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 from swissarmygrid.domain.stats import chi_square_p, effect_words
@@ -651,6 +652,7 @@ def shape_note(v: float, r: float | None) -> str | None:
 # ===== the analysis as Python, for the notebook =====
 
 CODE_ARGUMENTS: dict[str, tuple[str, ...]] = {
+    "regression": ("target", "predictors", "outcome"),
     "fit_test": ("columns", "expected", "shares"),
     "outliers": ("column", "look", "method", "threshold", "by"),
     "odds": ("column", "buckets", "outcome"),
@@ -697,3 +699,170 @@ def analysis_code(
     variable = f"{_name_part(table)}_{analysis}_{_name_part(subject)}"
     call = f"{variable} = stats.{analysis}(\n    {data},\n    " + ",\n    ".join(parts) + ",\n)"
     return f"{call}\n{variable}", imports
+
+
+# ===== the Data shape check: does the grid suit the analysis? =====
+
+SHAPE_ANALYSES: tuple[str, ...] = ("odds", "fit_test", "predictors", "outliers")
+SERIES_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("month", r"(?:^|[^a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)(?:[a-z]*)(?:[^a-z]|$)"),
+    ("quarter", r"(?:^|[^a-z0-9])q[1-4](?:[^0-9]|$)"),
+    ("year", r"(?:^|[^0-9])(19|20)\d\d(?:[^0-9]|$)"),
+    ("week", r"(?:^|[^a-z])(w|wk|week)_?\d{1,2}(?:[^0-9]|$)"),
+)
+
+
+def shape_query(relation: str, columns: list[tuple[str, bool]]) -> str:
+    """Rows, then for each (name, is_number): rows with a value, different values, and for numbers the
+    lowest, the lowest above zero (what Benford reads) and the highest. One pass."""
+    parts = ["count(*)"]
+    for name, number in columns:
+        c = quote(name)
+        parts += [f"count({c})", f"count(DISTINCT {c})"]
+        if number:
+            x = f"CAST({c} AS DOUBLE)"
+            parts += [
+                f"min({x}) FILTER (WHERE isfinite({x}))",
+                f"min({x}) FILTER (WHERE isfinite({x}) AND {x} > 0)",
+                f"max({x}) FILTER (WHERE isfinite({x}))",
+            ]
+        else:
+            parts += ["NULL", "NULL", "NULL"]
+    return f"SELECT {', '.join(parts)} FROM {relation}"
+
+
+def wide_series(columns: list[tuple[str, str]]) -> tuple[str, list[str]] | None:
+    """(what repeats, the columns) when three or more number columns are named like one measure across
+    months, quarters, years or weeks: the table is wide."""
+    numbers = [name for name, family in columns if family == "number"]
+    for kind, pattern in SERIES_PATTERNS:
+        found = [n for n in numbers if re.search(pattern, n.lower())]
+        if len(found) >= 3:
+            return kind, found
+    return None
+
+
+def _orders(low: float | None, high: float | None) -> float | None:
+    if low is None or high is None or low <= 0 or high <= 0:
+        return None
+    return math.log10(high / low)
+
+
+def shape_notes(
+    analysis: str,
+    rows: int,
+    columns: dict[str, tuple[str, int, int, float | None, float | None, float | None]],
+    selected: list[str],
+) -> list[dict[str, str]]:
+    """Plain notes on whether the grid suits the analysis. `columns`: name -> (family, rows with a
+    value, different values, lowest, lowest above zero, highest). `selected`: the columns the form is
+    set to (for odds the column then the outcome's column; for find predictors the target then the
+    candidates)."""
+    if analysis not in SHAPE_ANALYSES:
+        raise AnalysisError(f"No data shape for {analysis!r}.")
+    notes: list[dict[str, str]] = []
+
+    def ok(text: str) -> None:
+        notes.append({"level": "ok", "text": text})
+
+    def warn(text: str) -> None:
+        notes.append({"level": "warn", "text": text})
+
+    wide = wide_series([(name, info[0]) for name, info in columns.items()])
+    if wide:
+        kind, names = wide
+        shown = ", ".join(names[:4]) + ("..." if len(names) > 4 else "")
+        warn(
+            f"This table looks wide: {len(names)} number columns ({shown}) are one measure across {kind}s. "
+            f"These analyses want one row per {kind} (long): unpivot it in the notebook first."
+        )
+    if rows < 30:
+        warn(f"Only {rows:,} rows: the results will be rough.")
+    else:
+        ok(f"{rows:,} rows.")
+
+    def blanks(name: str, filled: int) -> None:
+        if rows and filled < rows:
+            share = 100 * (rows - filled) / rows
+            (warn if share >= 20 else ok)(f"{name}: {share:.0f}% blank (left out).")
+
+    def as_category(name: str, role: str = "") -> None:
+        family, filled, distinct, *_ = columns[name]
+        label = f"{name}{role}"
+        blanks(name, filled)
+        if family in ("date", "timestamp"):
+            warn(f"{label}: a date; use Time series, or bucket it by month first.")
+        elif distinct == filled and filled > 20:
+            warn(f"{label}: every row different (an identifier): each value would show up once.")
+        elif family == "number" and distinct > 12:
+            ok(f"{label}: a number with {distinct:,} values: it is cut into equal-sized ranges.")
+        elif distinct > MAX_CATEGORIES:
+            warn(f"{label}: {distinct:,} different values: group them first (Categorize).")
+        elif distinct < 2:
+            warn(f"{label}: one value only: nothing to compare.")
+        else:
+            ok(f"{label}: {distinct:,} values: fine.")
+
+    chosen = [name for name in selected if name in columns]
+    if not chosen:
+        warn("Pick a column to check it.")
+        return notes
+    if analysis == "odds":
+        as_category(chosen[0])
+        if len(chosen) > 1:
+            family, filled, distinct, *_ = columns[chosen[1]]
+            blanks(chosen[1], filled)
+            ok(f"{chosen[1]} (the outcome): {distinct:,} values.")
+    elif analysis == "fit_test":
+        for name in chosen:
+            family, filled, distinct, lowest, low, high = columns[name]
+            if family == "number":
+                blanks(name, filled)
+                orders = _orders(low, high)
+                if lowest is not None and lowest <= 0:
+                    ok(f"{name}: has zero or negative values: Benford reads the first digit of the others.")
+                if orders is None:
+                    warn(f"{name}: no values above zero: nothing for Benford to read.")
+                elif orders >= 2:
+                    ok(f"{name}: spans {orders:.1f} orders of magnitude: suits a Benford test.")
+                else:
+                    warn(
+                        f"{name}: runs only from {short_number(low or 0)} to {short_number(high or 0)}: "
+                        "Benford needs several orders of magnitude."
+                    )
+                if distinct > MAX_CATEGORIES:
+                    ok(f"{name}: too many values for an even test as it is: bucket it, or use Benford.")
+            else:
+                as_category(name)
+    elif analysis == "predictors":
+        as_category(chosen[0], " (the target)")
+        usable = [n for n in chosen[1:]] or [n for n in columns if n != chosen[0]]
+        ids = [
+            n
+            for n in usable
+            if columns[n][2] == columns[n][1] and columns[n][1] > 20 and columns[n][0] != "number"
+        ]
+        dates = [n for n in usable if columns[n][0] in ("date", "timestamp")]
+        ok(f"{len(usable) - len(ids) - len(dates):,} candidate columns to test.")
+        if ids or dates:
+            ok(f"Skipped: {', '.join([*ids, *dates][:6])} (identifiers and dates).")
+    else:  # outliers
+        family, filled, distinct, lowest, _, high = columns[chosen[0]]
+        blanks(chosen[0], filled)
+        if family == "number":
+            ok(
+                f"{chosen[0]}: {filled:,} numbers, "
+                f"from {short_number(lowest or 0)} to {short_number(high or 0)}."
+            )
+        else:
+            ok(
+                f"{chosen[0]}: not a number: Frequency (values seen too often or too rarely) works; "
+                "Amount does not."
+            )
+        if len(chosen) > 1:
+            groups = columns[chosen[1]][2]
+            each = filled / groups if groups else 0
+            (warn if each < 5 else ok)(
+                f"Within each {chosen[1]}: {groups:,} groups, about {each:,.0f} values each."
+            )
+    return notes

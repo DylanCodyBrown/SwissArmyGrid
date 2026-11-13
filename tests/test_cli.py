@@ -536,7 +536,9 @@ def test_every_command_is_one_lean_typed_tool(live: Live, clients: str) -> None:
     size = sum(
         len(json.dumps(t.input_schema)) + len(t.description or "") + len(t.name) for t in tools.values()
     )
-    assert size < 24_000, f"the tool list is {size} characters"
+    # 24,000 until the Analyze menu (2026-11): its odds, fit test, outliers, predictors, regression,
+    # what-if, data shape, time series and forecast tools are each one short schema; 25,500 leaves room.
+    assert size < 25_500, f"the tool list is {size} characters"
     # Typed: the schema carries the command's real arguments, required ones marked.
     schema = tools["steps_add"].input_schema
     assert set(schema["properties"]) == {"grid", "kind", "params", "index"}
