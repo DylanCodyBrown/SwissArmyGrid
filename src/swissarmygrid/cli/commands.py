@@ -801,7 +801,11 @@ def list_cards(a: dict[str, Any]) -> Any:
 
 _CARD_FIELDS = (
     opt("title", "Card title (up to 200 characters)."),
-    opt("body", "Markdown for a note; Mermaid text for a diagram."),
+    opt(
+        "body",
+        "Markdown for a note (headings, tables, lists); Mermaid text for a diagram; DOT for graphviz; "
+        "a figure as JSON text for plotly or echarts; a data:image/png;base64 URL for an image.",
+    ),
     opt(
         "spec",
         "Chart spec: {mark: bar|line|area|point|histogram|heatmap, x: {field, time_unit?, bins?, sort?}, "
@@ -814,9 +818,10 @@ _CARD_FIELDS = (
 
 @command(
     "sandbox_add",
-    "Add a card beside a grid: kind chart (spec), note (body), table (sql: a saved query) or diagram (Mermaid body).",
+    "Add a card to the Sandbox: kind chart (spec), note (markdown body), table (sql: a saved query), "
+    "diagram (Mermaid body), graphviz (DOT body), plotly or echarts (figure JSON body), image (data URL body).",
     req("grid", "Grid id."),
-    req("kind", "chart, note, table or diagram."),
+    req("kind", "chart, note, table, diagram, graphviz, plotly, echarts or image."),
     *_CARD_FIELDS,
 )
 def add_card(a: dict[str, Any]) -> Any:
@@ -826,13 +831,17 @@ def add_card(a: dict[str, Any]) -> Any:
 
 @command(
     "sandbox_update",
-    "Change a card's title, body, spec or sql, or pin it.",
+    "Change a card's title, body, spec or sql, pin it, move it (before another card) or start a page with it.",
     req("card", "Card id."),
     *_CARD_FIELDS,
     opt("pinned", "Pin it to the top.", "bool"),
+    opt("before", "Move it just before this card id; 'end' moves it last."),
+    opt("new_page", "In Page view (and the PDF), start a new page with this card.", "bool"),
 )
 def update_card(a: dict[str, Any]) -> Any:
-    body = {k: a[k] for k in ("title", "body", "spec", "sql", "pinned") if a.get(k) is not None}
+    body = {k: a[k] for k in ("title", "body", "spec", "sql", "pinned", "new_page") if a.get(k) is not None}
+    if a.get("before"):
+        body["before"] = None if a["before"] == "end" else a["before"]
     return api.call("PATCH", f"/cards/{_q(a['card'])}", body)
 
 

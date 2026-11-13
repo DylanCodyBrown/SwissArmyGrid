@@ -12,6 +12,7 @@ so the page can mark them.
 
 from __future__ import annotations
 
+import json
 import secrets
 import time
 from datetime import date, timedelta
@@ -27,7 +28,25 @@ from swissarmygrid.services.workspace import NotFound, Workspace
 
 _TABLE_CARD_ROWS: int = 100
 # A diagram is Mermaid text (an ERD from GET /relationships/erd, or any flowchart), drawn by the page.
-_KINDS: tuple[str, ...] = ("chart", "note", "table", "diagram")
+# Graphviz is DOT text; Plotly and ECharts are a figure as JSON text; an image is a data: URL. The page
+# draws each (web/src/lazy/), so the server only checks that the text is there and not too big.
+_KINDS: tuple[str, ...] = ("chart", "note", "table", "diagram", "graphviz", "plotly", "echarts", "image")
+_BODY_LIMITS: dict[str, int] = {
+    "note": 20_000,
+    "diagram": 50_000,
+    "graphviz": 100_000,
+    "plotly": 2_000_000,
+    "echarts": 2_000_000,
+    "image": 8_000_000,
+}
+_BODY_WORDS: dict[str, str] = {
+    "note": "markdown text",
+    "diagram": "Mermaid text",
+    "graphviz": "Graphviz (DOT) text",
+    "plotly": 'a Plotly figure as JSON text ({"data": [...], "layout": {...}})',
+    "echarts": "an ECharts option as JSON text",
+    "image": "a data: URL of a PNG, JPEG, GIF, WebP or SVG picture",
+}
 Card = dict[str, Any]
 
 
@@ -113,15 +132,20 @@ def check_card(body: Any) -> Card:
     if not isinstance(title, str) or len(title) > 200:
         raise ValueError("title must be text, at most 200 characters.")
     out: Card = {"kind": kind, "title": title}
-    if kind == "note":
+    if kind in _BODY_LIMITS:
         text = body.get("body", "")
-        if not isinstance(text, str) or len(text) > 20_000:
-            raise ValueError("A note's body is markdown text, at most 20,000 characters.")
-        out["body"] = text
-    elif kind == "diagram":
-        text = body.get("body", "")
-        if not isinstance(text, str) or not text.strip() or len(text) > 50_000:
-            raise ValueError("A diagram's body is Mermaid text, at most 50,000 characters.")
+        limit = _BODY_LIMITS[kind]
+        if not isinstance(text, str) or (kind != "note" and not text.strip()) or len(text) > limit:
+            raise ValueError(f"A {kind} card's body is {_BODY_WORDS[kind]}, at most {limit:,} characters.")
+        if kind in ("plotly", "echarts"):
+            try:
+                figure = json.loads(text)
+            except ValueError as error:
+                raise ValueError(f"A {kind} card's body is not JSON: {error}") from error
+            if not isinstance(figure, dict):
+                raise ValueError(f"A {kind} card's body is one JSON object.")
+        if kind == "image" and not text.startswith("data:image/"):
+            raise ValueError("An image card's body is a data:image/... URL.")
         out["body"] = text
     elif kind == "table":
         sql = body.get("sql")
@@ -131,6 +155,11 @@ def check_card(body: Any) -> Card:
     else:
         out["spec"] = body.get("spec")
     return out
+
+
+def _place(card: Card) -> tuple[bool, float]:
+    """Pinned cards first, then the order the analyst arranged (new cards go last)."""
+    return (not card["pinned"], float(card.get("order") or card.get("created") or 0.0))
 
 
 class Cards:
@@ -184,7 +213,7 @@ class Cards:
     async def for_grid(self, grid: Grid) -> dict[str, Any]:
         """Every card for the grid, charts computed on its view."""
         mine = [c for c in self._cards.values() if c["grid"] == grid.id]
-        mine.sort(key=lambda c: (not c["pinned"], c["created"]))
+        mine.sort(key=_place)
 
         def compute(cur: SqlSession) -> list[Card]:
             return [self._render(c, cur) for c in mine]
@@ -205,7 +234,7 @@ class Cards:
                 return [self._render(c, cur) for c in mine]
 
             shown += await self.ws.grid_query(grid, None, BACKGROUND, compute)
-        shown.sort(key=lambda c: (not c["pinned"], c["created"]))
+        shown.sort(key=_place)
         return {"cards": shown}
 
     async def _check_chart(self, grid: Grid, info: DatasetInfo, spec: Any) -> None:
@@ -224,8 +253,10 @@ class Cards:
             "grid": grid.id,
             "dataset": info.name,
             "pinned": False,
+            "new_page": False,
             "created_by": who,
             "created": time.time(),
+            "order": max((c.get("order", 0.0) for c in self._cards.values()), default=0.0) + 1.0,
         }
         self._cards[card["id"]] = card
         await ws.live.broadcast({"type": "cards_updated", "grid": grid.id})
@@ -233,20 +264,39 @@ class Cards:
         return {"card": card["id"]}
 
     async def update(self, card: Card, body: Any, who: str) -> dict[str, Any]:
-        """Change title, spec, body, sql or pinned."""
+        """Change title, spec, body, sql, pinned, new_page (it starts a page in Page view), or its
+        place: "before": another card's id puts it just before that card, null puts it last."""
         ws = self.ws
         if not isinstance(body, dict):
             raise ValueError("Send the fields to change.")
         grid, info = ws.grid_and_info(card["grid"])
-        merged = check_card({**card, **{k: v for k, v in body.items() if k != "pinned"}})
-        if merged["kind"] == "chart":
-            await self._check_chart(grid, info, merged["spec"])
-        card.update(merged)
+        placing = {"pinned", "new_page", "before"}
+        if set(body) - placing:
+            merged = check_card({**card, **{k: v for k, v in body.items() if k not in placing}})
+            if merged["kind"] == "chart":
+                await self._check_chart(grid, info, merged["spec"])
+            card.update(merged)
         if "pinned" in body:
             card["pinned"] = bool(body["pinned"])
+        if "new_page" in body:
+            card["new_page"] = bool(body["new_page"])
+        if "before" in body:
+            self._move(card, body["before"])
         await ws.live.broadcast({"type": "cards_updated", "grid": card["grid"]})
         ws.audit.write(who, "update_card", card["dataset"])
         return {"card": card["id"]}
+
+    def _move(self, card: Card, before: Any) -> None:
+        """Put `card` just before the card `before` (or last), and number every card again."""
+        if before is not None and (not isinstance(before, str) or before not in self._cards):
+            raise ValueError('"before" is another card\'s id, or null for the end.')
+        ordered = sorted(
+            (c for c in self._cards.values() if c is not card), key=lambda c: c.get("order", 0.0)
+        )
+        at = next((i for i, c in enumerate(ordered) if c["id"] == before), len(ordered))
+        ordered.insert(at, card)
+        for number, each in enumerate(ordered, start=1):
+            each["order"] = float(number)
 
     async def remove(self, card_id: str, who: str) -> dict[str, Any] | None:
         """Remove a card. None when there is no such card."""

@@ -954,20 +954,125 @@ body.popout .steps-panel {
   color: var(--error);
 }
 
+/* Notes read as a report: a clear title, sections, real tables, cautions set apart. */
+.note-body {
+  line-height: 1.45;
+}
+
 .note-body h1,
 .note-body h2,
+.note-body h3,
+.note-body h4 {
+  margin: 0.55em 0 0.3em;
+  line-height: 1.25;
+}
+
+.note-body h1 {
+  padding-bottom: 0.2em;
+  border-bottom: 2px solid var(--accent);
+  font-size: 1.3em;
+}
+
+.note-body h2 {
+  font-size: 1.12em;
+}
+
 .note-body h3 {
-  margin: 0.4em 0 0.3em;
-  font-size: 1.08em;
+  font-size: 1.02em;
+}
+
+.note-body h4 {
+  color: var(--muted);
+  font-size: 0.86em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.note-body > :first-child {
+  margin-top: 0;
 }
 
 .note-body p {
   margin: 0.4em 0;
 }
 
-.note-body ul {
+.note-body ul,
+.note-body ol {
   margin: 0.3em 0;
   padding-left: 1.3em;
+}
+
+.note-body li + li {
+  margin-top: 0.15em;
+}
+
+.note-body blockquote {
+  margin: 0.5em 0;
+  padding: 0.35em 0.7em;
+  border-left: 3px solid var(--warn);
+  border-radius: 4px;
+  background: var(--warn-soft);
+}
+
+.note-body hr {
+  margin: 0.7em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.md-table-wrap {
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+  font-variant-numeric: tabular-nums;
+}
+
+.md-table th {
+  padding: 4px 8px;
+  border-bottom: 2px solid var(--border-strong);
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.md-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.md-table tbody tr:nth-child(even) td {
+  background: var(--row-hover);
+}
+
+.md-table .align-right {
+  text-align: right;
+}
+
+.md-table .align-center {
+  text-align: center;
+}
+
+.md-table .align-left {
+  text-align: left;
+}
+
+.md-code {
+  margin: 0.5em 0;
+  padding: 6px 10px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 0.88em;
+}
+
+.md-code code {
+  padding: 0;
+  background: none;
 }
 
 .note-body code {

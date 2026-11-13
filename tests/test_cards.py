@@ -404,3 +404,38 @@ def test_a_heatmap_click_filters_on_both_axes(client: TestClient) -> None:
     picked = client.post(f"/cards/{card}/select", json={"value": "a", "y": "2026-01-02"}, headers=AUTH)
     assert picked.status_code == 200, picked.text
     assert row_count(client, grid) == 8
+
+
+def test_figures_images_and_dot_keep_their_text_and_bad_ones_say_why(client: TestClient) -> None:
+    grid = grid_id(push(client, "small", pa.table({"a": [1, 2]})))
+    figure = '{"data": [{"type": "bar", "x": ["a"], "y": [1]}], "layout": {}}'
+    for kind, body in (
+        ("plotly", figure),
+        ("echarts", '{"series": [{"type": "bar", "data": [1]}]}'),
+        ("graphviz", "digraph { a -> b }"),
+        ("image", "data:image/png;base64,iVBORw0KGgo="),
+    ):
+        assert add(client, grid, {"kind": kind, "title": kind, "body": body}).status_code == 200
+    shown = {c["kind"]: c for c in cards(client, grid)}
+    assert shown["plotly"]["body"] == figure and shown["graphviz"]["body"] == "digraph { a -> b }"
+    bad = add(client, grid, {"kind": "plotly", "body": "not json"})
+    assert bad.status_code == 400 and "not JSON" in bad.text
+    assert add(client, grid, {"kind": "image", "body": "https://example.com/x.png"}).status_code == 400
+
+
+def test_cards_move_before_another_and_can_start_a_page(client: TestClient) -> None:
+    grid = grid_id(push(client, "small", pa.table({"a": [1, 2]})))
+    ids = [
+        add(client, grid, {"kind": "note", "title": t, "body": t}).json()["card"]
+        for t in ("one", "two", "three")
+    ]
+    titles = lambda: [c["title"] for c in cards(client, grid)]  # noqa: E731
+    assert titles() == ["one", "two", "three"]
+    assert client.patch(f"/cards/{ids[2]}", json={"before": ids[0]}, headers=AUTH).status_code == 200
+    assert titles() == ["three", "one", "two"]
+    client.patch(f"/cards/{ids[2]}", json={"before": None}, headers=AUTH)
+    assert titles() == ["one", "two", "three"]
+    client.patch(f"/cards/{ids[1]}", json={"new_page": True}, headers=AUTH)
+    assert [c["new_page"] for c in cards(client, grid)] == [False, True, False]
+    assert client.patch(f"/cards/{ids[1]}", json={"before": "nope"}, headers=AUTH).status_code == 400
+    assert titles() == ["one", "two", "three"]  # a refused move changes nothing
