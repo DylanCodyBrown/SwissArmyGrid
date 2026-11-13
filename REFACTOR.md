@@ -68,6 +68,9 @@ in its answer or in an error: a domain error (`StepError`, `DatasetError`, `Blad
 `LookupError` or `ValueError`, or one of four outcomes the workspace names: `Refused`, `NotFound`,
 `TimedOut`, `Conflict`. `server/http.py` is the one place an error becomes a status code.
 
+`tests/test_service_layer.py` runs use cases on fakes of the ports (pages, audit log, store, worker
+pool, model library): no DuckDB, no files, no sockets, no HTTP.
+
 A route module (`server/routes_<feature>.py`) is given its service and does three things: read the
 request, call the use case, shape the answer. What stays in a route is what only HTTP knows: who is
 asking (the `X-Actor` header, and the refusals that follow from it), body caps and content types,
