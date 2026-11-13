@@ -218,3 +218,16 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   taller; the arrow keys resize it and the size is kept after a reload. A card not resized fills its
   row; a small Mermaid diagram keeps its own size. A drawn Vega chart resizes in place (view.width /
   height), so a click while the page settles lands on the live marks. Full suite: 1,439 passed.
+- (2026-11-13) The Cosmic Python refactor merged (fast-forward, 13 commits): 1,502 passed here too,
+  ruff, format, mypy (strict, 150 files) and the TypeScript check clean; the 1.6.0 wheel built from it
+  installs as a uv tool and passes the smoke test (the plain client, the server, the notebook).
+- (2026-11-13) Tangs and the relationship finder (domain/relationships.py, services/relationships.py,
+  adapters/state_files.py, relationshipsDialog.ts). On examples/sample_store.py the finder returns
+  exactly the answer key's ten joins (the two-column returns -> order_lines key, customers.home_store
+  text to stores.store_id number, orders.ship_date's second path to calendar inactive) and none of the
+  six decoys, over HTTP and in Chrome for Testing 153. The greedy key search alone picked unit_price
+  (a float, the most varied column) into order_lines' key; it now searches key-like columns only. A run
+  of the accepted joins: nine hold, orders -> customers holds with orphans (90.9% match, 201 values).
+  A tang saved into a shared (blade) folder is listed, as Shared with its author, tags and ten joins,
+  by a second server pointed at the same folder, and applies there. Plain JSON, another program's
+  JSON, a newer format and a malformed tang are refused with their reason. Full suite: 1,547 passed.
