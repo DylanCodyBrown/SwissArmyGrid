@@ -32,13 +32,19 @@ export function themePalette(): string[] {
   return [1, 2, 3, 4, 5, 6, 7, 8].map((i) => style.getPropertyValue(`--cat-${i}`).trim()).filter(Boolean);
 }
 
-/** Let the drawing scale with its card: its own size goes, its viewBox keeps the shape. */
+/** Let the drawing shrink with its card, keeping its shape, but never grow past its own size: a small
+ * diagram blown up to a wide card had 50px text. */
 export function fitToCard(svg: Element): void {
-  const width = parseFloat(svg.getAttribute("width") ?? "");
-  const height = parseFloat(svg.getAttribute("height") ?? "");
+  const box = (svg.getAttribute("viewBox") ?? "").split(/[\s,]+/).map(Number);
+  const width = parseFloat(svg.getAttribute("width") ?? "") || box[2] || 0;
+  const height = parseFloat(svg.getAttribute("height") ?? "") || box[3] || 0;
   if (!svg.getAttribute("viewBox") && width && height) svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.removeAttribute("width");
   svg.removeAttribute("height");
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
   svg.classList.add("fit-svg");
+  if (width && height && svg instanceof SVGElement) {
+    svg.style.maxWidth = `${width}px`;
+    svg.style.maxHeight = `${height}px`;
+  }
 }

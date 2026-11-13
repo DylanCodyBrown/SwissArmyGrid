@@ -2973,16 +2973,15 @@ body.popout .app-row {
 }
 
 /* ===== The Sandbox: a dashboard of resizable cards (aiPanel.ts) =====
-   12 columns and 40px rows; each card spans what its corner grip set (style: span w / span h), and
-   what it draws fills it. Dense packing lets a small card fill a gap left beside a large one. */
+   Widths in twelfths of the row and heights in 40px steps, set from each card's corner grip; a card
+   not resized grows to fill its row. What a card draws fills it. */
 .cards,
 .workspace[data-layout="bottom"] .cards,
 .workspace[data-panel="max"] .cards,
 .workspace[data-view="agent"][data-panel][data-layout] .cards {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-auto-rows: 40px;
-  grid-auto-flow: row dense;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 12px;
 }
 
@@ -3052,6 +3051,6 @@ body.popout .app-row {
 /* A narrow window: one card per line, whatever its width was set to. */
 @media (max-width: 760px) {
   .cards > .card {
-    grid-column: 1 / -1 !important;
+    flex: 1 1 100% !important;
   }
 }

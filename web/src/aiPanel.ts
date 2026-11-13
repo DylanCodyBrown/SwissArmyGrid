@@ -99,11 +99,20 @@ function clampSize(w: number, h: number): { w: number; h: number } {
   return { w: Math.max(2, Math.min(COLUMNS, Math.round(w))), h: Math.max(3, Math.min(30, Math.round(h))) };
 }
 
-function applySize(element: HTMLElement, size: { w: number; h: number }): void {
-  element.style.gridColumn = `span ${size.w}`;
-  element.style.gridRow = `span ${size.h}`;
+/** A card's place in its row. A card the viewer has not resized grows to fill its row, so a lone card
+ * spans the width and a row never ends in a gap; a resized card keeps exactly the size it was given. */
+function applySize(element: HTMLElement, size: { w: number; h: number }, fixed: boolean): void {
+  const basis = `calc((100% - ${(COLUMNS - 1) * GAP}px) * ${size.w} / ${COLUMNS} + ${(size.w - 1) * GAP}px)`;
+  element.style.flex = `${fixed ? 0 : 1} 1 ${basis}`;
+  element.style.height = `${size.h * ROW_HEIGHT + (size.h - 1) * GAP}px`;
   element.dataset.w = String(size.w);
   element.dataset.h = String(size.h);
+  element.classList.toggle("sized", fixed);
+}
+
+/** Whether the viewer (or the card itself) set this card's size. */
+function hasOwnSize(card: Card): boolean {
+  return Boolean(recall(`sandbox.size.${card.id}`) || card.size);
 }
 
 /** The corner grip: drag it (it snaps to the grid's columns and rows), or focus it and use the arrow
@@ -115,12 +124,12 @@ function resizeGrip(card: Card, element: HTMLElement): HTMLElement {
     title: "Resize: drag, or use the arrow keys (double-click resets)",
     "aria-label": `Resize ${card.title || KIND_NAMES[card.kind]}: arrow keys change width and height`,
   });
-  const set = (size: { w: number; h: number }, save: boolean): void => {
-    applySize(element, size);
+  const set = (size: { w: number; h: number }, save: boolean, fixed = true): void => {
+    applySize(element, size, fixed);
     grip.setAttribute("aria-valuetext", `${size.w} of ${COLUMNS} columns wide, ${size.h} rows tall`);
     if (save) remember(`sandbox.size.${card.id}`, `${size.w}x${size.h}`);
   };
-  set(sizeOf(card), false);
+  set(sizeOf(card), false, hasOwnSize(card));
   grip.addEventListener("pointerdown", (down) => {
     down.preventDefault();
     grip.setPointerCapture(down.pointerId);
@@ -156,7 +165,7 @@ function resizeGrip(card: Card, element: HTMLElement): HTMLElement {
     } catch {
       // no storage: the size simply is not kept
     }
-    set(card.size ? clampSize(card.size.w, card.size.h) : DEFAULT_SIZE[card.kind], false);
+    set(card.size ? clampSize(card.size.w, card.size.h) : DEFAULT_SIZE[card.kind], false, Boolean(card.size));
   });
   return grip;
 }
@@ -458,10 +467,14 @@ function cardElement(card: Card): HTMLElement {
     const chart = h("div", { class: "chart", role: "img", "aria-label": `${chartTitle(card)}: ${card.points ?? 0} points.${clickable ? " Click a mark to filter the grid." : ""}` });
     content.append(chart);
     foot.textContent = [card.note, `${formatCount(card.points ?? 0)} points${clickable ? " · click a mark to filter" : ""}`].filter(Boolean).join(" · ");
-    // The chart fills its card and redraws when the card is resized.
-    fitDrawing(chart, async (_width, height) => {
+    // The chart fills its card. Resized, it changes size in place (its marks stay the same elements,
+    // so a click in the meantime still lands); it is drawn afresh only the first time.
+    fitDrawing(chart, async (width, height) => {
+      if (drawn) {
+        await drawn.result.view.width(width).height(Math.max(120, height - 40)).runAsync();
+        return;
+      }
       const m = await charts();
-      drawn?.result.finalize();
       drawn = await m.drawChart(chart, card.vega_lite!, {
         onSelect: (value, y2) => void crossFilter(card, value, y2),
         height: Math.max(120, height - 40), // room for the axis labels under the plot
