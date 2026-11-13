@@ -1,0 +1,13 @@
+{
+  "name": "swissarmygrid",
+  "description": "How to use SwissArmyGrid, and its agent tools.",
+  "keywords": [
+    "swissarmygrid",
+    "data",
+    "duckdb",
+    "grid"
+  ],
+  "author": {
+    "name": "SwissArmyGrid"
+  }
+}

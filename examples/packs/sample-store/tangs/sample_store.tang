@@ -1,0 +1,130 @@
+{
+  "swissarmygrid": "tang",
+  "format": 1,
+  "name": "Sample store",
+  "description": "The made-up store's ten relationships (examples/sample_store.py): push its tables with python examples/sample_store.py --push, then run this tang.",
+  "tags": [
+    "example",
+    "sample-store"
+  ],
+  "tables": {},
+  "relationships": [
+    {
+      "from": "stores",
+      "from_columns": [
+        "region_code"
+      ],
+      "to": "regions",
+      "to_columns": [
+        "region_code"
+      ],
+      "kind": "many-to-one"
+    },
+    {
+      "from": "customers",
+      "from_columns": [
+        "home_store"
+      ],
+      "to": "stores",
+      "to_columns": [
+        "store_id"
+      ],
+      "kind": "many-to-one",
+      "note": "text on one side, a number on the other"
+    },
+    {
+      "from": "orders",
+      "from_columns": [
+        "customer_id"
+      ],
+      "to": "customers",
+      "to_columns": [
+        "cust_key"
+      ],
+      "kind": "many-to-one",
+      "note": "about 1% orphans"
+    },
+    {
+      "from": "orders",
+      "from_columns": [
+        "store_id"
+      ],
+      "to": "stores",
+      "to_columns": [
+        "store_id"
+      ],
+      "kind": "many-to-one"
+    },
+    {
+      "from": "orders",
+      "from_columns": [
+        "order_date"
+      ],
+      "to": "calendar",
+      "to_columns": [
+        "date_key"
+      ],
+      "kind": "many-to-one"
+    },
+    {
+      "from": "orders",
+      "from_columns": [
+        "ship_date"
+      ],
+      "to": "calendar",
+      "to_columns": [
+        "date_key"
+      ],
+      "kind": "many-to-one",
+      "note": "second path to calendar",
+      "active": false
+    },
+    {
+      "from": "order_lines",
+      "from_columns": [
+        "order_id"
+      ],
+      "to": "orders",
+      "to_columns": [
+        "order_id"
+      ],
+      "kind": "many-to-one"
+    },
+    {
+      "from": "order_lines",
+      "from_columns": [
+        "sku"
+      ],
+      "to": "products",
+      "to_columns": [
+        "sku"
+      ],
+      "kind": "many-to-one"
+    },
+    {
+      "from": "products",
+      "from_columns": [
+        "category_id"
+      ],
+      "to": "categories",
+      "to_columns": [
+        "category_id"
+      ],
+      "kind": "many-to-one"
+    },
+    {
+      "from": "returns",
+      "from_columns": [
+        "order_id",
+        "line_no"
+      ],
+      "to": "order_lines",
+      "to_columns": [
+        "order_id",
+        "line_no"
+      ],
+      "kind": "many-to-one",
+      "note": "two-column key"
+    }
+  ]
+}

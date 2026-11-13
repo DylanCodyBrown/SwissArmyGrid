@@ -59,6 +59,8 @@ src/swissarmygrid/
                          (read with ast), its pip packages, the portable .blade.py file (a
                          `# /// swissarmygrid-blade` TOML header, zips), its settings (found with ast,
                          placeholders, suggestions, written back), Blade, parse_blade, Template
+    packs.py             a pack (a Claude Code plugin with blades/ and tangs/): names, the new marketplace's
+                         files, Claude Code's install record read loosely, which plugins are switched off
 
   services/              the use cases, one service class per feature, given their ports
     ports.py             the shared ports: SqlSession, Views, Datasets, Jobs, Audit, Notifier, Recipes
@@ -79,6 +81,7 @@ src/swissarmygrid/
     relationships.py     the Key Finder, compares, the current model and its library
     processes.py         Python sessions offering tables: the registry and the Open list
     snapshots.py         a PNG of the page, drawn by the page (app_snapshot); nothing is kept
+    packs.py             list packs, make a marketplace, add saved blades and tangs to an editable pack
 
   adapters/              the driven edge: DuckDB, Arrow, files, the vault, websockets
     database.py          the locked DuckDB, the priority worker pool, DuckDB's own SQL grammar
@@ -93,14 +96,16 @@ src/swissarmygrid/
     export.py            CSV, Excel and Parquet writers; the export folder
     state_files.py       the audit log, recipes, the connection file, the model library
     live_updates.py      the pages' and VS Code windows' sockets
+    packs.py             installed packs in Claude Code's plugin folder, editable ones in the blade
+                         folders; writing a new marketplace and a pack's files
 
   server/                the HTTP door, and everything that starts a process
     app.py               asks bootstrap for the services, mounts the routes behind the guard
     http.py              reading requests, shaping answers, each error as its status
     routes_*.py          one per feature: read the request, call the use case, shape the answer
                          (datasets, grids, agent, cards, catalog, blades, notebook, relationships,
-                         processes, snapshots). /catalogs is for everyone; /blades refuses the agent,
-                         whose own door is /agent/blades in routes_agent.py
+                         processes, snapshots, packs). /catalogs is for everyone; /blades and /packs refuse
+                         the agent, whose own door is /agent/blades in routes_agent.py
     security.py          the guard: 127.0.0.1, the token, Host and Origin
     lifecycle.py, launcher.py, __main__.py   ports, single instance, clean exit; `swissarmygrid`
     notebook.py          marimo started on first use (child process, token on stdin); NotebookControl
@@ -112,7 +117,7 @@ src/swissarmygrid/
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
-                         agent), main.py (the `sag` terminal command)
+                         agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
   mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (95 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
@@ -128,8 +133,10 @@ web/static/              index.html, grid.css (all theme tokens), build/ (gitign
 tests/                   unit + HTTP tests, golden/ (shared cases), e2e/ (Edge via Playwright),
                          test_architecture.py (the layers, the depth, the plain client)
 tools/                   screenshots.py, vscode_check.py
-plugin/                  the plugin template (skills/swissarmygrid-use: SKILL.md, guide)
+plugin/                  the swissarmygrid plugin: skills/swissarmygrid-use (SKILL.md, guide), .mcp.json
+.claude-plugin/          marketplace.json: this repository is a Claude Code marketplace (plugin/ and the pack)
 examples/sample_store.py made-up nine-table store with a relationship answer key (test bed for autodetection)
+examples/packs/          sample-store: an example pack (a made-up blade, the store's tang)
 build.py                 build the page (release) and the one wheel; --vsix also packages the extension
 installer/               install.sh and install.ps1 (uv, then the server as a uv tool); build.py stamps the version
 .github/workflows/       release.yml: a v* tag builds, tests the installers on Linux and Windows, publishes

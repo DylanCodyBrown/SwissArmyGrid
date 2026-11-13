@@ -236,7 +236,7 @@ white, white text on it 5.9:1), `#ff6b73` in dark (with dark text on red buttons
 - **Open:** keep the old blue as a "Classic" theme in Settings if anyone misses it; the user guide's
   screenshots still show blue.
 
-## Packs: blades and tangs from a Claude Code plugin marketplace (2026-11-13, the owner's idea; to build)
+## Packs: blades and tangs from a Claude Code plugin marketplace (2026-11-13, the owner's idea; built)
 
 "Use the Claude marketplace to source blades and tangs, so they could be stored in a GitHub repo and
 collaborated with." From the Claude Code docs (code.claude.com/docs/en/plugins/: create-marketplace,
@@ -264,6 +264,15 @@ The design:
   repository may become a marketplace with an example pack on the made-up store.
 - **Trust:** a pack blade is the marketplace maintainers' code, trusted as installing any plugin is;
   it runs only when used, and always shows its pack.
+- **Built as designed**, and this repository is now a marketplace (`swissarmygrid`: the skill and the
+  agent tools; `sample-store`: the example pack). Decisions made on the way: the pack routes and the
+  Packs window are the user's (the agent cannot list or change packs); Add to pack writes only into a
+  pack inside the blade folders, keeps existing files unless asked to replace, and New marketplace
+  refuses a folder that is not empty; packs carry no `version`, so every commit is an update.
+- **Open:** Claude Code's `installed_plugins.json` is not documented, so it is read loosely, with a
+  scan of the cache as the fallback; check it again when Claude Code changes. A project's
+  `extraKnownMarketplaces` could be offered from the Packs window so a team's repository suggests the
+  marketplace by itself.
 
 ## Tangs and the relationship finder (2026-11-13, the owner's requests; confirm or change)
 

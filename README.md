@@ -49,6 +49,9 @@ What a grid page does:
   columns that overlap by accident are not suggested). Accept the joins, **Run** them to see which
   hold, and **Save as tang**: a `.tang` file with a name, description and tags, kept in your tangs or
   in a shared folder (the blade folders), where your coworkers' Relationships window lists it.
+- **Packs:** blades and tangs a team keeps in a GitHub repository that is also a Claude Code plugin
+  marketplace. Install a pack with `/plugin install` and its blades and tangs show up, marked with the
+  pack; `/plugin marketplace update` brings the team's latest.
 - **Key Finder:** pick another grid (or every other grid) and get the likely join columns:
   each column pair that shares values, with the percent of each side's distinct values found in
   the other, whether each side is unique (so which one looks like the key), and a score. Columns
@@ -261,6 +264,46 @@ conn = psycopg.connect(host="db.example", user="reader", password=secret("passwo
   environment variables such as `PGHOST`. Whatever you type is written into exactly that place in the
   code. Passwords are never settings: they stay `secret("...")`, and the import review lets you type them
   straight into this computer's vault.
+
+### Packs: blades and tangs from a Claude Code plugin marketplace
+
+A **pack** is a Claude Code plugin with a `blades/` folder (`.blade.py` files) and a `tangs/` folder
+(`.tang` files). A team keeps its packs in a GitHub repository that is a plugin marketplace
+(`.claude-plugin/marketplace.json`); each person installs a pack once in Claude Code:
+
+```
+/plugin marketplace add <owner>/<repository>
+/plugin install sales@team-blades
+```
+
+- **Installed packs** are found in Claude Code's plugin folder (`~/.claude`, or `CLAUDE_CONFIG_DIR`, or
+  `SWISSARMYGRID_CLAUDE_DIR`; the cache follows `CLAUDE_CODE_PLUGIN_CACHE_DIR`). Their blades are on the
+  blades page and their tangs in the Relationships window, marked **pack**, read-only: Claude Code
+  replaces the installed copy on every update. **Save a copy** keeps your own; Test and Refresh the
+  catalog work without saving. A pack switched off in Claude Code adds nothing.
+- **Updates:** `/plugin marketplace update team-blades`. A pack with no `version` (as made here) is
+  updated by every commit.
+- **Making one:** **Packs** on the blades page, then **New marketplace**, or from a terminal:
+
+  ```
+  sag pack new ./team-blades --pack sales --owner "Sales team"
+  ```
+
+  It writes the marketplace, one pack and a README with the commands, and (from the page) adds the
+  folder as a blade folder. Push it to GitHub.
+- **Adding to one:** a clone of the repository in your blade folders is an **editable** pack. **Add to
+  pack** copies chosen blades and tangs into it (files already there are kept unless you ask to
+  replace them); then commit, open a pull request, and once it is merged everyone updates.
+- **Trust:** a pack's blades are its maintainers' code, run on your computer when you use one, as with
+  any plugin you install. Secrets never travel in a pack, only their names. The agent cannot list,
+  make or fill packs.
+
+**This repository is a marketplace too.** `/plugin marketplace add DylanCodyBrown/SwissArmyGrid`
+offers two plugins: `swissarmygrid` (the user guide as a skill, and the agent tools, the
+`swissarmygrid-mcp` server the installer puts on your computer; remove a copy you added by hand so the
+tools are not listed twice) and `sample-store`, an example pack with a made-up blade and a tang holding
+the ten relationships of `examples/sample_store.py` (push its tables with
+`python examples/sample_store.py --push`, then **Run** the tang).
 
 The agent reads catalogs with `catalog_list`, `catalog_schemas`, `catalog_tables`, `catalog_columns`
 (with a first SELECT quoted for the source) and `catalog_search`.

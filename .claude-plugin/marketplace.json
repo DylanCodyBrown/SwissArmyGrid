@@ -1,0 +1,31 @@
+{
+  "name": "swissarmygrid",
+  "owner": {
+    "name": "SwissArmyGrid"
+  },
+  "description": "SwissArmyGrid for Claude Code: the user guide and the agent tools, and an example pack of blades and tangs.",
+  "plugins": [
+    {
+      "name": "swissarmygrid",
+      "source": "./plugin",
+      "description": "How to use SwissArmyGrid (a skill) and its agent tools (the swissarmygrid-mcp server the installer puts on your computer).",
+      "keywords": [
+        "swissarmygrid",
+        "data",
+        "duckdb",
+        "grid"
+      ]
+    },
+    {
+      "name": "sample-store",
+      "source": "./examples/packs/sample-store",
+      "description": "An example pack: a made-up blade and a tang with the made-up store's ten relationships.",
+      "keywords": [
+        "swissarmygrid",
+        "blades",
+        "tangs",
+        "example"
+      ]
+    }
+  ]
+}

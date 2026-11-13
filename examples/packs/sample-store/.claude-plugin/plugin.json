@@ -1,0 +1,13 @@
+{
+  "name": "sample-store",
+  "description": "An example SwissArmyGrid pack: a made-up blade and a tang with the made-up store's relationships.",
+  "keywords": [
+    "swissarmygrid",
+    "blades",
+    "tangs",
+    "example"
+  ],
+  "author": {
+    "name": "SwissArmyGrid"
+  }
+}

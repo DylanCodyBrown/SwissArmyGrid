@@ -231,3 +231,14 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   A tang saved into a shared (blade) folder is listed, as Shared with its author, tags and ten joins,
   by a second server pointed at the same folder, and applies there. Plain JSON, another program's
   JSON, a newer format and a malformed tang are refused with their reason. Full suite: 1,547 passed.
+- (2026-11-13) Packs (domain/packs.py, adapters/packs.py, services/packs.py, routes_packs.py, the
+  Packs window in bladeLibrary.ts). This repository's `.claude-plugin/marketplace.json` passes
+  `claude plugin validate .` (Claude Code 2.1.323), with warnings only for the plugins' missing
+  `version`, left out on purpose so every commit is an update. The sample-store pack copied into a
+  made-up Claude folder's plugin cache and listed in its `installed_plugins.json` is found as
+  `sample-store@swissarmygrid`, with its blade (source pack, read-only) and its tang (where pack, ten
+  joins); run against the pushed sample store, nine hold and orders -> customers holds with orphans
+  (90.9%), the same as the tang saved by hand. A plugin switched off in `enabledPlugins` adds nothing;
+  a plugin with no blades or tangs is not a pack. In Chrome for Testing 153, a pack blade opens
+  read-only with Save a copy, and New marketplace plus Add to pack write a marketplace that takes
+  saved blades.

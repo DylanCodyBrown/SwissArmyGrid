@@ -12,7 +12,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from swissarmygrid.cli.main import main as sag
-from swissarmygrid.domain.blades import write_blade
+from swissarmygrid.domain.blades import read_blade, write_blade
 from swissarmygrid.domain.packs import PackError, installed_entries, is_enabled, scaffold
 from swissarmygrid.domain.relationships import parse_model, read_tang, write_tang
 from tests.conftest import AGENT, AUTH, make_client
@@ -190,3 +190,32 @@ def test_sag_pack_new_makes_a_marketplace_on_this_computer(tmp_path: Path, capsy
     assert "/plugin install sales@data-blades" in told["next"][1]
     assert sag(["pack", "new", str(target)]) == 1  # not empty now
     assert "not empty" in capsys.readouterr().err
+
+
+# ===== this repository's own marketplace =====
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_this_repository_is_a_marketplace_and_its_example_pack_matches_the_sample_store() -> None:
+    from examples.sample_store import TRUE_RELATIONSHIPS
+
+    manifest = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    sources = {p["name"]: ROOT / p["source"] for p in manifest["plugins"]}
+    assert set(sources) == {"swissarmygrid", "sample-store"}
+    for name, folder in sources.items():
+        assert (
+            json.loads((folder / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"]
+            == name
+        )
+    assert (sources["swissarmygrid"] / "skills" / "swissarmygrid-use" / "SKILL.md").is_file()
+    pack = sources["sample-store"]
+    [blade] = (pack / "blades").glob("*.blade.py")
+    assert read_blade(blade.read_text(encoding="utf-8"))["variable"] == "regions"
+    [tang_file] = (pack / "tangs").glob("*.tang")
+    tang = read_tang(tang_file.read_text(encoding="utf-8"))
+    found = {
+        (r.from_table, tuple(r.from_columns), r.to_table, tuple(r.to_columns)) for r in tang.relationships
+    }
+    truth = {(r.from_table, r.from_columns, r.to_table, r.to_columns) for r in TRUE_RELATIONSHIPS}
+    assert found == truth
