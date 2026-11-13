@@ -3917,3 +3917,78 @@ body.popout .app-row {
   margin: 4px 6px;
   background: var(--border);
 }
+
+/* ===== The Data shape cheat sheets (cheatSheets.ts) ===== */
+.cheat-sheet {
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.cheat-sheet > summary {
+  padding: 6px 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cheat-body {
+  display: grid;
+  gap: 10px;
+  padding: 4px 12px 12px;
+}
+
+.cheat-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.cheat-good,
+.cheat-bad {
+  padding: 8px 10px;
+  border-left: 3px solid var(--ok);
+  border-radius: 6px;
+  background: var(--raised);
+}
+
+.cheat-bad {
+  border-left-color: var(--accent);
+}
+
+.cheat-bad p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cheat-mock {
+  margin: 6px 0 0;
+}
+
+.cheat-mock figcaption {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cheat-tips,
+.cheat-checks {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.cheat-checks li {
+  margin: 2px 0;
+}
+
+.cheat-ok::marker {
+  content: "✓  ";
+  color: var(--ok);
+}
+
+.cheat-warn::marker {
+  content: "!  ";
+  color: var(--warn);
+  font-weight: 700;
+}
