@@ -429,7 +429,10 @@ def test_cards_move_before_another_and_can_start_a_page(client: TestClient) -> N
         add(client, grid, {"kind": "note", "title": t, "body": t}).json()["card"]
         for t in ("one", "two", "three")
     ]
-    titles = lambda: [c["title"] for c in cards(client, grid)]  # noqa: E731
+
+    def titles() -> list[str]:
+        return [c["title"] for c in cards(client, grid)]
+
     assert titles() == ["one", "two", "three"]
     assert client.patch(f"/cards/{ids[2]}", json={"before": ids[0]}, headers=AUTH).status_code == 200
     assert titles() == ["three", "one", "two"]
