@@ -16,9 +16,8 @@ What it sees: top-level variables, and the tables inside any DuckDB connection a
 default connection). What it cannot: a variable inside a function, a script that has already exited, a
 process stopped at a debugger breakpoint (the debugger freezes this thread too). `push` still covers those.
 
-Starts by itself when IPython is running (a notebook, the interactive window) or in a marimo notebook
-(SwissArmyGrid's own notebook tab, whose variables marimo keeps outside `__main__`), because importing
-swissarmygrid there is already the choice to use the grid. In a plain script call `sag.watch()`.
+Starts by itself when IPython is running (Jupyter, the IPython terminal, the interactive window), because
+importing swissarmygrid there is already the choice to use the grid. In a plain script call `sag.watch()`.
 SWISSARMYGRID_WATCH=0 switches it off everywhere and =1 turns it on everywhere.
 
 Standard library only. Pandas, Arrow, DuckDB and the like are recognised by their class names, so
@@ -489,38 +488,10 @@ def _in_ipython() -> bool:
         return False
 
 
-def _marimo_namespace() -> Callable[[], dict[str, Any]] | None:
-    """In a marimo notebook's kernel, its variables. marimo keeps them in a dict of its own, not in
-    `__main__`, and hands it out only on the kernel's thread (a thread-local context), so it is read
-    here, at import, which a cell does on that thread, and kept for the watcher's threads. None
-    anywhere else, and with a marimo that no longer has this (private) context."""
-    if "marimo" not in sys.modules:
-        return None
-    try:
-        from marimo._runtime.context.kernel_context import KernelRuntimeContext
-        from marimo._runtime.context.types import get_context
-
-        context = get_context()
-        if not isinstance(context, KernelRuntimeContext):
-            return None
-        variables: dict[str, Any] = context.globals
-    except Exception:
-        return None
-    return lambda: variables
-
-
 def autostart() -> None:
-    """Called when swissarmygrid is imported. Starts the watcher in a notebook (IPython or marimo) or the
-    interactive window, where importing the package is already the decision to use the grid; never in the
-    server, the MCP or a test run. SWISSARMYGRID_WATCH=0 or 1 overrides."""
+    """Called when swissarmygrid is imported. Starts the watcher in Jupyter, IPython or the interactive
+    window, where importing the package is already the decision to use the grid; never in the server, the
+    MCP or a test run. SWISSARMYGRID_WATCH=0 or 1 overrides."""
     mode = os.environ.get("SWISSARMYGRID_WATCH", "")
-    if mode == "0":
-        return
-    marimo = _marimo_namespace()
-    if marimo is not None:
-        # The notebook tab's tables become grids (plan, phase 2). The label tells the server these come
-        # from the notebook, so a grid's steps go back to it as a SQL cell (services/processes.py).
-        file = marimo().get("__file__")
-        start(marimo, label=f"notebook {os.path.basename(file)}" if isinstance(file, str) else "notebook")
-    elif mode == "1" or _in_ipython():
+    if mode == "1" or (mode != "0" and _in_ipython()):
         start()

@@ -23,7 +23,6 @@ from swissarmygrid.domain.steps import (
     with_header_sort,
 )
 from swissarmygrid.services.ports import AGENT, BACKGROUND, INTERACTIVE, Recipes, SqlSession
-from swissarmygrid.services.processes import ProcessRegistry
 from swissarmygrid.services.workspace import NotFound, Workspace
 
 
@@ -39,10 +38,9 @@ def truncate(rows: list[list[Any]], limit: int) -> list[list[int]]:
 
 
 class GridService:
-    def __init__(self, ws: Workspace, recipes: Recipes, processes: ProcessRegistry) -> None:
+    def __init__(self, ws: Workspace, recipes: Recipes) -> None:
         self.ws = ws
         self._recipes = recipes
-        self._processes = processes
 
     def find(self, grid_id: str) -> tuple[Grid, DatasetInfo]:
         return self.ws.grid_and_info(grid_id)
@@ -97,8 +95,6 @@ class GridService:
             "row_count": info.row_count,
             "source_kind": info.source_kind,
             "query": info.query,
-            # Pushed by the notebook tab: its steps are written back there as a SQL cell (code-behind).
-            "notebook": self._processes.from_notebook(info.name),
             "source_columns": [{"name": c.name, "type": c.type} for c in info.columns],
             "columns": [{"name": c.name, "type": c.type} for c in compiled.columns],
             # Columns after each step (index 0 = the source), for previewing a step.

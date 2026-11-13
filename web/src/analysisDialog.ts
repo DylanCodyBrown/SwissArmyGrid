@@ -1,7 +1,7 @@
 /**
  * analysisDialog.ts: the Analyze menu's forms (server: routes_analysis.py; the design in
  * Plans/analyze-menu.plan.md). Each opens from the menu or the Column row, filled from the selection,
- * and its result has Send to Sandbox, Open as grid and To notebook (analyzeMenu.ts).
+ * and its result has Send to Sandbox, Open as grid and To Python (analyzeMenu.ts).
  *
  *   [FIT TEST]    openFitTest(columns): even, first digits, another grid, together -> POST fit-test
  *   [OUTLIERS]    openOutliers(column): amount (robust, quartiles, z-score; within each group) or

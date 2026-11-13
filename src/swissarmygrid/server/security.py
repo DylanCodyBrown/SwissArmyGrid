@@ -33,10 +33,9 @@ from starlette.websockets import WebSocket
 WEBSOCKET_SUBPROTOCOL: str = "swissarmygrid"
 
 # The page shell and its files: prefixes for /g/<id> and /static/..., and the exact paths of the
-# workspace, catalog and notebook pages (a prefix would also let "/workspaceanything" skip the token
-# check). /marimo/... is the notebook's frame: it needs the notebook cookie or the token.
+# workspace and catalog pages (a prefix would also let "/workspaceanything" skip the token check).
 _PUBLIC_PREFIXES: tuple[str, ...] = ("/g/", "/static/")
-_PUBLIC_PATHS: frozenset[str] = frozenset({"/workspace", "/catalog", "/notebook"})
+_PUBLIC_PATHS: frozenset[str] = frozenset({"/workspace", "/catalog"})
 
 _MESSAGES: dict[int, str] = {
     401: "Missing or wrong token. Clients read it from the server's connection file.",
@@ -47,12 +46,9 @@ _MESSAGES: dict[int, str] = {
 class LocalOnlyGuard:
     """ASGI middleware enforcing the Host, Origin and token checks."""
 
-    def __init__(self, app: ASGIApp, port: int, token: str, notebook_cookie: str = "") -> None:
+    def __init__(self, app: ASGIApp, port: int, token: str) -> None:
         self._app = app
         self._token: bytes = token.encode("ascii")
-        # The notebook's frame (marimo, served at /marimo) cannot add the token to its requests; the
-        # notebook page, which has the token, gets this cookie for it (routes_notebook.py).
-        self._notebook_cookie: bytes = notebook_cookie.encode("ascii")
         self._allowed_hosts: frozenset[str] = frozenset({f"127.0.0.1:{port}", f"localhost:{port}"})
         self._allowed_origins: frozenset[str] = frozenset(f"http://{host}" for host in self._allowed_hosts)
 
@@ -80,23 +76,10 @@ class LocalOnlyGuard:
         if origin is not None and origin not in self._allowed_origins:
             return 403
         path: str = scope["path"]
-        if path == "/marimo" or path.startswith("/marimo/"):
-            return None if self._has_notebook_cookie(headers) or self._has_token(scope, headers) else 401
         public = path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PREFIXES)
         if scope["type"] == "http" and scope["method"] == "GET" and public:
             return None
         return None if self._has_token(scope, headers) else 401
-
-    def _has_notebook_cookie(self, headers: Headers) -> bool:
-        if not self._notebook_cookie:
-            return False
-        for part in headers.get("cookie", "").split(";"):
-            name, _, value = part.strip().partition("=")
-            if name == "sag_notebook" and secrets.compare_digest(
-                value.encode("latin-1"), self._notebook_cookie
-            ):
-                return True
-        return False
 
     def _has_token(self, scope: Scope, headers: Headers) -> bool:
         # Header values arrive decoded as latin-1, so re-encoding them is lossless.

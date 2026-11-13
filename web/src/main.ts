@@ -171,7 +171,7 @@ async function start(): Promise<void> {
   const workspace = $(".workspace");
   // The grid has the whole page (plan decision 13): no Table Transformations panel and no SQL box here.
   // The ribbon adds steps; the strip under the title shows them, and opens the panel in a tab of its
-  // own; transforming lives in the notebook, as DuckDB SQL cells.
+  // own; the steps go to your Python as DuckDB code (To Python).
   $("#steps-panel").remove();
   const strip = h("div", { class: "steps-strip" });
   $(".titlebar").append(strip);
@@ -195,7 +195,7 @@ async function start(): Promise<void> {
       "div",
       { class: "ribbon-group", role: "toolbar", "aria-label": "Application tools" },
       h("div", { class: "ribbon-caption", title: "SwissArmyGrid itself" }, h("strong", {}, "Application"), h("span", {}, "SwissArmyGrid")),
-      h("div", { class: "ribbon-tools" }, settingsButton(), bladesButton(), notebookButton(), tourButton()),
+      h("div", { class: "ribbon-tools" }, settingsButton(), bladesButton(), tourButton()),
     ),
   );
   mountRibbon($(".ribbon"), openColumnProfile);
@@ -266,12 +266,3 @@ function bladesButton(): HTMLButtonElement {
   );
 }
 
-/** The notebook (marimo, with the blades and catalog beside it), always in a tab of its own (plan
- * decision 12): opened, or brought forward by the window's name. */
-function notebookButton(): HTMLButtonElement {
-  return button(
-    "Notebook",
-    () => window.open(`/notebook#token=${encodeURIComponent(token)}`, "swissarmygrid-notebook")?.focus(),
-    { icon: "code", class: "ribbon-btn", title: "The notebook (opens in its own tab)" },
-  );
-}

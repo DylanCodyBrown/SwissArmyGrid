@@ -73,13 +73,6 @@ const rail = mountRail({
     clear(detail, h("h2", {}, label), h("p", { class: "hint" }, `A schema in ${catalog}. Open it to see its tables and views.`)),
 });
 
-document.querySelector(".cat-top h1")?.after(
-  button("Notebook", () => window.open(`/notebook#token=${encodeURIComponent(token)}`, "swissarmygrid-notebook")?.focus(), {
-    icon: "code",
-    class: "ghost",
-    title: "The notebook, with these blades beside it (opens in its own tab)",
-  }),
-);
 showWelcome();
 void rail.loadBlades().then(() => rail.loadCatalogs(openedWith.get("catalog") ?? undefined));
 connect((live) => {

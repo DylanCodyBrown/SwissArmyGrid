@@ -498,3 +498,13 @@ analysis where I can find the liars within a column, by frequency or amount."
   again for new ones.
 - **Open:** a Sandbox card for a fit test's bars; a "Flag as a column" choice (a categorize step)
   beside Show these rows; outliers by date (gaps, a burst on one day).
+
+## Marimo stripped (2026-11-13, the owner's call)
+
+"Strip marimo: it's heavy and not well adopted. Jupyter and Python in the terminal." The notebook tab,
+its blade rail, the /marimo proxy, the notebook cookie and the marimo dependency are gone. To notebook
+became **To Python**: the code is copied and queued (in memory, the last 20) and `sag.paste()` in
+Jupyter or IPython puts it in the cell (set_next_input, replacing the cell that ran it) or at the
+prompt; plain Python prints it. The agent can't queue code (it would land in the user's kernel). The
+grid's automatic code-behind for notebook tables went with the tab; To Python is a click. Lost:
+dropping a blade straight into a cell (drag gives its text instead) and Save as blade from a cell.

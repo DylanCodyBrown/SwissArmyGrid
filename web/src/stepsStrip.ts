@@ -2,21 +2,17 @@
  * stepsStrip.ts: the grid's steps in one line under its title (plan decision 13). [VIEW]
  *
  * The Table Transformations panel and the SQL box left the grid page, which gives the grid the whole
- * page; transforming lives in the notebook, as DuckDB SQL cells (decision 11). The ribbon still adds
- * steps. This strip says how many are on and offers:
+ * page. The ribbon adds steps. This strip says how many are on and offers:
  *   Undo (drop the last step) · Clear · Edit steps (the full panel, in a tab of its own) ·
- *   Copy as SQL / Copy as Python (only code the server ran and matched) · To notebook (a SQL cell).
- * A grid that came from the notebook keeps its steps there by itself: after each change its one SQL
- * cell is rewritten and run (POST /grids/{id}/notebook-cell), so the notebook is the transformation.
+ *   Copy as SQL / Copy as Python (only code the server ran and matched) · To Python (the same code,
+ *   copied and queued for sag.paste() in Jupyter or IPython).
  */
-import { ApiError, api, gridPath, token, type StepJson } from "./api";
+import { api, gridPath, token } from "./api";
+import { gridToPython } from "./toPython";
 import { button, clear, h, toast } from "./dom";
 import { state } from "./state";
 
 let host: HTMLElement;
-const written = new Map<string, string>(); // grid id -> the steps last written to the notebook
-const announced = new Set<string>();
-let writeTimer = 0;
 
 function copy(text: string, what: string): void {
   void navigator.clipboard.writeText(text).then(
@@ -46,31 +42,6 @@ async function copyCode(target: "duckdb", part: "sql" | "code"): Promise<void> {
   } catch (error) {
     toast((error as Error).message, "error");
   }
-}
-
-function openNotebook(): void {
-  window.open(`/notebook#token=${encodeURIComponent(token)}`, "swissarmygrid-notebook")?.focus();
-}
-
-/** The steps as a SQL cell in the notebook. `quiet` for the automatic write after a change. */
-async function toNotebook(quiet: boolean): Promise<void> {
-  const info = state.info;
-  if (!info) return;
-  try {
-    const kept = await api<{ variable: string; ran: boolean }>(`${gridPath(info.grid)}/notebook-cell`, "POST");
-    written.set(info.grid, signature(info.steps));
-    if (!quiet || !announced.has(info.grid)) {
-      announced.add(info.grid);
-      toast(`In the notebook as ${kept.variable}${kept.ran ? "" : " (it runs when the notebook is open)"}.`);
-    }
-  } catch (error) {
-    // Quiet writes say nothing when the notebook isn't open; a click always says why.
-    if (!quiet || !(error instanceof ApiError && error.status === 409)) toast((error as Error).message, "error");
-  }
-}
-
-function signature(steps: StepJson[]): string {
-  return JSON.stringify(steps.map((s) => [s.kind, s.params, s.enabled !== false]));
 }
 
 function openStepsWindow(): void {
@@ -104,22 +75,15 @@ function render(): void {
     button("Edit steps", openStepsWindow, { icon: "steps", class: "ghost", title: "Every step, to edit, turn off or reorder (in a tab of its own)" }),
     button("Copy as SQL", () => void copyCode("duckdb", "sql"), { icon: "sql", class: "ghost", title: "These steps as one DuckDB query over your table, checked against the grid" }),
     button("Copy as Python", () => void copyCode("duckdb", "code"), { icon: "copy", class: "ghost", title: "One line of DuckDB in Python over your table, checked against the grid" }),
-    button(info.notebook ? "Kept in the notebook" : "To notebook", () => void toNotebook(false).then(openNotebook), {
+    button("To Python", () => void gridToPython(info.grid), {
       icon: "code",
       class: "ghost",
-      title: info.notebook
-        ? "This table came from the notebook: its steps are kept there as a SQL cell. Open it."
-        : "Write these steps into the notebook as a SQL cell over this table",
+      title: "These steps as DuckDB code over your table, checked against the grid: copied, and sag.paste() puts it in your Jupyter cell or IPython prompt",
     }),
   );
   for (const btn of host.querySelectorAll<HTMLButtonElement>("button")) {
     const name = btn.getAttribute("aria-label");
     if ((name === "Undo the last step" || name === "Clear the steps") && last < 0) btn.disabled = true;
-  }
-  // A notebook table's steps follow it back to the notebook, a moment after the last change.
-  if (info.notebook && written.get(info.grid) !== signature(info.steps)) {
-    window.clearTimeout(writeTimer);
-    writeTimer = window.setTimeout(() => void toNotebook(true), 800);
   }
 }
 

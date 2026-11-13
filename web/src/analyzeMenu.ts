@@ -6,10 +6,11 @@
  *                      selected columns (analysisDialog.ts)
  *   [SEND TO SANDBOX]  a report-style note and its chart, side by side (analysisCards.ts; POST cards)
  *   [OPEN AS GRID]     a tabular result as a new grid (PUT /datasets/{name}?new_grid=1, JSON rows)
- *   [TO NOTEBOOK]      the analysis as Python in the open notebook: POST /grids/{id}/analysis-code, then
- *                      POST /notebook/drop; the notebook opens in its own tab
+ *   [TO PYTHON]        the analysis as Python for Jupyter or IPython: POST /grids/{id}/analysis-code,
+ *                      then copied and queued for sag.paste() (toPython.ts)
  */
-import { api, grid, token } from "./api";
+import { api, grid } from "./api";
+import { toPython } from "./toPython";
 import type { SandboxCard } from "./analysisCards";
 import { button, h, icon, toast } from "./dom";
 import { state } from "./state";
@@ -80,13 +81,13 @@ export function tableName(...parts: string[]): string {
   return parts.map((p) => p.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")).filter(Boolean).join("_") || "result";
 }
 
-/** The buttons under a result: Send to Sandbox, Open as grid (when it has rows), To notebook. */
+/** The buttons under a result: Send to Sandbox, Open as grid (when it has rows), To Python. */
 export function resultButtons(actions: ResultActions): HTMLButtonElement[] {
   const out = [
     button("Send to Sandbox", () => void toSandbox(actions), { icon: "image", title: "Add the result, in words, to the Sandbox tab" }),
   ];
   if (actions.rows) out.push(button("Open as grid", () => void toGrid(actions), { icon: "rows", title: "The result's table as a new grid" }));
-  out.push(button("To notebook", () => void toNotebook(actions), { icon: "code", title: "The analysis as Python in the notebook (its own tab)" }));
+  out.push(button("To Python", () => void toYourPython(actions), { icon: "code", title: "The analysis as Python: copied, and sag.paste() puts it in your Jupyter cell or IPython prompt" }));
   return out;
 }
 
@@ -126,12 +127,10 @@ async function toGrid(actions: ResultActions): Promise<void> {
   }
 }
 
-async function toNotebook(actions: ResultActions): Promise<void> {
+async function toYourPython(actions: ResultActions): Promise<void> {
   try {
     const made = await api<{ code: string; imports: string[] }>(`${grid}/analysis-code`, "POST", { analysis: actions.analysis, body: actions.body });
-    window.open(`/notebook#token=${encodeURIComponent(token)}`, "swissarmygrid-notebook")?.focus();
-    await api("/notebook/drop", "POST", { code: made.code, imports: made.imports });
-    toast("In the notebook.");
+    await toPython(made.code, made.imports, `${actions.analysis.replace(/_/g, " ")} on ${datasetName()}`);
   } catch (e) {
     toast((e as Error).message, "error");
   }

@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from swissarmygrid.client.blades_client import blade, blades, load
+    from swissarmygrid.client.paste_client import paste
     from swissarmygrid.client.push_client import DatasetTooLargeError, ServerNotRunningError, push
     from swissarmygrid.client.sandbox_client import sandbox
     from swissarmygrid.client.watcher import start as watch
@@ -43,6 +44,7 @@ __all__ = [
     "blade",
     "blades",
     "load",
+    "paste",
     "push",
     "sandbox",
     "unwatch",
@@ -56,6 +58,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "blade": ("swissarmygrid.client.blades_client", "blade"),
     "blades": ("swissarmygrid.client.blades_client", "blades"),
     "sandbox": ("swissarmygrid.client.sandbox_client", "sandbox"),
+    "paste": ("swissarmygrid.client.paste_client", "paste"),
     "DatasetTooLargeError": ("swissarmygrid.client.push_client", "DatasetTooLargeError"),
     "ServerNotRunningError": ("swissarmygrid.client.push_client", "ServerNotRunningError"),
     "watch": ("swissarmygrid.client.watcher", "start"),
@@ -78,9 +81,9 @@ def __dir__() -> list[str]:
 
 # Start the watcher on import in a notebook or the interactive window, where importing the package is
 # already the decision to use the grid. The watcher's own autostart makes the final call (and honors
-# SWISSARMYGRID_WATCH=0); this only avoids loading it when it cannot start: IPython (or marimo) has to be
+# SWISSARMYGRID_WATCH=0); this only avoids loading it when it cannot start: IPython has to be
 # loaded already for it to be running, so a plain script, the server and the MCP never pay for the import.
-if os.environ.get("SWISSARMYGRID_WATCH", "") == "1" or "IPython" in sys.modules or "marimo" in sys.modules:
+if os.environ.get("SWISSARMYGRID_WATCH", "") == "1" or "IPython" in sys.modules:
     from swissarmygrid.client.watcher import autostart
 
     autostart()

@@ -20,7 +20,7 @@ What a grid page does:
 - **Steps** (like Power Query's applied steps): filter, sort, choose and rename columns, group
   by, distinct, keep first rows, clean text, bucket, categorize and SQL. The grid has the whole
   page: a strip under its title counts the steps and offers Undo, Clear, Copy as SQL / Python and
-  To notebook; **Edit steps** opens Table Transformations in a tab of its own, where each step can
+  To Python; **Edit steps** opens Table Transformations in a tab of its own, where each step can
   be edited, turned off or reordered, with row counts as it goes. A step list can be saved as a
   recipe.
 - **Cell viewer:** double-click a cell. JSON objects and arrays show as tables you can open one
@@ -29,10 +29,10 @@ What a grid page does:
   Trim, Empty = blank.
 - **Column profile:** a popup from the Column row's Profile: statistics and value counts; click a
   value to filter on it. **Auto width** fits every column (Table row) or the selected ones.
-- **SQL lives in the notebook** (DuckDB SQL does the transforming): **To notebook** writes a grid's
-  steps there as one marimo SQL cell over your table by its own name, and a table that came from
-  the notebook keeps its cell up to date by itself after every change. A SQL step (Edit steps, Add
-  a SQL step) is one guarded SELECT over the table entering it.
+- **SQL lives in your Python** (DuckDB SQL does the transforming): **To Python** hands a grid's steps
+  to Jupyter or IPython as DuckDB code over your table by its own name, checked against the grid:
+  copied, and `sag.paste()` puts it in the cell. A SQL step (Edit steps, Add a SQL step) is one
+  guarded SELECT over the table entering it.
 - **New table from a query:** the **+** after the last tab opens a SQL tray over a blank grid.
   A table name reads that table as its tab shows it (after its steps); Run turns the result into a
   table of its own, with every tool a pushed table has. The tray stays on the tab, so Run again
@@ -99,11 +99,8 @@ What a grid page does:
   installs missing ones. A blade can fill the **catalog**: every schema, table and column of its
   source with its type, as a searchable tree, readable by the agent so it can write SQL in the
   source's own dialect.
-- **The notebook** (its own tab, from **Notebook** in the Application row): marimo, started by SwissArmyGrid
-  the first time you open it, with the blades and the catalog on its left. Drag a blade onto a cell
-  for its `sag.blade(...)` line, a table for a SQL cell over that blade's connection, a column for its
-  quoted name; any import a drop needs is added at the top of the notebook. Highlight code in a cell
-  and press **Save as blade** to keep it.
+- **Jupyter and Python in the terminal** are where code goes: drag a blade, table or column from the
+  blades page into a cell or an editor for its line, query or name.
 - **Themes:** light, dark, high contrast light and high contrast dark, following the system by
   default; Windows forced colors are supported. Zoom with Ctrl+= and Ctrl+-.
 
@@ -341,33 +338,26 @@ The agent reads catalogs with `catalog_list`, `catalog_schemas`, `catalog_tables
 
 **The agent can make blades for you.** `blades_create` proposes one: a window opens on the page with
 the blade's whole file, code included, and it is saved only if you press **Allow** (the blades page,
-the notebook tab and the grid page all show it). `blades_list` gives it your blades' names,
+and the grid page show it). `blades_list` gives it your blades' names,
 descriptions and tags (so it can reuse one) and `blades_templates` the starters. It never sees an
 existing blade's code or any secret, never sends a password (it writes `secret("password")` and you
 type the value), and cannot change, remove or run a blade.
 
-## The notebook
+## Code to your Python
 
-**Notebook** in the Application row (or `/notebook`) opens a marimo notebook in a tab of its own, so it can
-sit on another screen. SwissArmyGrid starts marimo the first time the tab opens, in the server's own
-Python, and serves it through its own address and token. The notebook file is
-`~/.swissarmygrid/notebooks/workspace.py`; its first cell imports `marimo as mo` and
-`swissarmygrid as sag`.
+**To Python** (on an analysis result, or the grid's steps strip) hands code to Jupyter or Python in the
+terminal: it is copied to the clipboard and queued, and in Jupyter or IPython
 
-- Drag a **blade** from the left onto a cell: an empty cell gets `conn = sag.blade("Warehouse")`; a
-  cell with code gets a new cell after it.
-- Drag a **table** from the catalog: a marimo SQL cell over the connection of the blade the catalog came
-  from (`orders_rows = mo.sql("""SELECT ...""", engine=conn)`), quoted for the source's own SQL.
-- Drag a **column** for its quoted name, inside the line you are writing.
-- A drop that needs an import the notebook doesn't make yet (`import swissarmygrid as sag`,
-  `import marimo as mo`) gets it in a new cell at the top, run at once. An import already there, in
-  any form, is never repeated.
-- **Save as blade:** highlight code in a cell and press the button. The save screen opens with it, its
-  kind and SQL dialect guessed from the driver it imports.
-- **Its tables are grids.** A table a cell makes (`orders = pd.read_csv(...)`) shows in the grid page's
-  Open list; open it and it's a grid, and running the cell again refreshes the grid in place.
+```python
+sag.paste()  # this cell becomes the code (Jupyter), or it waits at the prompt (IPython)
+```
 
-The agent never reaches the notebook: it runs code, so it is yours alone.
+puts the newest in place, its imports first. Nothing runs until you run it. A grid's steps go as DuckDB
+code over your table by its own name, and only when the server ran that code and it matched the grid.
+The queue lives in memory (the last 20); the agent can never send code to your Python.
+
+Tables your Python makes still show in the grid page's Open list: importing `swissarmygrid` in Jupyter
+or IPython starts the watcher (`sag.watch()` in a plain script).
 
 ## The agent commands: `sag` and the MCP server
 

@@ -358,7 +358,7 @@ function categorizeForm(columns: ColumnInfo[], p: Params): Form {
 }
 
 /** A SQL step: one SELECT over the table entering it, read as `grid` or by the table's name. The server
- * checks it (read-only, one query) when it is saved; transforming at length belongs in the notebook. */
+ * checks it (read-only, one query) when it is saved; transforming at length belongs in your Python. */
 function sqlForm(_columns: ColumnInfo[], params: Params): Form {
   const box = h("textarea", {
     class: "code-input",

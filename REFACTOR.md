@@ -39,7 +39,7 @@ Three things outside the layout pin `server/`:
 - `python -m swissarmygrid.server` is how the VS Code extension, the README and the tests start the
   server, so `server/__main__.py` stays.
 - `tests/test_client_install.py` asserts that nothing outside `server/` may start a process or open a
-  browser. So the adapters that start one stay there: the marimo notebook (`server/notebook.py`), the
+  browser. So the adapters that start one stay there: the
   blade runner and package install (`server/blade_runner.py`), the launcher and the lifecycle.
 - The HTTP door is its own kind of adapter (a driving one). Keeping it apart from the driven adapters
   (`adapters/`) reads better than thirty files in one folder.
@@ -53,7 +53,7 @@ Three things outside the layout pin `server/`:
 (`domain/blades.py`, `domain/catalogs.py`, `adapters/blade_run.py`) use the standard library only.
 `domain/__init__.py`, `adapters/__init__.py` and `services/__init__.py` import nothing. The
 architecture test imports each of them in a clean interpreter where `duckdb`, `pyarrow`, `pandas`,
-`starlette`, `uvicorn`, `sqlglot`, `keyring`, `marimo`, `mcp`, `openpyxl` and `xlsxwriter` cannot be
+`starlette`, `uvicorn`, `sqlglot`, `keyring`, `mcp`, `openpyxl` and `xlsxwriter` cannot be
 imported.
 
 ## The service layer
@@ -97,7 +97,6 @@ that feature's use cases. Two are in the domain, because compiling steps needs t
 | `Catalogs` | `catalogs.py` | loaded catalogs in the locked DuckDB | `adapters/catalogs.CatalogStore` |
 | `Blades`, `BladeShelf` | `blades.py`, `agent.py` | saved blades, folders, favourites and secrets (the agent's door sees a narrower one) | `adapters/blades.BladeStore` |
 | `ModelLibrary` | `relationships.py` | the relationship model files | `adapters/state_files.ModelFiles` |
-| `Notebook` | `notebook.py` | add cells to the open marimo notebook | `server/notebook.NotebookControl` |
 | plain functions | constructors | run a blade in a child process, install packages, which packages are installed, is this path one of our own files, the time now, the engine's error classes | `server/blade_runner.py`, `adapters/blade_run.py`, `adapters/state_files.py`, `bootstrap.py` |
 
 ## No message bus

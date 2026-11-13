@@ -74,7 +74,7 @@ export const SHEETS: Record<Sheet, CheatSheet> = {
       caption: "Wide: one column per month",
       columns: ["region", "jan_late", "feb_late", "mar_late"],
       rows: [["West", "41", "38", "52"], ["North", "12", "15", "11"]],
-      why: "A predictor is a column of the same rows as the target. One column per month spreads one measure across columns: unpivot it (one row per region and month) in the notebook first.",
+      why: "A predictor is a column of the same rows as the target. One column per month spreads one measure across columns: unpivot it (one row per region and month) in Python first (pandas melt, or DuckDB UNPIVOT).",
     },
     tips: [
       "Identifiers (a different value on every row) and dates are skipped; dates belong to Time series.",

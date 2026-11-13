@@ -10,7 +10,6 @@ The doors (server/app.py and its route modules) are given the services and nothi
 from __future__ import annotations
 
 import os
-import secrets
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -35,7 +34,6 @@ from swissarmygrid.domain.blades import Blade
 from swissarmygrid.domain.grids import GridRegistry
 from swissarmygrid.server import blade_runner
 from swissarmygrid.server.blade_templates import TEMPLATES
-from swissarmygrid.server.notebook import DEFAULT_NOTEBOOK, NotebookControl, NotebookServer
 from swissarmygrid.services.agent import AgentService, Approvals, ExportTickets
 from swissarmygrid.services.analysis import Analysis
 from swissarmygrid.services.blades import BladeService
@@ -45,7 +43,7 @@ from swissarmygrid.services.codegen import CodeService
 from swissarmygrid.services.datasets import DatasetService
 from swissarmygrid.services.export import Exports
 from swissarmygrid.services.grids import GridService
-from swissarmygrid.services.notebook import NotebookCells
+from swissarmygrid.services.handoff import Handoff
 from swissarmygrid.services.packs import Packs
 from swissarmygrid.services.processes import ProcessRegistry, Sessions
 from swissarmygrid.services.profile import Profiles
@@ -63,7 +61,7 @@ from swissarmygrid.settings import Settings
 class Services:
     """What the doors are given: the use cases, one service per feature, and the three adapters the
     entry point drives itself (the sockets of the live updates, the worker pool it closes and the
-    notebook it starts, passes requests to and stops on the way out)."""
+    sessions' registry it prunes)."""
 
     settings: Settings
     ws: Workspace
@@ -81,7 +79,7 @@ class Services:
     sessions: Sessions
     catalogs: CatalogService
     blades: BladeService
-    notebook_cells: NotebookCells
+    handoff: Handoff
     models: Models
     finder: Finder
     packs: Packs
@@ -91,9 +89,6 @@ class Services:
     snapshots: Snapshots
     live: LiveUpdates
     workers: PriorityWorkers
-    # The notebook (marimo), started on first use, and the cookie its frame is let in with.
-    notebook: NotebookServer
-    notebook_cookie: str
 
 
 def bootstrap(
@@ -129,7 +124,6 @@ def bootstrap(
     )
     recipes = RecipeFiles(state_dir / "recipes")
     verifier = Verifier(settings.duckdb_memory_limit)
-    notebook = NotebookServer(state_dir / "notebooks")
 
     async def run_blade(blade: Blade, mode: str, typed: dict[str, str]) -> dict[str, Any]:
         job = blade_runner.payload(blade_store, blade, mode, typed)
@@ -180,7 +174,7 @@ def bootstrap(
         settings=settings,
         ws=ws,
         datasets=datasets,
-        grids=GridService(ws, recipes, processes),
+        grids=GridService(ws, recipes),
         profiles=Profiles(ws),
         analysis=Analysis(ws, verifier),
         regression=Regression(ws),
@@ -203,7 +197,7 @@ def bootstrap(
             python=sys.executable,
             environ=os.environ,
         ),
-        notebook_cells=NotebookCells(ws, NotebookControl(notebook), verifier, DEFAULT_NOTEBOOK),
+        handoff=Handoff(ws, verifier),
         models=models,
         finder=Finder(ws, models),
         packs=Packs(ws, pack_files, blade_store, models.library_files),
@@ -213,6 +207,4 @@ def bootstrap(
         snapshots=Snapshots(ws),
         live=live,
         workers=workers,
-        notebook=notebook,
-        notebook_cookie=secrets.token_urlsafe(32),
     )

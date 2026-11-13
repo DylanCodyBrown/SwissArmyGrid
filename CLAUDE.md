@@ -14,16 +14,16 @@ installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), s
   DuckDB SQL over the user's own table, never a pandas translation.
 - **Where it is going:** [Plans/standalone-workspaces.plan.md](Plans/standalone-workspaces.plan.md):
   a one-command installer that sets up everything; one local server with separate workspaces
-  (`sag.create_workspace()`); marimo built in (each workspace is a marimo notebook, grid actions
-  write DuckDB SQL cells). **Rule: the notebook/terminal always opens in its own browser tab, never in
+  (`sag.create_workspace()`); Jupyter and Python in the terminal are where code goes (marimo was
+  built in, then stripped on the owner's call, 2026-11: heavy and not well adopted). **Rule: the notebook/terminal always opens in its own browser tab, never in
   the grid page**, so it can sit on another screen; saved workspaces; a tray icon; and a Power BI style
   relationships view with autodetection. VS Code is optional.
 - **The original plan:** [Plans/swissarmygrid-build-plan.md](Plans/swissarmygrid-build-plan.md).
   Follow its section 0 working agreements: typed Python, tests first for semantics, ask before
   adding a dependency the plan doesn't list, never build milestone 9 (agent code sandbox)
   without asking.
-- **What exists:** milestones M0-M8, blades and the catalog, and plan phase 2 (the marimo notebook tab,
-  its tables as grids, grid steps written back as SQL cells). Not built: M9 (sandbox), the VS Code extension and the
+- **What exists:** milestones M0-M8, blades and the catalog, the Analyze menu, the Sandbox, compare's
+  diff and tie-out, and To Python (code queued for `sag.paste()` in Jupyter or IPython). Not built: M9 (sandbox), the VS Code extension and the
   Jupyter display hook (the plan's "parallel extras").
 - **Record verification results** in [docs/verified.md](docs/verified.md); decisions and open
   notes go in [docs/ideas.md](docs/ideas.md).
@@ -93,7 +93,7 @@ src/swissarmygrid/
                          listing and proposing blades (saved on the user's Allow)
     catalogs.py          load, remove, the tree, search
     blades.py            save, inspect, fill, refresh, test, install, favourites, folders, export, import
-    notebook.py          cells SwissArmyGrid adds to the open marimo notebook
+    handoff.py           code handed to the user's Python: To Python's queue, taken by sag.paste()
     relationships.py     the Key Finder, compares, the current model and its library
     tieout.py            the tie-out report on a compare's two grids
     processes.py         Python sessions offering tables: the registry and the Open list
@@ -120,18 +120,17 @@ src/swissarmygrid/
     app.py               asks bootstrap for the services, mounts the routes behind the guard
     http.py              reading requests, shaping answers, each error as its status
     routes_*.py          one per feature: read the request, call the use case, shape the answer
-                         (datasets, grids, analysis, regression, timeseries, tieout, agent, cards, catalog, blades, notebook, relationships,
+                         (datasets, grids, analysis, regression, timeseries, tieout, handoff, agent, cards, catalog, blades, relationships,
                          processes, snapshots, packs). /catalogs is for everyone; /blades and /packs refuse
                          the agent, whose own door is /agent/blades in routes_agent.py
     security.py          the guard: 127.0.0.1, the token, Host and Origin
     lifecycle.py, launcher.py, __main__.py   ports, single instance, clean exit; `swissarmygrid`
-    notebook.py          marimo started on first use (child process, token on stdin); NotebookControl
-                         joins the open notebook as a kiosk to add cells
     blade_runner.py      Refresh/Test in a child process; installing packages
     blade_templates.py   the 35 starter blades
 
   client/push_client.py  push(), ensure_server()
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
+  client/paste_client.py sag.paste: the code To Python queued, into the Jupyter cell or IPython prompt
   client/sandbox_client.py sag.sandbox: a figure, picture, table or text as a Sandbox card (duck-typed)
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
@@ -142,7 +141,7 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
                          aiPanel.ts is the Sandbox tab (a 12-column dashboard of resizable cards);
                          analyzeMenu.ts is the Table row's Analyze menu and every result's Send to Sandbox,
-                         Open as grid and To notebook; analysisDialog.ts is its forms (odds, fit test, find
+                         Open as grid and To Python (toPython.ts); analysisDialog.ts is its forms (odds, fit test, find
                          predictors, outliers; Fit test and Outliers are also in the Column row);
                          modelDialog.ts the regression and what-if; timeSeriesDialog.ts time series and
                          forecast (Plotly charts in the window); cheatSheets.ts each form's Data shape;
@@ -153,9 +152,8 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          markdown export; cellMenu.ts the right-click menus on cells and headers;
                          tour.ts is the first-time tour (the Application row's question mark: a
                          spotlight card per word, then a matching game);
-                         catalogRail.ts (blades + catalog navigation) is shared by the blades page
-                         (catalogPage.ts, static/catalog.html) and the notebook tab (notebookPage.ts,
-                         static/notebook.html: the rail left of marimo); bladeEditor.ts is the save screen;
+                         catalogRail.ts (blades + catalog navigation) is the blades page's
+                         (catalogPage.ts, static/catalog.html); bladeEditor.ts is the save screen;
                          bladeLibrary.ts is import (review first), export and the blade folders dialog.
                          The grid page has no SQL box and no steps panel (decision 13): stepsStrip.ts is the
                          strip under the title; stepsPanel.ts shows only in its own window (?panel=steps)

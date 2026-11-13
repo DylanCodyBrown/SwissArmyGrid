@@ -1004,7 +1004,7 @@ def test_keyboard_only_reaches_the_toolbar_and_grid(browser: Browser, orders_url
     assert page.evaluate("document.activeElement.getAttribute('role')") == "tab"
     outline = page.evaluate("getComputedStyle(document.activeElement).outlineStyle")
     assert outline != "none"
-    # Further on, the Application row (above the ribbon): Settings, the blades page, the notebook.
+    # Further on, the Application row (above the ribbon): Settings, the blades page, the tour.
     for _ in range(30):
         page.keyboard.press("Tab")
         if page.evaluate("document.activeElement.getAttribute('aria-label')") == "Settings":
@@ -1014,8 +1014,6 @@ def test_keyboard_only_reaches_the_toolbar_and_grid(browser: Browser, orders_url
     assert page.evaluate("document.activeElement.closest('.app-row') !== null")
     page.keyboard.press("Tab")
     assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Blades and catalog"
-    page.keyboard.press("Tab")
-    assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Notebook"
 
 
 def test_no_column_is_cut_beside_the_row_numbers(
@@ -2153,7 +2151,7 @@ def test_the_application_row_sits_above_the_ribbon_on_every_tab(browser: Browser
     page = open_grid(browser, orders_url, width=1440)
     app = page.locator(".app-row")
     expect(app.locator(".ribbon-caption strong")).to_have_text("Application")
-    expect(app.locator(".ribbon-btn")).to_have_text(["Settings", "Blades and catalog", "Notebook", "Tour"])
+    expect(app.locator(".ribbon-btn")).to_have_text(["Settings", "Blades and catalog", "Tour"])
     table_row = page.locator(".ribbon .ribbon-group").first
     assert app.bounding_box()["y"] < table_row.bounding_box()["y"]  # type: ignore[index]
     expect(page.locator(".tabbar").get_by_role("button", name="Settings")).to_have_count(0)

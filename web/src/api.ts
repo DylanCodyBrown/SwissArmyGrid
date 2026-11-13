@@ -52,8 +52,6 @@ export interface GridInfo {
   source_kind: string;
   /** The SELECT that built this dataset (a "+" tab's table), or null for data pushed or loaded. */
   query: string | null;
-  /** Pushed by the notebook tab: its steps are kept there as a SQL cell (code-behind). */
-  notebook?: boolean;
   source_columns: ColumnInfo[];
   columns: ColumnInfo[];
   stage_columns: ColumnInfo[][];

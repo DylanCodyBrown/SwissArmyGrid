@@ -7,7 +7,7 @@
  *   [WHAT-IF]     a field per predictor -> POST /regression/predict -> the estimate and its range
  *   [STEPS]       Add predicted column, Add miss column (a SQL step with the fitted numbers);
  *                 Check the misses: the miss column, then Outliers on it (the rows the model can't explain)
- *   [ACTIONS]     Send to Sandbox (a note and an effects chart), Open as grid (the coefficients), To notebook
+ *   [ACTIONS]     Send to Sandbox (a note and an effects chart), Open as grid (the coefficients), To Python
  */
 import { regressionCards, type RegressionResult } from "./analysisCards";
 import { openOutliers } from "./analysisDialog";

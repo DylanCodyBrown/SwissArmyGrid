@@ -13,7 +13,7 @@ and does nothing but read the request, call the use case and shape the answer:
   routes_cards.py          side-panel charts and notes (plan section 11)
   routes_catalog.py        catalogs (a source's names and types)
   routes_blades.py         blades (saved code that loads): the user's alone
-  routes_notebook.py       the notebook tab: marimo served at /marimo, cells added to the open notebook
+  routes_handoff.py        code handed to the user's own Python (To Python, sag.paste())
   routes_relationships.py  the relationship model, the Key Finder, comparing two grids
   routes_processes.py      Python sessions offering tables: the Open list
   routes_snapshots.py      a PNG of the page the user sees, drawn by the page, for an agent
@@ -45,7 +45,7 @@ from swissarmygrid.server import (
     routes_catalog,
     routes_datasets,
     routes_grids,
-    routes_notebook,
+    routes_handoff,
     routes_packs,
     routes_processes,
     routes_regression,
@@ -119,7 +119,6 @@ def create_app(
         yield
         pruner.cancel()
         workers.close()
-        ctx.notebook.stop()
 
     app = Starlette(
         routes=[
@@ -132,7 +131,7 @@ def create_app(
             *routes_cards.routes(ctx.cards),
             *routes_catalog.routes(ctx.catalogs),
             *routes_blades.routes(ctx.blades),
-            *routes_notebook.routes(ctx.notebook_cells, ctx.notebook, ctx.notebook_cookie, settings.web_root),
+            *routes_handoff.routes(ctx.handoff),
             *routes_relationships.routes(ctx.models, ctx.finder, ctx.keys, ctx.compares),
             *routes_tieout.routes(ctx.tie_out),
             *routes_packs.routes(ctx.packs),
@@ -144,7 +143,7 @@ def create_app(
             Route("/catalog", catalog_page),
             Mount("/static", StaticFiles(directory=settings.web_root, check_dir=False)),
         ],
-        middleware=[Middleware(LocalOnlyGuard, port=port, token=token, notebook_cookie=ctx.notebook_cookie)],
+        middleware=[Middleware(LocalOnlyGuard, port=port, token=token)],
         lifespan=lifespan,
     )
     app.state.ctx = ctx

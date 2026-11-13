@@ -1,11 +1,10 @@
 /**
- * catalogRail.ts: the blades and catalog navigation, shared by the blades page and the notebook. [VIEW]
+ * catalogRail.ts: the blades and catalog navigation of the blades page. [VIEW]
  *
  * Blades (saved code that reaches outside Python to load something) above the Catalog (a source
  * database's names and types, as a tree: schema -> table or view -> column and its type, searchable).
- * The page that mounts it decides where a table's details and the blade editor show (the blades
- * page's main area, or dialogs beside the notebook) and what a drag gives: plain text everywhere, or
- * notebook-ready code with the imports it needs on the notebook page (plan, part 2).
+ * The page that mounts it decides where a table's details and the blade editor show. A drag gives
+ * plain text: a name, a query, or a blade's sag.blade line, to drop into Jupyter or an editor.
  *
  * The tree loads lazily, so a catalog of half a million columns opens at once.
  */
@@ -110,8 +109,6 @@ export interface RailHost {
   isEditing(): boolean;
   showTable(view: TableView): void;
   showSchema?(label: string, catalog: string): void;
-  /** On the notebook page: drags give notebook-ready code and the imports it needs. */
-  notebook?: boolean;
 }
 
 export interface Rail {
@@ -124,7 +121,7 @@ export interface Rail {
   blades(): BladeSummary[];
 }
 
-/** A drop the notebook page places as a cell: `{code, imports}`, carried beside its plain text. */
+/** Code and the imports it needs, carried beside a drag's plain text (for pages that place cells). */
 export const DROP_TYPE = "application/x-sag-drop";
 
 export function copy(text: string, what: string): void {
@@ -474,23 +471,9 @@ export function mountRail(host: RailHost): Rail {
     return `SELECT ${picked}\nFROM ${table}\nLIMIT 100`;
   }
 
-  /** What a tree item gives when dragged. On the notebook page a table becomes a SQL cell over the
-   * connection of the blade the catalog came from (`mo.sql(..., engine=conn)`). */
-  function dragOf(data: NodeData, item: HTMLElement): { text: string; imports: string[] } {
-    const text = dragText(data);
-    if (!host.notebook || data.kind !== "table" || !current) return { text, imports: [] };
-    const catalogName = current.name;
-    const blade = blades.find((b) => b.name.toLowerCase() === catalogName.toLowerCase() && b.variable);
-    if (!blade?.variable) return { text, imports: [] };
-    const columns = [...item.querySelectorAll<HTMLElement>(':scope > ul > [role="treeitem"]')]
-      .map((child) => nodes.get(child)?.column)
-      .filter((c): c is string => typeof c === "string");
-    const variable = (data.table ?? "rows").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^(\d)/, "_$1");
-    const sql = selectFor(text, columns);
-    return {
-      text: `${variable}_rows = mo.sql(\n    """\n${sql}\n""",\n    engine=${blade.variable},\n)`,
-      imports: ["import marimo as mo"],
-    };
+  /** What a tree item gives when dragged: its name, or for a table a query over it. */
+  function dragOf(data: NodeData, _item: HTMLElement): { text: string; imports: string[] } {
+    return { text: dragText(data), imports: [] };
   }
 
   function schemaLabel(row: { database: string; schema: string }): string {

@@ -27,7 +27,7 @@ sag.push(orders, name="orders", new_grid=True)
 The page has these parts:
 
 - **Tab bar.** The Agent tab comes first and cannot be closed. Each open grid has its own tab after it, and the + after the last tab starts a new table from a query (see below).
-- **Title.** The dataset name and its version. A new push to the same dataset raises the version. Beside it, the **steps strip**: how many steps the grid has, with Undo (the last step), Clear, Edit steps, Copy as SQL, Copy as Python and To notebook.
+- **Title.** The dataset name and its version. A new push to the same dataset raises the version. Beside it, the **steps strip**: how many steps the grid has, with Undo (the last step), Clear, Edit steps, Copy as SQL, Copy as Python and To Python.
 - **Application row.** Above the ribbon, on every tab: **Settings**, **Blades and catalog**, **Notebook** and **Tour** (the question mark): a one-minute tour of every word SwissArmyGrid uses, each shown on the page, then a quick game. On your first visit a **New here?** bubble sits beside it.
 - **Ribbon.** Three rows, each named for what its buttons act on. **Table** works on the whole view. **Column** works on the selected column or columns. **Cell** works on the selected cells. Buttons that have nothing to act on are greyed out, and the caption under each row name says what it is looking at.
 - **Grid.** The rows, with the column headers above them.
@@ -78,7 +78,7 @@ Each step there has a checkbox to switch it off, a pencil to edit it and a trash
 
 ### SQL: in the notebook
 
-SQL is written where your Python is: the notebook tab (see The notebook). A grid's steps go there too. **To notebook** on the steps strip writes them as one marimo SQL cell over your table by its own name (`orders_view = mo.sql("""SELECT ... FROM orders WHERE ...""")`), runs it, and opens the notebook. A table that came from the notebook does this by itself: after each change its one SQL cell is rewritten and run, so the notebook is always the transformation, and running that cell gives the same rows as the grid.
+SQL is written where your Python is: Jupyter, or Python in the terminal. A grid's steps go there too. **To Python** on the steps strip gives them as DuckDB code over your table by its own name (`orders_view = duckdb.sql("""SELECT ... FROM orders WHERE ...""").df()`), checked against the grid: it is copied, and `sag.paste()` in Jupyter or IPython puts it in the cell (see Code to your Python). Running it gives the same rows as the grid.
 
 **Copy as SQL** and **Copy as Python** on the strip give the same one query, or one line of DuckDB in Python, for any other Python. Both are run on a copy of your table and matched with the grid before they're copied.
 
@@ -139,7 +139,7 @@ Select one column, then **Outliers** in the Column row:
 
 Each form has a **Data shape** panel: a made-up table in the shape the analysis needs (long: one row per order, the category and the outcome as columns), one that does not work and why (already counted, wide with one column per month, numbers stored as text), tips, and a check of your grid ("region: 4 values: fine", "this table looks wide"). It can go to the Sandbox too.
 
-Every result has three buttons: **Send to Sandbox** (the result in words, as a note), **Open as grid** (the result's table as a new grid) and **To notebook** (the analysis as Python in the notebook: the grid's steps as checked SQL, then one `swissarmygrid.stats` call, the same code the window ran, so the numbers match).
+Every result has three buttons: **Send to Sandbox** (the result in words, as a note), **Open as grid** (the result's table as a new grid) and **To Python** (the analysis as Python for Jupyter or IPython: the grid's steps as checked SQL, then one `swissarmygrid.stats` call, the same code the window ran, so the numbers match; `sag.paste()` puts it in the cell).
 
 ### Auto width
 
@@ -321,17 +321,12 @@ Settings lists the agent's activity: what it asked for, newest first. It never i
 
 ![The save screen for a new PostgreSQL blade: its code, the variable it makes, its password field (kept in the computer's vault) and the missing psycopg package with an Install button.](images/21-blade-save.png)
 
-## The notebook
+## Code to your Python
 
-**Notebook** in the Application row opens the notebook (marimo) in a tab of its own, with your blades and the catalog on the left. It starts the first time you open it.
+**To Python** (on any analysis result, and on the steps strip) hands code to Jupyter or Python in the terminal. It is copied to the clipboard and waits: in Jupyter, run `sag.paste()` in a cell and the cell becomes the code, its imports first; in IPython it waits at the prompt. Nothing runs until you run it. The last 20 wait in memory only; the agent can never send code to your Python.
 
-- **Drag a blade** onto a cell to get its `sag.blade(...)` line. An empty cell takes it; otherwise it goes in a new cell just after.
-- **Drag a table** from the catalog to get a SQL cell over that blade's connection, ready to run. **Drag a column** for its name.
-- If a drop needs an import the notebook doesn't have yet, it's added in a new cell at the top and run.
-- **Its tables are grids:** a table a cell makes shows in the grid page's Open list. Open it, and running the cell again refreshes the grid.
-- **Save as blade:** highlight code in a cell and press **Save as blade**. The save screen opens with that code; a database driver in it makes it a SQL connection with the right dialect.
-
-![The notebook: blades and the catalog on the left, the marimo notebook on the right with a blade's line dropped into a cell.](images/22-notebook.png)
+- **Drag from the blades page** into a cell or an editor: a blade gives its `sag.blade(...)` line, a table a first SELECT, a column its quoted name.
+- **Your tables are grids:** importing `swissarmygrid` in Jupyter or IPython lists the tables you make in the grid page's Open list. Open one and it's a grid; run the cell again and the grid refreshes.
 
 ## Limits
 
