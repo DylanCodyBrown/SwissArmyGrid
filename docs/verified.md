@@ -285,3 +285,11 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   in a used column are left out and counted. The Data shape check finds a wide table (jan_, feb_,
   mar_ sales), identifiers and Benford's range (on the values above zero). t quantiles match the
   printed table (2.228 for 10 degrees of freedom).
+- (2026-11-13) Time series and forecast (domain/timeseries.py). On made-up monthly sales (trend of 10 a
+  month, December +34%, February -20%, a 60% spike in June 2021, a +300 step in January 2023), over 200
+  seeds with and without the step: the step found within a month of January 2023 every time it was
+  planted and never otherwise, the spike always found, 2 of 200 series with one false flag. December
+  reads +31%, February -20%. The forecast with the step built in: trend 10.5 a month, next month 2,036
+  against a true level of about 2,020, held-back miss 3% (4% without the step). Show these rows keeps
+  exactly the four sales of June 2021 in the grid's order. The notebook code reproduces the window's
+  words for both.

@@ -51,6 +51,6 @@ def test_fit_test_then_outliers_within_each_vendor_shown_as_a_step(
         dialog = page.locator("dialog")
         expect(dialog.get_by_label("Look at")).to_have_value("frequency")  # a text column
         expect(dialog.locator(".analysis-verdict")).to_contain_text("1 rarer", timeout=20000)
-        expect(dialog.locator("tbody")).to_contain_text("Nrth")
+        expect(dialog.locator(".analysis-results tbody")).to_contain_text("Nrth")
     finally:
         page.close()

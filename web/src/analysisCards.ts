@@ -517,3 +517,119 @@ export function regressionCards(r: RegressionResult): SandboxCard[] {
   };
   return pair(`Regression: ${linear ? r.target : r.outcome}`, lines.join("\n"), figure);
 }
+
+// ===== time series and forecast =====
+
+export interface TimeSeriesResult {
+  date: string;
+  metric: string | null;
+  total: string;
+  period: string;
+  what: string;
+  points: { period: string; value: number; trend: number; season: number }[];
+  gaps: string[];
+  seasonal: boolean;
+  multiplicative: boolean;
+  season_index: { position: string; index: number }[];
+  season_words: string[];
+  anomalies: { period: string; value: number; score: number; kind: string }[];
+  shifts: { period: string; before: number; after: number; t: number }[];
+  memory: number | null;
+  growth: { period: string; value: number; change: number | null; season_ago: number | null; rolling: number | null }[];
+  words: string[];
+  step: { kind: string; params: Record<string, unknown> } | null;
+  lines: { name: string; points: { period: string; value: number }[] }[];
+}
+
+export function timeSeriesFigure(r: TimeSeriesResult): Record<string, unknown> {
+  const x = r.points.map((p) => p.period);
+  const data: Record<string, unknown>[] = r.lines.length
+    ? r.lines.map((line) => ({ type: "scatter", mode: "lines", name: line.name, x: line.points.map((p) => p.period), y: line.points.map((p) => p.value) }))
+    : [
+        { type: "scatter", mode: "lines", name: r.what, x, y: r.points.map((p) => p.value), line: { color: "theme:accent", width: 2 } },
+        { type: "scatter", mode: "lines", name: "Trend", x, y: r.points.map((p) => p.trend), line: { color: "theme:fg", width: 1.5, dash: "dot" } },
+      ];
+  if (r.anomalies.length) {
+    data.push({ type: "scatter", mode: "markers", name: "Stands out", x: r.anomalies.map((a) => a.period), y: r.anomalies.map((a) => a.value), marker: { size: 11, color: "theme:warn", symbol: "circle-open", line: { width: 3 } } });
+  }
+  return {
+    data,
+    layout: {
+      ...BASE_LAYOUT,
+      xaxis: { type: "date", title: { text: r.date } },
+      yaxis: { title: { text: `${r.what} per ${r.period}` } },
+      legend: { orientation: "h", y: 1.1 },
+      shapes: r.shifts.map((s) => ({ type: "line", x0: s.period, x1: s.period, yref: "paper", y0: 0, y1: 1, line: { color: "theme:muted", width: 1, dash: "dash" } })),
+      annotations: r.shifts.map((s) => ({ x: s.period, yref: "paper", y: 1, text: "step", showarrow: false, yanchor: "bottom", font: { size: 10, color: "theme:muted" } })),
+    },
+  };
+}
+
+export function timeSeriesCards(r: TimeSeriesResult): SandboxCard[] {
+  const lines = [`# ${r.what} by ${r.period}`, ...r.words.map((w, i) => (i === 0 ? `**${w}.**` : `- ${w}`))];
+  if (r.seasonal && r.season_index.length) {
+    lines.push("", "#### The season", mdTable(["", r.multiplicative ? "Against a typical " + r.period : "Difference"], r.season_index.map((s) => [s.position, r.multiplicative ? `${s.index >= 1 ? "+" : ""}${((s.index - 1) * 100).toFixed(0)}%` : fmt(s.index)]), [false, true]));
+  }
+  const recent = r.growth.slice(-6);
+  if (recent.length) {
+    lines.push("", "#### Lately", mdTable([r.period, r.what, "Change", "Against a season ago"], recent.map((g) => [g.period, g.value, g.change === null ? "" : `${(g.change * 100).toFixed(1)}%`, g.season_ago === null ? "" : `${(g.season_ago * 100).toFixed(1)}%`]), [false, true, true, true]));
+  }
+  if (r.gaps.length) lines.push("", `> ${r.gaps.length} ${r.period}s had no rows.`);
+  return pair(`Time series: ${r.what}`, lines.join("\n"), timeSeriesFigure(r));
+}
+
+export interface ForecastResult {
+  date: string;
+  what: string;
+  period: string;
+  horizon: number;
+  words: string[];
+  seasonal: boolean;
+  trend_per_period: number;
+  history: { period: string; value: number; fitted: number }[];
+  forecast: { period: string; estimate: number; low80: number; high80: number; low95: number; high95: number }[];
+  check: { periods: number; typical_miss: number; typical_miss_share: number; from: string } | null;
+  predictors: { column: string; future: string; value?: number }[];
+}
+
+export function forecastFigure(r: ForecastResult): Record<string, unknown> {
+  const fx = r.forecast.map((f) => f.period);
+  const band = (low: number[], high: number[], color: string, name: string): Record<string, unknown> => ({
+    type: "scatter",
+    mode: "lines",
+    name,
+    x: [...fx, ...[...fx].reverse()],
+    y: [...high, ...[...low].reverse()],
+    fill: "toself",
+    fillcolor: color,
+    line: { width: 0 },
+    hoverinfo: "skip",
+  });
+  return {
+    data: [
+      band(r.forecast.map((f) => f.low95), r.forecast.map((f) => f.high95), "rgba(200, 16, 46, 0.12)", "95% range"),
+      band(r.forecast.map((f) => f.low80), r.forecast.map((f) => f.high80), "rgba(200, 16, 46, 0.22)", "80% range"),
+      { type: "scatter", mode: "lines", name: r.what, x: r.history.map((h) => h.period), y: r.history.map((h) => h.value), line: { color: "theme:fg", width: 2 } },
+      { type: "scatter", mode: "lines", name: "Fitted", x: r.history.map((h) => h.period), y: r.history.map((h) => h.fitted), line: { color: "theme:muted", width: 1, dash: "dot" } },
+      { type: "scatter", mode: "lines+markers", name: "Forecast", x: fx, y: r.forecast.map((f) => f.estimate), line: { color: "theme:accent", width: 2.5 }, marker: { size: 5 } },
+    ],
+    layout: {
+      ...BASE_LAYOUT,
+      xaxis: { type: "date", title: { text: r.date } },
+      yaxis: { title: { text: `${r.what} per ${r.period}` } },
+      legend: { orientation: "h", y: 1.1 },
+      shapes: r.check ? [{ type: "line", x0: r.check.from, x1: r.check.from, yref: "paper", y0: 0, y1: 1, line: { color: "theme:muted", width: 1, dash: "dash" } }] : [],
+    },
+  };
+}
+
+export function forecastCards(r: ForecastResult): SandboxCard[] {
+  const lines = [
+    `# Forecast: ${r.what} by ${r.period}`,
+    ...r.words.map((w, i) => (i === 0 ? `**${w}**` : `- ${w}`)),
+    "",
+    mdTable([r.period, "Forecast", "80% range", "95% range"], r.forecast.slice(0, 12).map((f) => [f.period, f.estimate, `${fmt(f.low80)} to ${fmt(f.high80)}`, `${fmt(f.low95)} to ${fmt(f.high95)}`]), [false, true, true, true]),
+  ];
+  if (r.predictors.length) lines.push("", `Predictors: ${r.predictors.map((p) => `${p.column} (${p.future === "value" ? `set to ${fmt(p.value)}` : p.future === "trend" ? "its own trend" : "its last value"})`).join(", ")}.`);
+  return pair(`Forecast: ${r.what}`, lines.join("\n"), forecastFigure(r));
+}

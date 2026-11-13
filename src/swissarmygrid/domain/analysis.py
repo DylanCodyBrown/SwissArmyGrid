@@ -653,6 +653,8 @@ def shape_note(v: float, r: float | None) -> str | None:
 
 CODE_ARGUMENTS: dict[str, tuple[str, ...]] = {
     "regression": ("target", "predictors", "outcome"),
+    "time_series": ("date", "metric", "total", "period", "split"),
+    "forecast": ("date", "metric", "total", "period", "horizon", "predictors"),
     "fit_test": ("columns", "expected", "shares"),
     "outliers": ("column", "look", "method", "threshold", "by"),
     "odds": ("column", "buckets", "outcome"),
@@ -695,7 +697,12 @@ def analysis_code(
     else:
         data = table
         imports = ["from swissarmygrid import stats"]
-    subject = args.get("column") or args.get("target") or (args.get("columns") or ["result"])[0]
+    subject = (
+        args.get("column")
+        or args.get("target")
+        or args.get("metric")
+        or (args.get("columns") or ["result"])[0]
+    )
     variable = f"{_name_part(table)}_{analysis}_{_name_part(subject)}"
     call = f"{variable} = stats.{analysis}(\n    {data},\n    " + ",\n    ".join(parts) + ",\n)"
     return f"{call}\n{variable}", imports

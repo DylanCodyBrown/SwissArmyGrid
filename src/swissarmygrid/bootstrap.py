@@ -53,6 +53,7 @@ from swissarmygrid.services.regression import Regression
 from swissarmygrid.services.relationships import Compares, Finder, KeyFinder, Models
 from swissarmygrid.services.snapshots import Snapshots
 from swissarmygrid.services.sql import SqlBox
+from swissarmygrid.services.timeseries import TimeSeries
 from swissarmygrid.services.workspace import Addresses, Workspace
 from swissarmygrid.settings import Settings
 
@@ -70,6 +71,7 @@ class Services:
     profiles: Profiles
     analysis: Analysis
     regression: Regression
+    timeseries: TimeSeries
     sql: SqlBox
     exports: Exports
     codes: CodeService
@@ -179,6 +181,7 @@ def bootstrap(
         profiles=Profiles(ws),
         analysis=Analysis(ws, verifier),
         regression=Regression(ws),
+        timeseries=TimeSeries(ws),
         sql=SqlBox(ws, datasets, table_reader),
         exports=Exports(ws, export_writer, tickets, now=lambda: datetime.now(UTC)),
         codes=CodeService(ws, verifier),

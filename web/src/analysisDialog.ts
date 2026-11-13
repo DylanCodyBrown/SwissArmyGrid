@@ -16,6 +16,7 @@ import { amountCards, fitCards, frequencyCards, oddsCards, predictorsCards } fro
 import { datasetName, registerAnalysis, resultButtons, tableName } from "./analyzeMenu";
 import { cheatSheet } from "./cheatSheets";
 import { openRegression } from "./modelDialog";
+import "./timeSeriesDialog"; // registers Time series and Forecast in the Analyze menu
 import { button, clear, formatCount, h, isNumericType, openDialog, toast } from "./dom";
 import { selection, viewColumns } from "./gridView";
 import { state } from "./state";

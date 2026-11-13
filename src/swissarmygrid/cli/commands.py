@@ -1531,6 +1531,43 @@ def analyze_shape(a: dict[str, Any]) -> Any:
 
 
 @command(
+    "analyze_time_series",
+    "A metric per period from a date column: trend, season in words, periods that stand out (with a step "
+    "showing their rows), steps in the level, memory, growth.",
+    req("grid", "Grid id."),
+    req("date", "The date column."),
+    opt("metric", "A number column (omit to count rows)."),
+    opt("total", "sum, avg or count."),
+    opt("period", "day, week, month, quarter or year."),
+    opt("split", "One line per value of this column."),
+    values=True,
+)
+def analyze_time_series(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("date", "metric", "total", "period", "split") if a.get(k) is not None}
+    return api.call("POST", f"/grids/{_q(a['grid'])}/time-series", body)
+
+
+@command(
+    "analyze_forecast",
+    "Forecast a metric per period: trend and season continued, 80% and 95% ranges, a held-back check of "
+    "its typical miss; predictors each with a future (last, trend or value).",
+    req("grid", "Grid id."),
+    req("date", "The date column."),
+    opt("metric", "A number column (omit to count rows)."),
+    opt("total", "sum, avg or count."),
+    opt("period", "day, week, month, quarter or year."),
+    opt("horizon", "Periods ahead (12).", "int"),
+    opt("predictors", '[{"column", "future": "last|trend|value", "value"}].', "json"),
+    values=True,
+)
+def analyze_forecast(a: dict[str, Any]) -> Any:
+    keys = ("date", "metric", "total", "period", "horizon", "predictors")
+    return api.call(
+        "POST", f"/grids/{_q(a['grid'])}/forecast", {k: a[k] for k in keys if a.get(k) is not None}
+    )
+
+
+@command(
     "row_limit",
     "Keep only the first n rows (a limit step).",
     req("grid", "Grid id."),
@@ -1607,7 +1644,7 @@ AREAS: tuple[tuple[str, str], ...] = (
     ("table", "Ribbon, Table row"),
     ("column", "Ribbon, Column row"),
     ("cell", "Ribbon, Cell row"),
-    ("analyze", "Ribbon, Table row: the Analyze menu (odds, find predictors, regression, data shape)"),
+    ("analyze", "Ribbon, Table row: the Analyze menu (odds, predictors, regression, time series, forecast)"),
     ("row", "Rows"),
     ("steps", "Table Transformations panel and SQL box"),
     ("key_finder", "Key Finder"),

@@ -7,6 +7,7 @@ and does nothing but read the request, call the use case and shape the answer:
   routes_grids.py          rows, steps, profile, SQL, export, code, recipes for one grid
   routes_analysis.py       the Analyze menu's analyses on one grid's view
   routes_regression.py     regression and what-if predictions
+  routes_timeseries.py     time series and forecast
   routes_agent.py          the MCP door: the agent's reads, approvals, the current table
   routes_cards.py          side-panel charts and notes (plan section 11)
   routes_catalog.py        catalogs (a source's names and types)
@@ -49,6 +50,7 @@ from swissarmygrid.server import (
     routes_regression,
     routes_relationships,
     routes_snapshots,
+    routes_timeseries,
 )
 from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, LocalOnlyGuard
 from swissarmygrid.settings import Settings
@@ -123,6 +125,7 @@ def create_app(
             *routes_grids.routes(ctx.grids, ctx.profiles, ctx.sql, ctx.exports, ctx.codes),
             *routes_analysis.routes(ctx.grids, ctx.analysis),
             *routes_regression.routes(ctx.grids, ctx.regression),
+            *routes_timeseries.routes(ctx.grids, ctx.timeseries),
             *routes_agent.routes(ctx.agent),
             *routes_cards.routes(ctx.cards),
             *routes_catalog.routes(ctx.catalogs),

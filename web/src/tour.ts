@@ -39,6 +39,7 @@ export const STOPS: readonly Stop[] = [
   { icon: "fit", word: "Fit test", line: "Do a column's values spread as expected? Chi-square says.", target: '.ribbon [aria-label="Fit test…"]' },
   { icon: "outliers", word: "Outliers", line: "Values far from the rest, or seen too often or too rarely.", target: '.ribbon [aria-label="Outliers…"]' },
   { icon: "fit", word: "Regression", line: "How a number (or a yes/no) moves with others. Predict what-ifs.", where: "Analyze" , target: '.ribbon [aria-label="Analyze"]' },
+  { icon: "rows", word: "Time series", line: "A metric over time: trend, season, spikes, steps; then a forecast with its range.", where: "Analyze", target: '.ribbon [aria-label="Analyze"]' },
   { icon: "columns", word: "Compare", line: "Drag a tab onto another: two tables, row by row.", target: ".tabs-row" },
   { icon: "zoom", word: "Key Finder", line: "Finds the columns two tables share.", target: '.ribbon [aria-label="Key Finder"]' },
   { icon: "crown", word: "Tang", line: "Saved joins between tables. Run one to test it.", where: "Relationships", target: '.ribbon [aria-label="Relationships"]' },

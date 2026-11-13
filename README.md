@@ -61,7 +61,10 @@ What a grid page does:
   logistic (odds ratios), effects in words with ranges, what-if predictions, predicted and miss columns,
   and Check the misses (outliers of what the model cannot explain). Each form has a **Data shape**
   cheat sheet: a made-up table in the shape it needs, one that does not work, and a check of your grid.
-  Time series and forecasting are next (Plans/analyze-menu.plan.md).
+  **Time series**: a metric per period from a date column, its trend, its season in words ("December
+  runs 31% above a typical month"), the periods that stand out (Show these rows), steps in the level and
+  how much one period predicts the next. **Forecast**: trend, season and steps carried forward with 80%
+  and 95% ranges, predictors each with their own future, and the miss it earns on held-back periods.
 - **The Sandbox as a report:** results arrive as a readable note (with real tables) and a chart side by
   side; drag cards to arrange them, edit any note, see it as letter or landscape pages, **Print to PDF**,
   or **Export markdown** (one file, charts embedded as pictures, ready for an AI model). Right-click a

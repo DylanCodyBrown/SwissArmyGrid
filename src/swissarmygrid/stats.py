@@ -25,12 +25,14 @@ from swissarmygrid.domain.regression import predict as _predict
 from swissarmygrid.domain.stats import chi_square_p, correlation_p, f_p, normal_quantile, t_p
 from swissarmygrid.services import analysis as _analysis
 from swissarmygrid.services import regression as _regression
+from swissarmygrid.services import timeseries as _timeseries
 
 __all__ = [
     "chi_square_p",
     "correlation_p",
     "f_p",
     "fit_test",
+    "forecast",
     "normal_quantile",
     "odds",
     "outliers",
@@ -38,6 +40,7 @@ __all__ = [
     "predictors",
     "regression",
     "t_p",
+    "time_series",
 ]
 
 
@@ -127,3 +130,34 @@ def regression(
 def predict(model: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     """A fitted model's estimate for one what-if row, with its 95% range."""
     return _predict(model, values)
+
+
+def time_series(
+    data: Any,
+    date: str,
+    metric: str | None = None,
+    total: str | None = None,
+    period: str = "month",
+    split: str | None = None,
+) -> dict[str, Any]:
+    """`metric` totalled per `period` (sum, avg, or count rows without a metric): trend, season,
+    anomalies, steps in the level, memory, growth."""
+    con, relation, view = _open(data)
+    body = _body(date=date, metric=metric, total=total, period=period, split=split)
+    return _timeseries.run_time_series(con, relation, view, body)
+
+
+def forecast(
+    data: Any,
+    date: str,
+    metric: str | None = None,
+    total: str | None = None,
+    period: str = "month",
+    horizon: int = 12,
+    predictors: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """`horizon` periods ahead with 80% and 95% ranges, and the held-back check. Each predictor:
+    {"column", "future": "last" | "trend" | "value", "value"}."""
+    con, relation, view = _open(data)
+    body = _body(date=date, metric=metric, total=total, period=period, horizon=horizon, predictors=predictors)
+    return _timeseries.run_forecast(con, relation, view, body)

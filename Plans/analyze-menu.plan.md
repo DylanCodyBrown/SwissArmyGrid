@@ -108,8 +108,8 @@ Rows with a blank in any used column are left out, and the count is shown.
   Outliers in the menu with Exclude these; `swissarmygrid.stats` and the notebook code for these.
   Send to Sandbox is a note for now: the Sandbox's markdown has no tables, and server-added Plotly
   cards wait for the Sandbox server part.
-- **B.** Regression (linear and logistic), what-if, predicted and miss columns, Check the misses.
-- **C.** Time series (its decomposition is what the forecast continues), then Forecast over time with
+- **B. (built)** Regression (linear and logistic), what-if, predicted and miss columns, Check the misses.
+- **C. (built)** Time series (its decomposition is what the forecast continues), then Forecast over time with
   per-predictor future values and the held-back check.
 
 Each phase: domain math tests first, routes, agent tools, the forms, a browser test, the docs.
@@ -122,3 +122,20 @@ services/analysis.py and services/models.py; routes_analysis.py and routes_model
 web/src/analyzeMenu.ts (the menu and the shared result actions), analysisDialog.ts (fit test,
 outliers, odds, predictors), modelDialog.ts (regression, what-if, forecast); src/swissarmygrid/stats.py
 (the public face of domain/stats.py and the analysis math, for generated code).
+
+## Notes from building it
+
+- Files: domain/regression.py and domain/timeseries.py (not models.py: services/relationships.py already
+  has a Models), with services and routes of the same names.
+- Anomalies in time are judged against a straight line through each period's eight nearest neighbours
+  within the same stretch between steps, beyond 5 robust spreads: on 200 made-up series with a planted
+  spike and step, 1 in 100 got a false flag and the planted spike scored 15 or more. A centred moving
+  average blurred steps into false dips; a median of one-sided neighbours lagged at the ends; a log-scale
+  straight trend curved away from a straight one in sales.
+- Steps in the level: for each cut, a curved trend plus a step is fitted; the surest step (t of 6 or
+  more) is kept. A straight trend alone made a bending series look stepped.
+- The season is the median ratio per position from a second pass in which big spikes are replaced, so
+  one wild June does not raise every June.
+- The forecast carries found steps forward; its held-back check uses only steps the earlier periods saw.
+- Not built yet: a Fit test on the seasonal pattern itself (is it chance?), a separate forecast per
+  line of a split, and holiday or event dummies.

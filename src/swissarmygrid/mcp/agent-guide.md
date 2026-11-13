@@ -25,7 +25,7 @@ order the app shows them, so the tool list reads like the screen:
 | `compare_` | two grids side by side | `compare_create`, `compare_change`, `compare_remove` |
 | `sandbox_` | the Sandbox tab | `sandbox_add`, `sandbox_list`, `sandbox_update` |
 | `app_` | the page itself | `app_snapshot` |
-| `analyze_` | the Table row's **Analyze** menu | `analyze_odds`, `analyze_predictors`, `analyze_regression`, `analyze_predict`, `analyze_shape` (with `column_fit_test`, `column_outliers`) |
+| `analyze_` | the Table row's **Analyze** menu | `analyze_odds`, `analyze_predictors`, `analyze_regression`, `analyze_predict`, `analyze_time_series`, `analyze_forecast`, `analyze_shape` (with `column_fit_test`, `column_outliers`) |
 | `agent_` | what only an agent has: reads and queries, the user's live events | `agent_read_grid`, `agent_query`, `agent_context`, `agent_events` |
 
 `guide` (this page), `commands` and `health` have no prefix. `commands` returns the full catalog
@@ -149,6 +149,10 @@ step), `sandbox_code` returns the Altair Python, `sandbox_list` and `sandbox_all
   verdict and the clearly non-zero effects in words; it shows what goes together, not what causes
   what. `analyze_predict` answers what-if questions from its `model`. Its `steps.miss` added with
   steps_add, then column_outliers on that column, finds the rows the model cannot explain.
+- `analyze_time_series` reads a metric per period (its trend, its season in words, the periods
+  that stand out, steps in the level, memory); `analyze_forecast` continues trend and season with
+  ranges and says how far off it was on held-back periods. Give the range, never just the line, and
+  say what the forecast assumes (the past pattern goes on; each predictor's future).
 - `analyze_shape`: before an analysis on an unfamiliar table, check its shape (a wide table needs
   unpivoting first).
 - These and the fit test and outliers chain: odds and the fit test say whether two columns are
