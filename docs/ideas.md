@@ -519,3 +519,16 @@ changing them breaks installs or stored data: the package, `import swissarmygrid
 `swissarmygrid` and `swissarmygrid-mcp` commands, the `~/.swissarmygrid` folder, the vault's service
 name for blade secrets, browser storage keys, and the Parquet provenance key. The MCP server and its
 agent guide still use the name (the agent's view, not the app's); to confirm.
+
+## Chart furniture (2026-11-13, the owner: "no love given to legends and labels")
+
+Every Plotly figure now gets its furniture from the renderer (lazy/plotly.ts), under whatever the
+figure sets: a thin axis line with small outward ticks, quiet tick labels with thousands separated,
+light dotted grid lines, the axis title in the muted ink with room made for it, the legend across the
+top from the left, a hover label in the theme's colours. Figures from Python get the same unless they
+say otherwise. Time series and forecast: the data in ink (red is the alarm colour), the trend and the
+forecast in the accent, the x axis untitled (dates speak), labelled marker lines ("Level stepped",
+"Held back to test", "Forecast"), one hover box per date. The summary above a chart is a calm box
+(the first sentence as its headline), not the red "doesn't fit" box. The season is a diverging bar
+list around a typical period; numbers are rounded to four significant figures throughout.
+`theme:accent/0.2` names a theme colour seen through, for bands.

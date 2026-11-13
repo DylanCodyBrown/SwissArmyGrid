@@ -40,7 +40,7 @@ def test_predictors_hand_over_to_a_regression_whose_misses_go_to_outliers(
         dialog.get_by_role("button", name="Find").click()
         dialog.get_by_role("button", name="Regression with these").click(timeout=30000)
         dialog = page.locator("dialog")
-        expect(dialog.locator(".analysis-verdict")).to_contain_text("explains", timeout=30000)
+        expect(dialog.locator(".analysis-summary")).to_contain_text("explains", timeout=30000)
         expect(dialog.locator("tbody")).to_contain_text("each extra 1 of units")
         dialog.get_by_role("button", name="Predict", exact=True).click()
         expect(dialog.locator(".what-if .analysis-headline")).to_contain_text("amount: about", timeout=10000)

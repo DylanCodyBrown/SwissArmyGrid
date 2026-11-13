@@ -86,27 +86,9 @@ export async function openTimeSeries(given: Record<string, unknown> = {}): Promi
       const r = await api<TimeSeriesResult>(`${grid}/time-series`, "POST", sent);
       clear(
         results,
-        h("ul", { class: "analysis-verdict off ts-words" }, ...r.words.map((w) => h("li", {}, w))),
+        summary(r.words),
         chart(timeSeriesFigure(r)),
-        r.seasonal && r.season_index.length
-          ? h(
-              "div",
-              { class: "fit-bars" },
-              h("div", { class: "fit-row head", "aria-hidden": "true" }, h("span", {}, "Season"), h("span", {}, "Against a typical " + r.period), h("span", {}), h("span", {}), h("span", {})),
-              ...r.season_index.map((s) => {
-                const share = r.multiplicative ? s.index - 1 : 0;
-                return h(
-                  "div",
-                  { class: `fit-row ${Math.abs(share) >= 0.1 ? "far" : ""}` },
-                  h("span", {}, s.position),
-                  h("span", { class: "fit-track" }, h("span", { class: "fit-bar", style: { width: `${Math.min(100, Math.abs(share) * 200)}%` } })),
-                  h("span", { class: "num" }, r.multiplicative ? `${share >= 0 ? "+" : ""}${(share * 100).toFixed(0)}%` : String(Math.round(s.index * 100) / 100)),
-                  h("span", {}),
-                  h("span", {}),
-                );
-              }),
-            )
-          : null,
+        r.seasonal && r.season_index.length ? seasonBars(r) : null,
         r.gaps.length ? h("p", { class: "hint" }, `${r.gaps.length} ${r.period}s had no rows: ${r.gaps.slice(0, 6).join(", ")}${r.gaps.length > 6 ? "…" : ""}.`) : null,
       );
       clear(
@@ -163,13 +145,13 @@ export async function openForecast(given: Record<string, unknown> = {}): Promise
       const r = await api<ForecastResult>(`${grid}/forecast`, "POST", sent);
       clear(
         results,
-        h("ul", { class: "analysis-verdict off ts-words" }, ...r.words.map((w) => h("li", {}, w))),
+        summary(r.words),
         chart(forecastFigure(r)),
         h(
           "table",
           { class: "small" },
-          h("thead", {}, h("tr", {}, h("th", {}, r.period), h("th", { class: "num" }, "Forecast"), h("th", { class: "num" }, "80% range"), h("th", { class: "num" }, "95% range"))),
-          h("tbody", {}, ...r.forecast.map((f) => h("tr", {}, h("td", {}, f.period), h("td", { class: "num" }, fmt(f.estimate)), h("td", { class: "num" }, `${fmt(f.low80)} to ${fmt(f.high80)}`), h("td", { class: "num" }, `${fmt(f.low95)} to ${fmt(f.high95)}`)))),
+          h("thead", {}, h("tr", {}, h("th", {}, capital(r.period)), h("th", { class: "num" }, "Forecast"), h("th", { class: "num" }, "80% of the time"), h("th", { class: "num" }, "95% of the time"))),
+          h("tbody", {}, ...r.forecast.map((f) => h("tr", {}, h("td", {}, f.period), h("td", { class: "num" }, short(f.estimate)), h("td", { class: "num" }, `${short(f.low80)} – ${short(f.high80)}`), h("td", { class: "num" }, `${short(f.low95)} – ${short(f.high95)}`)))),
         ),
       );
       clear(
@@ -191,5 +173,41 @@ export async function openForecast(given: Record<string, unknown> = {}): Promise
   await run();
 }
 
-const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
-const fmt = (v: number): string => number.format(v);
+/** Four significant figures, thousands separated: 2,036 · 1,883 · 64.38 · 0.4127. */
+const significant = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 4 });
+const short = (v: number): string => (Math.abs(v) >= 10_000 ? Math.round(v).toLocaleString() : significant.format(v));
+const capital = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
+
+/** What the analysis found, in words: the first sentence as the headline, the rest under it. */
+function summary(words: string[]): HTMLElement {
+  const [first, ...rest] = words;
+  return h("div", { class: "analysis-summary" }, h("p", { class: "analysis-headline" }, first ?? ""), rest.length ? h("ul", {}, ...rest.map((w) => h("li", {}, w))) : null);
+}
+
+/** The season as bars either side of a typical period: above to the right, below to the left. */
+function seasonBars(r: TimeSeriesResult): HTMLElement {
+  const shares = r.season_index.map((s) => (r.multiplicative ? s.index - 1 : s.index));
+  const widest = Math.max(0.05, ...shares.map((v) => Math.abs(v)));
+  const label = (v: number): string => {
+    if (!r.multiplicative) return short(v);
+    const pct = Math.round(v * 100);
+    return pct === 0 ? "0%" : `${pct > 0 ? "+" : "−"}${Math.abs(pct)}%`;
+  };
+  return h(
+    "figure",
+    { class: "season-bars", "aria-label": `The season: each ${r.period} against a typical ${r.period}` },
+    h("figcaption", {}, `Each ${r.period} against a typical ${r.period}`),
+    ...r.season_index.map((s, i) => {
+      const v = shares[i] ?? 0;
+      const size = `${(Math.abs(v) / widest) * 100}%`;
+      return h(
+        "div",
+        { class: `season-row ${Math.abs(v) >= 0.1 ? "far" : ""}` },
+        h("span", { class: "season-name" }, s.position),
+        h("span", { class: "season-half below" }, v < 0 ? h("span", { class: "season-bar", style: { width: size } }) : null),
+        h("span", { class: "season-half above" }, v > 0 ? h("span", { class: "season-bar", style: { width: size } }) : null),
+        h("span", { class: "season-value num" }, label(v)),
+      );
+    }),
+  );
+}

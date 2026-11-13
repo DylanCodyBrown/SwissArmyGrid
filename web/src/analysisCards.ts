@@ -34,7 +34,8 @@ function pair(title: string, markdown: string, figure: Record<string, unknown> |
   return cards;
 }
 
-const BASE_LAYOUT = { margin: { l: 56, r: 16, t: 12, b: 48 }, font: { size: 12 }, hovermode: "closest" };
+// Each figure's own margin is room for its labels; the renderer (lazy/plotly.ts) styles the rest.
+const BASE_LAYOUT = { font: { size: 12 }, hovermode: "closest" };
 
 // ===== the fit test =====
 
@@ -82,7 +83,7 @@ export function fitCards(r: FitCardInput, expected: string, pairNames?: string[]
     const bars = [...top].reverse();
     figure = {
       data: [{ type: "bar", orientation: "h", x: bars.map((c) => c.residual), y: bars.map((c) => `${c.a} · ${c.b}`), marker: { color: bars.map((c) => (c.residual > 0 ? "theme:accent" : "theme:ok")) }, hovertemplate: "%{y}: %{x:.2f}<extra></extra>" }],
-      layout: { ...BASE_LAYOUT, margin: { l: 140, r: 16, t: 12, b: 48 }, xaxis: { title: { text: "Seen against expected (standardized)" }, zeroline: true }, yaxis: { automargin: true } },
+      layout: { ...BASE_LAYOUT, xaxis: { title: { text: "Seen against expected (standardized)" }, zeroline: true }, yaxis: { automargin: true } },
     };
   }
   if (r.warnings.length) lines.push("", ...r.warnings.map((w) => `> ${w}`));
@@ -113,7 +114,7 @@ export function oddsCards(r: OddsCardInput): SandboxCard[] {
     const bars = [...top].reverse();
     return pair(`Odds: ${r.column}`, markdown, {
       data: [{ type: "bar", orientation: "h", x: bars.map((v) => v.share), y: bars.map((v) => v.value), marker: { color: "theme:accent" }, hovertemplate: "%{y}: %{x:.1%}<extra></extra>" }],
-      layout: { ...BASE_LAYOUT, margin: { l: 110, r: 16, t: 12, b: 48 }, xaxis: { title: { text: "Share of rows" }, tickformat: ".0%" }, yaxis: { automargin: true, type: "category" } },
+      layout: { ...BASE_LAYOUT, xaxis: { title: { text: "Share of rows" }, tickformat: ".0%" }, yaxis: { automargin: true, type: "category" } },
     });
   }
   const top = r.values[0];
@@ -148,7 +149,6 @@ export function oddsCards(r: OddsCardInput): SandboxCard[] {
     ],
     layout: {
       ...BASE_LAYOUT,
-      margin: { l: 110, r: 16, t: 12, b: 48 },
       xaxis: { type: "log", title: { text: `Odds ratio for ${r.outcome} (log scale; 1 means no difference)` }, ...logTicks(shown.flatMap((v) => [v.low ?? 1, v.high ?? 1])) },
       yaxis: { automargin: true, type: "category" },
       shapes: [{ type: "line", x0: 1, x1: 1, yref: "paper", y0: 0, y1: 1, line: { color: "theme:fg", width: 1, dash: "dot" } }],
@@ -208,7 +208,6 @@ export function predictorsCards(r: PredictorsCardInput): SandboxCard[] {
     ],
     layout: {
       ...BASE_LAYOUT,
-      margin: { l: 120, r: 16, t: 12, b: 48 },
       xaxis: { title: { text: `How much each tells about ${r.target} (Cramér's V)` }, range: [0, Math.max(0.35, ...bars.map((c) => c.v)) * 1.05] },
       yaxis: { automargin: true, type: "category" },
       shapes: [0.1, 0.2, 0.3].map((x) => ({ type: "line", x0: x, x1: x, yref: "paper", y0: 0, y1: 1, line: { color: "theme:border-strong", width: 1, dash: "dot" } })),
@@ -283,7 +282,6 @@ export function amountCards(r: AmountCardInput): SandboxCard[] {
     ],
     layout: {
       ...BASE_LAYOUT,
-      margin: { l: r.by ? 110 : 40, r: 16, t: 12, b: 48 },
       xaxis: { title: { text: `${r.column}: the usual range shaded` }, ...amountRange(fenced, r.outliers) },
       yaxis: { type: "category", automargin: true, categoryarray: groups, visible: Boolean(r.by) },
       shapes: fenced
@@ -405,7 +403,7 @@ export function profileCards(p: ProfileInput, dataset: string): SandboxCard[] {
     const top = [...p.top_values.slice(0, 15)].reverse();
     figure = {
       data: [{ type: "bar", orientation: "h", x: top.map((t) => t.count), y: top.map((t) => fmt(t.value ?? "(blank)")), marker: { color: "theme:accent" }, hovertemplate: "%{y}: %{x} rows<extra></extra>" }],
-      layout: { ...BASE_LAYOUT, margin: { l: 110, r: 16, t: 12, b: 48 }, xaxis: { title: { text: "Rows" } }, yaxis: { automargin: true, type: "category" } },
+      layout: { ...BASE_LAYOUT, xaxis: { title: { text: "Rows" } }, yaxis: { automargin: true, type: "category" } },
     };
   }
   return pair(`Profile of ${p.column}`, lines.join("\n"), figure);
@@ -506,7 +504,6 @@ export function regressionCards(r: RegressionResult): SandboxCard[] {
     ],
     layout: {
       ...BASE_LAYOUT,
-      margin: { l: 140, r: 16, t: 12, b: 48 },
       xaxis: linear
         ? { title: { text: `Effect on ${r.target} (per 1 unit, or against the reference)` }, zeroline: true, zerolinewidth: 2 }
         : { type: "log", title: { text: `Odds ratio for ${r.outcome} (log scale)` }, ...logTicks(shown.flatMap((c) => [c.low, c.high])) },
@@ -541,26 +538,46 @@ export interface TimeSeriesResult {
   lines: { name: string; points: { period: string; value: number }[] }[];
 }
 
+/** A marker line across the plot at `x`, labelled at its top: a step in the level, the held-back start. */
+function marker(x: string, text: string): { shape: Record<string, unknown>; label: Record<string, unknown> } {
+  return {
+    shape: { type: "line", x0: x, x1: x, yref: "paper", y0: 0, y1: 1, layer: "below", line: { color: "theme:muted", width: 1, dash: "dash" } },
+    label: { x, yref: "paper", y: 1, text, showarrow: false, xanchor: "left", yanchor: "top", xshift: 4, font: { size: 11, color: "theme:muted" }, bgcolor: "theme:bg/0.85" },
+  };
+}
+
+const unified = { hovermode: "x unified", hoverdistance: 30 };
+
 export function timeSeriesFigure(r: TimeSeriesResult): Record<string, unknown> {
   const x = r.points.map((p) => p.period);
+  // The data in plain ink, the trend in the accent: the eye follows the trend, the line is the evidence.
   const data: Record<string, unknown>[] = r.lines.length
-    ? r.lines.map((line) => ({ type: "scatter", mode: "lines", name: line.name, x: line.points.map((p) => p.period), y: line.points.map((p) => p.value) }))
+    ? r.lines.map((line) => ({ type: "scatter", mode: "lines", name: line.name, x: line.points.map((p) => p.period), y: line.points.map((p) => p.value), line: { width: 1.8 } }))
     : [
-        { type: "scatter", mode: "lines", name: r.what, x, y: r.points.map((p) => p.value), line: { color: "theme:accent", width: 2 } },
-        { type: "scatter", mode: "lines", name: "Trend", x, y: r.points.map((p) => p.trend), line: { color: "theme:fg", width: 1.5, dash: "dot" } },
+        { type: "scatter", mode: "lines", name: r.what, x, y: r.points.map((p) => p.value), line: { color: "theme:fg", width: 1.5 }, hovertemplate: "%{y:,.4~r}<extra></extra>" },
+        { type: "scatter", mode: "lines", name: "Trend", x, y: r.points.map((p) => p.trend), line: { color: "theme:accent", width: 2.5, shape: "spline", smoothing: 0.6 }, opacity: 0.9, hovertemplate: "Trend %{y:,.4~r}<extra></extra>" },
       ];
   if (r.anomalies.length) {
-    data.push({ type: "scatter", mode: "markers", name: "Stands out", x: r.anomalies.map((a) => a.period), y: r.anomalies.map((a) => a.value), marker: { size: 11, color: "theme:warn", symbol: "circle-open", line: { width: 3 } } });
+    data.push({
+      type: "scatter",
+      mode: "markers",
+      name: "Stands out",
+      x: r.anomalies.map((a) => a.period),
+      y: r.anomalies.map((a) => a.value),
+      marker: { size: 10, color: "theme:accent", line: { color: "theme:bg", width: 2 } },
+      hovertemplate: "Stands out: %{y:,.4~r}<extra></extra>",
+    });
   }
+  const steps = r.shifts.map((s) => marker(s.period, "Level stepped"));
   return {
     data,
     layout: {
       ...BASE_LAYOUT,
-      xaxis: { type: "date", title: { text: r.date } },
-      yaxis: { title: { text: `${r.what} per ${r.period}` } },
-      legend: { orientation: "h", y: 1.1 },
-      shapes: r.shifts.map((s) => ({ type: "line", x0: s.period, x1: s.period, yref: "paper", y0: 0, y1: 1, line: { color: "theme:muted", width: 1, dash: "dash" } })),
-      annotations: r.shifts.map((s) => ({ x: s.period, yref: "paper", y: 1, text: "step", showarrow: false, yanchor: "bottom", font: { size: 10, color: "theme:muted" } })),
+      ...unified,
+      xaxis: { type: "date", showgrid: false },
+      yaxis: { title: { text: `${r.what} per ${r.period}` }, rangemode: "tozero" },
+      shapes: steps.map((s) => s.shape),
+      annotations: steps.map((s) => s.label),
     },
   };
 }
@@ -605,20 +622,25 @@ export function forecastFigure(r: ForecastResult): Record<string, unknown> {
     line: { width: 0 },
     hoverinfo: "skip",
   });
+  const marks = [
+    ...(r.check ? [marker(r.check.from, "Held back to test")] : []),
+    ...(fx[0] ? [marker(fx[0], "Forecast")] : []),
+  ];
   return {
     data: [
-      band(r.forecast.map((f) => f.low95), r.forecast.map((f) => f.high95), "rgba(200, 16, 46, 0.12)", "95% range"),
-      band(r.forecast.map((f) => f.low80), r.forecast.map((f) => f.high80), "rgba(200, 16, 46, 0.22)", "80% range"),
-      { type: "scatter", mode: "lines", name: r.what, x: r.history.map((h) => h.period), y: r.history.map((h) => h.value), line: { color: "theme:fg", width: 2 } },
-      { type: "scatter", mode: "lines", name: "Fitted", x: r.history.map((h) => h.period), y: r.history.map((h) => h.fitted), line: { color: "theme:muted", width: 1, dash: "dot" } },
-      { type: "scatter", mode: "lines+markers", name: "Forecast", x: fx, y: r.forecast.map((f) => f.estimate), line: { color: "theme:accent", width: 2.5 }, marker: { size: 5 } },
+      band(r.forecast.map((f) => f.low95), r.forecast.map((f) => f.high95), "theme:accent/0.12", "95% range"),
+      band(r.forecast.map((f) => f.low80), r.forecast.map((f) => f.high80), "theme:accent/0.24", "80% range"),
+      { type: "scatter", mode: "lines", name: r.what, x: r.history.map((h) => h.period), y: r.history.map((h) => h.value), line: { color: "theme:fg", width: 1.5 }, hovertemplate: "%{y:,.4~r}<extra></extra>" },
+      { type: "scatter", mode: "lines", name: "The model's fit", x: r.history.map((h) => h.period), y: r.history.map((h) => h.fitted), line: { color: "theme:cat-2", width: 1, dash: "dot" }, hovertemplate: "Fit %{y:,.4~r}<extra></extra>" },
+      { type: "scatter", mode: "lines+markers", name: "Forecast", x: fx, y: r.forecast.map((f) => f.estimate), line: { color: "theme:accent", width: 2.5 }, marker: { size: 5, color: "theme:accent" }, hovertemplate: "Forecast %{y:,.4~r}<extra></extra>" },
     ],
     layout: {
       ...BASE_LAYOUT,
-      xaxis: { type: "date", title: { text: r.date } },
+      ...unified,
+      xaxis: { type: "date", showgrid: false },
       yaxis: { title: { text: `${r.what} per ${r.period}` } },
-      legend: { orientation: "h", y: 1.1 },
-      shapes: r.check ? [{ type: "line", x0: r.check.from, x1: r.check.from, yref: "paper", y0: 0, y1: 1, line: { color: "theme:muted", width: 1, dash: "dash" } }] : [],
+      shapes: marks.map((m) => m.shape),
+      annotations: marks.map((m) => m.label),
     },
   };
 }

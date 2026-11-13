@@ -150,7 +150,7 @@ function resultView(r: RegressionResult): HTMLElement {
   return h(
     "div",
     {},
-    h("p", { class: "analysis-verdict off" }, r.verdict),
+    h("div", { class: "analysis-summary" }, h("p", { class: "analysis-headline" }, r.verdict)),
     h("div", { class: "stat-grid" }, ...tiles),
     r.left_out ? h("p", { class: "hint" }, `${formatCount(r.left_out)} row${r.left_out === 1 ? " has" : "s have"} a blank in a used column and ${r.left_out === 1 ? "was" : "were"} left out.`) : null,
     ...(r.warnings ?? []).map((w) => h("p", { class: "hint warning-text" }, w)),
