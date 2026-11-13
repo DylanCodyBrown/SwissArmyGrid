@@ -23,8 +23,8 @@
  *          [GROUP CAPTIONS]-> read-only, derived from gridView.selection + the active cell (+ the compare)
  *          (re-drawn on state "grid-selection" and "info")
  */
-import { button, clear, h, isDateType, isNumericType, isTextType, toast } from "./dom";
-import { changeCompare, currentCompare, onCompareChange, stopCompare } from "./compare";
+import { button, clear, h, isDateType, isNumericType, isTextType, openDialog, toast } from "./dom";
+import { changeCompare, currentCompare, onCompareChange, stopCompare, type CompareInfo } from "./compare";
 import { openFitTest, openOutliers } from "./analysisDialog";
 import { analyzeButton } from "./analyzeMenu";
 import { openCompareDialog } from "./compareDialog";
@@ -186,9 +186,11 @@ function compareGroup(): HTMLElement | null {
   const keys = cmp ? cmp.keys.map(([l, r]) => (l === r ? l : `${l} = ${r}`)).join(" + ") : "";
   // The label column holds the keys; the counts go at the end of the row, where they fit.
   const caption = cmp ? keys : "no keys yet";
-  const note = cmp
-    ? h("span", { class: "ribbon-note", role: "status" }, `${cmp.counts.matched.toLocaleString()} matched · ${cmp.counts.left_only.toLocaleString()} only in ${pair[0].dataset} · ${cmp.counts.right_only.toLocaleString()} only in ${pair[1].dataset}`)
-    : h("span", { class: "ribbon-note" }, `${pair[0].dataset} and ${pair[1].dataset} side by side`);
+  const note = cmp?.mode === "diff" && cmp.differ
+    ? diffNote(cmp, pair[0].dataset, pair[1].dataset)
+    : cmp
+      ? h("span", { class: "ribbon-note", role: "status" }, `${cmp.counts.matched.toLocaleString()} matched · ${cmp.counts.left_only.toLocaleString()} only in ${pair[0].dataset} · ${cmp.counts.right_only.toLocaleString()} only in ${pair[1].dataset}`)
+      : h("span", { class: "ribbon-note" }, `${pair[0].dataset} and ${pair[1].dataset} side by side`);
   const anti = cmp?.mode === "anti";
   return group(
     "Compare",
@@ -204,9 +206,59 @@ function compareGroup(): HTMLElement | null {
         ] as const).map(([side, label]) => tool(label, "filter", () => void changeCompare({ anti_side: side }), { pressed: cmp?.anti_side === side }))
       : []),
     tool("Cross compare", "zoom", () => void changeCompare({ mode: "cross" }), { disabled: noKeys, pressed: cmp?.mode === "cross", title: "Each grid shows its own rows; click a row to see the rows with its key on the other side" }),
+    tool("Diff", "check", () => void changeCompare({ mode: "diff", diff: { column: null } }), { disabled: noKeys, pressed: cmp?.mode === "diff", title: "Only the rows that differ: a changed cell in a column both have, or a key on one side only" }),
+    cmp?.mode === "diff" ? tool("How values compare…", "settings", () => openDiffOptions(cmp), { title: "Tolerance for numbers, spaces and letter case for text, columns to leave out" }) : null,
     tool("Tie-out…", "check", () => cmp && void openTieOut(cmp, pair), { disabled: noKeys, title: "Do the two tables add up the same, group by group? Totals side by side, ties or off" }),
     tool("Stop compare", "close", () => void stopCompare(), { disabled: noKeys, title: "Back to two independent grids (the split stays)" }),
     note,
+  );
+}
+
+/** Diff mode's summary: how many matched rows differ, a button per changed column (only its rows),
+ * and the rows on one side only. */
+function diffNote(cmp: CompareInfo, left: string, right: string): HTMLElement {
+  const d = cmp.differ!;
+  const focus = cmp.diff.column;
+  const columns = Object.entries(d.columns).map(([name, count]) =>
+    button(`${name} ${count.toLocaleString()}`, () => void changeCompare({ diff: { column: focus === name ? null : name } }), {
+      class: "ghost diff-column",
+      pressed: focus === name,
+      title: focus === name ? "Back to every row that differs" : `Only the rows where ${name} changed`,
+    }),
+  );
+  return h(
+    "span",
+    { class: "ribbon-note diff-note", role: "status" },
+    h("span", {}, `${d.differ.toLocaleString()} of ${d.matched.toLocaleString()} matched rows differ`),
+    ...columns,
+    h("span", {}, `${d.left_only.toLocaleString()} only in ${left} · ${d.right_only.toLocaleString()} only in ${right}`),
+    button("Every row", () => void changeCompare({ mode: "outer" }), { class: "ghost", title: "Show every row (outer join), differences still marked" }),
+  );
+}
+
+/** How diff mode compares two cells: a tolerance for numbers, trimming and case for text, columns left out. */
+function openDiffOptions(cmp: CompareInfo): void {
+  const { body, foot, close } = openDialog("How values compare");
+  const o = cmp.diff;
+  const tolerance = h("input", { type: "number", min: "0", step: "any", value: String(o.tolerance), size: 8, "aria-label": "Numbers equal within" });
+  const percent = h("select", { "aria-label": "Tolerance as" }, h("option", { value: "", selected: !o.percent }, "(an amount)"), h("option", { value: "1", selected: o.percent }, "% of the left value"));
+  const trim = h("input", { type: "checkbox", checked: o.trim, "aria-label": "Ignore spaces at either end" });
+  const ignoreCase = h("input", { type: "checkbox", checked: o.ignore_case, "aria-label": "Ignore letter case" });
+  const compared = [...new Set([...(cmp.differ?.compared ?? []), ...o.skip])];
+  const keep = compared.map((name) => h("input", { type: "checkbox", value: name, checked: !o.skip.includes(name), "aria-label": `Compare ${name}` }));
+  body.append(
+    h("div", { class: "analysis-controls" }, h("label", { class: "analysis-field" }, h("span", {}, "Numbers are equal within"), tolerance), percent),
+    h("label", { class: "check-row" }, trim, "Text: ignore spaces at either end"),
+    h("label", { class: "check-row" }, ignoreCase, "Text: ignore letter case"),
+    h("p", { class: "hint" }, "A blank equals a blank, and an empty text is a blank."),
+  );
+  if (compared.length) body.append(h("fieldset", { class: "tie-out-pick" }, h("legend", {}, "Columns compared"), ...keep.map((b) => h("label", {}, b, b.value))));
+  foot.append(
+    button("Apply", () => {
+      void changeCompare({ diff: { tolerance: Number(tolerance.value) || 0, percent: percent.value === "1", trim: trim.checked, ignore_case: ignoreCase.checked, skip: keep.filter((b) => !b.checked).map((b) => b.value) } });
+      close();
+    }, { class: "primary" }),
+    button("Cancel", close),
   );
 }
 

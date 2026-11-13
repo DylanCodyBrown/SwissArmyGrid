@@ -22,15 +22,27 @@ import { api } from "./api";
 import { button, clear, formatCount, h, toast } from "./dom";
 import { contextOf, onSplitChange, splitPair, type Context } from "./panes";
 
+export interface DiffOptions {
+  tolerance: number;
+  percent: boolean;
+  trim: boolean;
+  ignore_case: boolean;
+  skip: string[];
+  column: string | null;
+}
+
 export interface CompareInfo {
   compare: string;
   left: string;
   right: string;
   keys: [string, string][];
-  mode: "outer" | "anti" | "cross";
+  mode: "outer" | "anti" | "cross" | "diff";
   anti_side: "both" | "left" | "right";
+  diff: DiffOptions;
   row_count: number;
   counts: { matched: number; left_only: number; right_only: number };
+  /** Diff mode: matched rows that differ, and each column's changes (most first). */
+  differ: { matched: number; differ: number; left_only: number; right_only: number; columns: Record<string, number>; compared: string[] } | null;
   focus: { side: "left" | "right"; rows: number; key: unknown[] } | null;
 }
 
@@ -72,7 +84,8 @@ export async function startCompare(keys: [string, string][], mode: CompareInfo["
   toast(`Aligned on ${keys.map(([l, r]) => (l === r ? l : `${l} = ${r}`)).join(" + ")}: ${formatCount(current.counts.matched)} matched, ${formatCount(current.counts.left_only)} left only, ${formatCount(current.counts.right_only)} right only.`);
 }
 
-export async function changeCompare(patch: Partial<Pick<CompareInfo, "keys" | "mode" | "anti_side">>): Promise<void> {
+export async function changeCompare(patch: Partial<Pick<CompareInfo, "keys" | "mode" | "anti_side">> & { diff?: Partial<DiffOptions> }): Promise<void> {
+  if (patch.diff && current) patch = { ...patch, diff: { ...current.diff, ...patch.diff } };
   const pair = splitPair();
   if (!current || !pair) return;
   try {

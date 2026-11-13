@@ -45,6 +45,7 @@ from decimal import Decimal
 from typing import Any
 
 from swissarmygrid.domain.datasets import Column
+from swissarmygrid.domain.diff import DiffOptions
 from swissarmygrid.domain.grids import POS
 from swissarmygrid.domain.steps import quote, type_family
 
@@ -521,7 +522,7 @@ def relationship(source: ColumnStats, target: ColumnStats) -> str:
 # A blank key never matches anything (SQL), so its rows show as unmatched on their own side.
 
 
-MODES: tuple[str, ...] = ("outer", "anti", "cross")
+MODES: tuple[str, ...] = ("outer", "anti", "cross", "diff")
 
 
 ANTI_SIDES: tuple[str, ...] = ("both", "left", "right")
@@ -535,6 +536,7 @@ class CompareSpec:
     keys: tuple[tuple[str, str], ...]  # (left column, right column) per key part
     mode: str = "outer"
     anti_side: str = "both"
+    diff: DiffOptions = field(default_factory=DiffOptions)  # how diff mode compares cells
 
     @staticmethod
     def from_json(raw: Any) -> CompareSpec:
@@ -555,10 +557,17 @@ class CompareSpec:
         side = raw.get("anti_side", "both")
         if side not in ANTI_SIDES:
             raise ValueError(f"anti_side must be one of {', '.join(ANTI_SIDES)}.")
-        return CompareSpec(tuple((k[0], k[1]) for k in keys), mode, side)
+        return CompareSpec(
+            tuple((k[0], k[1]) for k in keys), mode, side, DiffOptions.from_json(raw.get("diff"))
+        )
 
     def to_json(self) -> dict[str, Any]:
-        return {"keys": [list(k) for k in self.keys], "mode": self.mode, "anti_side": self.anti_side}
+        return {
+            "keys": [list(k) for k in self.keys],
+            "mode": self.mode,
+            "anti_side": self.anti_side,
+            "diff": self.diff.to_json(),
+        }
 
 
 def _key_expressions(columns: tuple[Column, ...], names: list[str], side: str) -> list[str]:
@@ -610,11 +619,16 @@ def mapping_sql(
             "left": "WHERE rp IS NULL",
             "right": "WHERE lp IS NULL",
         }[spec.anti_side]
-    order = ", ".join(f"TRY_CAST(s{i} AS DOUBLE) NULLS LAST, s{i} NULLS LAST" for i in range(n))
     return (
         f"SELECT lp, rp, {', '.join(f's{i}' for i in range(n))} FROM ({_joined(left, right, n)}) {where} "
-        f"ORDER BY {order}, lp NULLS LAST, rp NULLS LAST"
+        f"ORDER BY {mapping_order(n)}"
     )
+
+
+def mapping_order(keys: int) -> str:
+    """Compare order: by key (numbers as numbers), then by each side's position."""
+    order = ", ".join(f"TRY_CAST(s{i} AS DOUBLE) NULLS LAST, s{i} NULLS LAST" for i in range(keys))
+    return f"{order}, lp NULLS LAST, rp NULLS LAST"
 
 
 def differences(

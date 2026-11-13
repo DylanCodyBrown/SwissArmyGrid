@@ -1195,7 +1195,7 @@ def catalog_search(a: dict[str, Any]) -> Any:
     req("left", "Left grid id."),
     req("right", "Right grid id."),
     req("keys", "[[left column, right column], ...]", "json"),
-    opt("mode", "outer (default), anti or cross."),
+    opt("mode", "outer (default), anti, cross or diff."),
     opt("anti_side", "For anti: left or right."),
 )
 def compare_create(a: dict[str, Any]) -> Any:
@@ -1217,14 +1217,15 @@ def compare_read(a: dict[str, Any]) -> Any:
 
 @command(
     "compare_change",
-    "Change a compare's keys, mode (outer, anti, cross) or anti side.",
+    "Change a compare's keys, mode (outer, anti, cross, diff), anti side or diff options.",
     req("compare", "Compare id."),
     opt("keys", "[[left column, right column], ...]", "json"),
-    opt("mode", "outer, anti or cross."),
+    opt("mode", "outer, anti, cross or diff (only rows that differ)."),
     opt("anti_side", "left or right."),
+    opt("diff", "{tolerance, percent, trim, ignore_case, skip: [cols], column}.", "json"),
 )
 def compare_change(a: dict[str, Any]) -> Any:
-    body = {k: a[k] for k in ("keys", "mode", "anti_side") if a.get(k) is not None}
+    body = {k: a[k] for k in ("keys", "mode", "anti_side", "diff") if a.get(k) is not None}
     return api.call("PATCH", f"/compares/{_q(a['compare'])}", body)
 
 

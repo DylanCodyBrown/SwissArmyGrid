@@ -91,7 +91,10 @@ set by hand in the Compare row.
 columns ... simply by pulling two tables side by side and pushing a button." The owner chose side by
 side, highlighted.
 
-### Diff mode (a fourth mode: outer, anti, cross, **diff**)
+### Diff mode (a fourth mode: outer, anti, cross, **diff**) (built 2026-11-13)
+Built as designed. The rule lives in domain/diff.py, as SQL (picking and counting the rows) and in
+Python (marking the cells on screen); outer mode keeps its exact marks. Not built yet: the diff report
+as a table (each change, before and after) to export or send to the Sandbox.
 - **The same alignment as outer:** the two grids side by side, row N on both sides is one key. Diff adds
   a cell comparison for every column the two sides share (same name, ignoring case; the key columns
   excluded), and shows **only the rows that differ by default**: a changed cell, or a key on one side

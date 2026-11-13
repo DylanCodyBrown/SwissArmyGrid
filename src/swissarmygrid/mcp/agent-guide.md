@@ -201,6 +201,11 @@ key mark in the grid headers.
 - `compare_grids` gives matched, left-only and right-only counts for two grids on key columns without
   changing the user's view. `compare_create`, `compare_change`, `compare_set_focus` and
   `compare_remove` drive the page's side-by-side compare.
+- Diff mode (`mode: diff`) keeps only the rows that differ: a changed cell in a column both grids have
+  (names matched ignoring case, keys left out) or a key on one side only. The compare's `differ` says
+  how many matched rows differ and how many changes each column has. `diff` options: `tolerance`
+  (`percent` makes it a percentage of the left value), `trim` (on), `ignore_case` (off), `skip`
+  (columns left out) and `column` (only the rows where that column changed).
 - `compare_tie_out` answers "do these two tables add up the same?" on a compare: without `group` or
   `measures` it lists the shared columns and a suggestion; with them, one row per group (rows and each
   measure's total, left and right, the difference) marked ties or off within `tolerance` (absolute, or

@@ -4038,3 +4038,8 @@ body.popout .app-row {
 .badge.tie-ties { background: var(--surface-2); }
 .badge.tie-off { color: var(--danger, #a3141f); border: 1px solid currentColor; background: transparent; }
 td.far { color: var(--danger, #a3141f); font-weight: 600; }
+
+/* Compare's diff mode summary (ribbon.ts diffNote) */
+.diff-note { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.diff-note .btn { min-height: 0; padding: 1px 8px; }
+.check-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }

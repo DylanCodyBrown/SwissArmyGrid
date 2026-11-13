@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from swissarmygrid.domain import diff
 from swissarmygrid.domain.datasets import Column, DatasetInfo
 from swissarmygrid.domain.grids import POS, Grid
 from swissarmygrid.domain.relationships import (
@@ -48,6 +49,7 @@ from swissarmygrid.domain.relationships import (
     differences,
     key_family,
     keyed_sql,
+    mapping_order,
     mapping_sql,
     merge,
     mermaid_erd,
@@ -491,6 +493,7 @@ class Compare:
     # Cross compare: the side whose rows are filtered, its positions, and the key picked.
     focus: tuple[str, list[int], list[Any]] | None = None
     tallies: dict[str, int] = field(default_factory=dict)
+    differ: dict[str, Any] | None = None  # diff mode: what differs, in all and per column
     # Both grids changing at once (a tie-out group shown on each) has both sides ask for rows together:
     # one rebuild of the mapping table at a time, or DuckDB refuses the second (a write-write conflict).
     rebuilding: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -510,6 +513,7 @@ class Compare:
             **self.spec.to_json(),
             "row_count": self.row_count,
             "counts": self.tallies,
+            "differ": self.differ,
             "focus": focus,
         }
 
@@ -560,11 +564,23 @@ class Compares:
             cmp.tallies = counts(
                 cur, left.positioned, left.columns, right.positioned, right.columns, cmp.spec
             )
+            cmp.differ = None
             if cmp.spec.mode == "cross":
                 cmp.row_count = 0
             else:
                 # Numbered in the order the sorted mapping comes out (order checked in verified.md).
                 sql = mapping_sql(left.positioned, left.columns, right.positioned, right.columns, cmp.spec)
+                if cmp.spec.mode == "diff":
+                    options = cmp.spec.diff
+                    compared = diff.pairs(left.columns, right.columns, cmp.spec.keys, options)
+                    diffed = diff.diffed_sql(sql, left.positioned, right.positioned, compared, options)
+                    row = cur.execute(diff.summary_sql(diffed, compared)).fetchone() or (0,) * (
+                        4 + len(compared)
+                    )
+                    cmp.differ = diff.summary(tuple(row), compared)
+                    sql = diff.kept_sql(
+                        diffed, len(cmp.spec.keys), compared, options, mapping_order(len(cmp.spec.keys))
+                    )
                 cur.execute(
                     f"CREATE OR REPLACE TABLE {cmp.table} AS "
                     f"SELECT row_number() OVER () - 1 AS cpos, * FROM ({sql})"
@@ -605,7 +621,9 @@ class Compares:
         """Change keys, mode or anti_side."""
         if not isinstance(body, dict):
             raise ValueError("Send the fields to change: keys, mode, anti_side.")
-        merged = cmp.spec.to_json() | {k: v for k, v in body.items() if k in ("keys", "mode", "anti_side")}
+        merged = cmp.spec.to_json() | {
+            k: v for k, v in body.items() if k in ("keys", "mode", "anti_side", "diff")
+        }
         cmp.spec = CompareSpec.from_json(merged)
         cmp.focus = None
         cmp.signature = ""
@@ -642,7 +660,11 @@ class Compares:
             ).fetchall()
             lrows = rows_at(cur, left.positioned, left.columns, [p[0] for p in pairs])
             rrows = rows_at(cur, right.positioned, right.columns, [p[1] for p in pairs])
-            ldiff, rdiff = differences(lrows, left.columns, rrows, right.columns, cmp.spec.keys)
+            if cmp.spec.mode == "diff":
+                compared = diff.pairs(left.columns, right.columns, cmp.spec.keys, cmp.spec.diff)
+                ldiff, rdiff = diff.cells(lrows, rrows, compared, cmp.spec.diff)
+            else:
+                ldiff, rdiff = differences(lrows, left.columns, rrows, right.columns, cmp.spec.keys)
             got_rows = lrows if which == "left" else rrows
             width = len(mine.columns)
             return {
