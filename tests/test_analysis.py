@@ -111,7 +111,7 @@ def test_amount_fences_by_each_method_and_the_step_keeps_the_grids_order() -> No
     )
     for method in A.METHODS:
         summary, top = A.amount_queries("t", "amount", None, method, A.DEFAULT_THRESHOLD[method])
-        [(_, n, lo, hi, *_rest, low, high)] = con.execute(summary).fetchall()
+        [(_, n, lo, hi, _median, _mean, low, high, *_spreads)] = con.execute(summary).fetchall()
         assert n == 3000 and (low, high) == (0, 31) and lo < 50 and 62 < hi < 5000
         assert {x for _, x, _ in con.execute(top).fetchall()} == {5000.0}
     step = A.amount_step("amount", "vendor", [("A", 40.0, 70.0), (None, 1.0, 2.0)])

@@ -139,7 +139,7 @@ Select one column, then **Outliers** in the Column row:
 
 Each form has a **Data shape** panel: a made-up table in the shape the analysis needs (long: one row per order, the category and the outcome as columns), one that does not work and why (already counted, wide with one column per month, numbers stored as text), tips, and a check of your grid ("region: 4 values: fine", "this table looks wide"). It can go to the Sandbox too.
 
-Every result has three buttons: **Send to Sandbox** (the result in words, as a note), **Open as grid** (the result's table as a new grid) and **To Python** (the analysis as Python for Jupyter or IPython: the grid's steps as checked SQL, then one `swissarmygrid.stats` call, the same code the window ran, so the numbers match; `sag.paste()` puts it in the cell).
+Every result has four buttons: **Send to Sandbox** (the result in words, as a note), **Open as grid** (the result's table as a new grid), **Show the math** (every number on screen worked out step by step: the test or model by name, each formula with the result's own numbers put in, and a line of Python to redo it with scipy or statsmodels, as a note in the Sandbox; the what-if estimate and the tie-out have it too) and **To Python** (the analysis as Python for Jupyter or IPython: the grid's steps as checked SQL, then one `swissarmygrid.stats` call, the same code the window ran, so the numbers match; `sag.paste()` puts it in the cell).
 
 ### Auto width
 

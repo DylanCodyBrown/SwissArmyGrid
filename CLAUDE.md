@@ -70,6 +70,7 @@ src/swissarmygrid/
     timeseries.py        periods, the seasonal index, anomalies against neighbours, steps in the level,
                          memory, growth; the forecast (trend, steps, season, predictors, held-back check)
     tieout.py            the tie-out report: shared columns, the two GROUP BYs joined, ties or off
+    proofs.py            Show the math: each analysis result as a step-by-step proof (markdown)
     diff.py              compare's diff mode: which cells differ (tolerance, trim, case), as SQL and Python
     packs.py             a pack (a Claude Code plugin with blades/ and tangs/): names, the new marketplace's
                          files, Claude Code's install record read loosely, which plugins are switched off

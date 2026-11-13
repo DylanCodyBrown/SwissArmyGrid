@@ -401,16 +401,30 @@ def predict(model: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     inv = model["inverse"]
     estimate = sum(bi * xi for bi, xi in zip(b, x, strict=True))
     spread = sum(x[i] * inv[i][j] * x[j] for i in range(len(x)) for j in range(len(x)))
+    # Each term as it entered the sum, for Show the math.
+    names = ["(intercept)"] + [
+        f"{t['column']} = {t['level']}" if t["kind"] == "level" else t["column"] for t in terms
+    ]
+    shown = [
+        {"term": name, "x": xi, "coefficient": bi, "contribution": bi * xi}
+        for name, xi, bi in zip(names, x, b, strict=True)
+    ]
     if model["kind"] == "linear":
         se = math.sqrt(max(0.0, model["sigma2"] * (1 + spread)))
         t = t_quantile(0.975, model["df"])
-        return {"estimate": estimate, "low": estimate - t * se, "high": estimate + t * se}
+        return {"estimate": estimate, "low": estimate - t * se, "high": estimate + t * se, "terms": shown}
     se = math.sqrt(max(0.0, spread))
 
     def prob(v: float) -> float:
         return 1 / (1 + math.exp(-max(-30.0, min(30.0, v))))
 
-    return {"estimate": prob(estimate), "low": prob(estimate - Z95 * se), "high": prob(estimate + Z95 * se)}
+    return {
+        "estimate": prob(estimate),
+        "low": prob(estimate - Z95 * se),
+        "high": prob(estimate + Z95 * se),
+        "log_odds": estimate,
+        "terms": shown,
+    }
 
 
 def model_sql(model: dict[str, Any]) -> str:

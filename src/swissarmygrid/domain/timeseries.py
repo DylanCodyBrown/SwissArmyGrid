@@ -304,7 +304,18 @@ def anomalies(
     for p, v, x in zip(periods, values, off, strict=True):
         z = (x - m) / spread
         if abs(z) > ANOMALY_TS:
-            out.append({"period": p.isoformat(), "value": v, "score": z, "kind": "spike" if z > 0 else "dip"})
+            out.append(
+                {
+                    "period": p.isoformat(),
+                    "value": v,
+                    "score": z,
+                    "kind": "spike" if z > 0 else "dip",
+                    # Show the math: score = (off - typical_off) / spread (season out; log if multiplicative).
+                    "off": x,
+                    "typical_off": m,
+                    "spread": spread,
+                }
+            )
     return out
 
 

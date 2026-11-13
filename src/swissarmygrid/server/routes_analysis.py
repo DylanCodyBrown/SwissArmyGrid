@@ -15,6 +15,8 @@
                               the target, ranked by Cramér's V; correlations; pairs that say the same
   POST /grids/{id}/shape-check {"analysis", "columns"} -> {"notes": [{"level": ok | warn, "text"}]}: does
                               the grid suit the analysis (the Data shape panel)
+  POST /analysis-proof        {"analysis", "result", "dataset"} -> {"title", "markdown"}: Show the math,
+                              the result's own numbers worked through (domain/proofs.py)
   POST /grids/{id}/analysis-code {"analysis", "body"} -> {"code", "imports"}: the analysis as Python for
                               the notebook (the steps as checked SQL, then the swissarmygrid.stats call)
 
@@ -29,6 +31,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from swissarmygrid.domain.proofs import proof as show_the_math
 from swissarmygrid.server.http import actor, error_response, json_response, read_json
 from swissarmygrid.services.analysis import Analysis
 from swissarmygrid.services.grids import GridService
@@ -58,10 +61,21 @@ def routes(grids: GridService, analysis: Analysis) -> list[BaseRoute]:
 
         return handle
 
+    async def proof(request: Request) -> Response:
+        """Show the math: {"analysis", "result": what the window showed, "dataset"} as a proof."""
+        try:
+            body = await read_json(request)
+            if not isinstance(body, dict):
+                raise ValueError('Send {"analysis": "odds", "result": {...the result shown...}}.')
+            dataset = str(body.get("dataset") or "")
+            return json_response(show_the_math(str(body.get("analysis")), body.get("result"), dataset))
+        except Exception as error:
+            return error_response(error)
+
     async def code(request: Request) -> Response:
-        """The analysis as notebook Python (the page puts it in the notebook; not the agent's)."""
+        """The analysis as Python for the user's Jupyter or IPython (To Python; not the agent's)."""
         if actor(request) == "agent":
-            return Response("The notebook is the user's.", status_code=403)
+            return Response("Code for the user's Python comes only from the user's click.", status_code=403)
         try:
             grid, info = grids.find(request.path_params["grid_id"])
             body = await read_json(request)
@@ -90,4 +104,5 @@ def routes(grids: GridService, analysis: Analysis) -> list[BaseRoute]:
             methods=["POST"],
         ),
         Route("/grids/{grid_id}/analysis-code", code, methods=["POST"]),
+        Route("/analysis-proof", proof, methods=["POST"]),
     ]

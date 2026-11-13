@@ -11,7 +11,7 @@
  */
 import { regressionCards, type RegressionResult } from "./analysisCards";
 import { openOutliers } from "./analysisDialog";
-import { datasetName, registerAnalysis, resultButtons, tableName } from "./analyzeMenu";
+import { datasetName, registerAnalysis, resultButtons, showTheMath, tableName } from "./analyzeMenu";
 import { api, grid } from "./api";
 import { button, clear, formatCount, h, isNumericType, openDialog, toast } from "./dom";
 import { selection, viewColumns } from "./gridView";
@@ -98,6 +98,7 @@ export async function openRegression(target?: string, predictors: string[] = [],
         ...resultButtons({
           analysis: "regression",
           body: sent,
+          result: () => answer,
           cards: () => regressionCards(answer),
           rows: () => ({ name: tableName(datasetName(), "regression", answer.target), rows: answer.coefficients.map((c) => ({ term: c.term, coefficient: c.coefficient, low: c.low, high: c.high, p: c.p, ...(c.odds_ratio !== undefined ? { odds_ratio: c.odds_ratio } : {}), effect: c.words })) }),
         }),
@@ -195,9 +196,13 @@ function whatIf(r: RegressionResult): HTMLElement {
     const values = Object.fromEntries(Object.entries(fields).map(([k, f]) => [k, f instanceof HTMLInputElement ? Number(f.value) : f.value]));
     try {
       const p = await api<{ estimate: number; low: number; high: number }>("/regression/predict", "POST", { model: r.model, values });
-      answer.textContent = r.kind === "linear"
-        ? `${r.target}: about ${fmt(p.estimate)} (a new row would fall between ${fmt(p.low)} and ${fmt(p.high)}, 95% of the time).`
-        : `Chance of ${r.outcome}: ${pct(p.estimate)} (between ${pct(p.low)} and ${pct(p.high)}).`;
+      clear(
+        answer,
+        r.kind === "linear"
+          ? `${r.target}: about ${fmt(p.estimate)} (a new row would fall between ${fmt(p.low)} and ${fmt(p.high)}, 95% of the time). `
+          : `Chance of ${r.outcome}: ${pct(p.estimate)} (between ${pct(p.low)} and ${pct(p.high)}). `,
+        button("Show the math", () => void showTheMath("predict", p), { icon: "steps", class: "ghost", title: "This estimate worked out term by term: to the Sandbox" }),
+      );
     } catch (e) {
       answer.textContent = (e as Error).message;
     }

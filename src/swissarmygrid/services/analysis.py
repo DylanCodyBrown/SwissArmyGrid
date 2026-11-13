@@ -184,6 +184,9 @@ def run_predictors(cur: SqlSession, relation: str, view: Columns, body: dict[str
             "df": tested["df"],
             "rows": tested["n"],
             "correlation": None,
+            # For Show the math: V = sqrt(statistic / (rows * (min(levels) - 1))).
+            "statistic": tested["statistic"],
+            "levels": [tested["first_values"], tested["second_values"]],
         }
         if _is_number(target) and _is_number(column):
             r, n = cur.execute(A.correlation_query(relation, target.name, column.name)).fetchone() or (
@@ -390,6 +393,12 @@ def _amount(
                 "mean": g[5],
                 "low": int(g[6]),
                 "high": int(g[7]),
+                # The spreads the fences come from, for Show the math.
+                "mad": g[8],
+                "mean_abs_deviation": g[9],
+                "q1": g[10],
+                "q3": g[11],
+                "sd": g[12],
             }
             for g in (flagged if by else groups)[: A.TOP]
         ],
@@ -404,7 +413,14 @@ def _amount(
 
 def _frequency(cur: SqlSession, relation: str, column: str, t: float) -> dict[str, Any]:
     summary_sql, top_sql = A.frequency_queries(relation, column, t)
-    distinct, typical, rarer, commoner = cur.execute(summary_sql).fetchone() or (0, None, 0, 0)
+    distinct, typical, rarer, commoner, log_median, log_scale = cur.execute(summary_sql).fetchone() or (
+        0,
+        None,
+        0,
+        0,
+        None,
+        None,
+    )
     top = cur.execute(top_sql).fetchall()
     _, values_sql = A.frequency_queries(relation, column, t, MAX_STEP_VALUES)
     values = [str(v) for v, _, _ in cur.execute(values_sql).fetchall()]
@@ -418,6 +434,9 @@ def _frequency(cur: SqlSession, relation: str, column: str, t: float) -> dict[st
         "rarer": int(rarer),
         "commoner": int(commoner),
         "judged": int(distinct) >= A.MIN_GROUP,
+        # The scale the counts are judged on, for Show the math: ln(count) against these.
+        "log_median": log_median,
+        "log_scale": log_scale,
         "outliers": [{"value": v, "count": int(n), "score": score} for v, n, score in top],
         "step": A.frequency_step(column, values) if values else None,
         "exclude_step": A.frequency_step(column, values, keep=False) if values else None,

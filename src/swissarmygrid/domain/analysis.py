@@ -332,7 +332,8 @@ def amount_queries(relation: str, column: str, by: str | None, method: str, t: f
     )
     summary = (
         base + "SELECT f.g, f.n, f.lo, f.hi, f.m, f.mu, coalesce(k.low_n, 0) AS low_n, "
-        "coalesce(k.high_n, 0) AS high_n FROM f LEFT JOIN k ON f.g IS NOT DISTINCT FROM k.g "
+        "coalesce(k.high_n, 0) AS high_n, f.d, f.ad, f.q1, f.q3, f.sd "
+        "FROM f LEFT JOIN k ON f.g IS NOT DISTINCT FROM k.g "
         "ORDER BY low_n + high_n DESC, f.g NULLS FIRST"
     )
     top = base + f"SELECT g, x, score FROM o ORDER BY abs(score) DESC, x LIMIT {TOP}"
@@ -370,7 +371,7 @@ def frequency_queries(relation: str, column: str, t: float, limit: int = TOP) ->
     summary = (
         base + "SELECT s.k, s.typical, "
         f"(SELECT count(*) FROM z WHERE score < -{t!r}), "
-        f"(SELECT count(*) FROM z WHERE score > {t!r}) FROM s"
+        f"(SELECT count(*) FROM z WHERE score > {t!r}), s.m, s.scale FROM s"
     )
     top = base + (
         f"SELECT value, n, score FROM z WHERE abs(score) > {t!r} "

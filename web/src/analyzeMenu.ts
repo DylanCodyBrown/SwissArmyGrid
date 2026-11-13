@@ -23,6 +23,8 @@ export interface ResultActions {
   cards: () => SandboxCard[];
   /** The result as rows, for a new grid (and the name to give it). */
   rows?: () => { name: string; rows: Record<string, unknown>[] };
+  /** The result as the server sent it, for Show the math (its proof is worked from these numbers). */
+  result?: () => unknown;
 }
 
 /** The menu's entries: [icon, label, open]. analysisDialog.ts fills it, to keep the imports one-way. */
@@ -87,8 +89,23 @@ export function resultButtons(actions: ResultActions): HTMLButtonElement[] {
     button("Send to Sandbox", () => void toSandbox(actions), { icon: "image", title: "Add the result, in words, to the Sandbox tab" }),
   ];
   if (actions.rows) out.push(button("Open as grid", () => void toGrid(actions), { icon: "rows", title: "The result's table as a new grid" }));
+  if (actions.result) {
+    const result = actions.result;
+    out.push(button("Show the math", () => void showTheMath(actions.analysis, result()), { icon: "steps", title: "Every number here worked out step by step, with the formulas: to the Sandbox" }));
+  }
   out.push(button("To Python", () => void toYourPython(actions), { icon: "code", title: "The analysis as Python: copied, and sag.paste() puts it in your Jupyter cell or IPython prompt" }));
   return out;
+}
+
+/** The proof of a result (domain/proofs.py), as a note in the Sandbox beside the result's cards. */
+export async function showTheMath(analysis: string, result: unknown): Promise<void> {
+  try {
+    const proof = await api<{ title: string; markdown: string }>("/analysis-proof", "POST", { analysis, result, dataset: datasetName() });
+    await api(`${grid}/cards`, "POST", { kind: "note", title: proof.title, body: proof.markdown, size: { w: 8, h: 14 } });
+    toast("In the Sandbox: the math, step by step.");
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
 }
 
 /** Add cards to the Sandbox, filed with the grid in front; says what arrived. */

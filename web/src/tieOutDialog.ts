@@ -7,7 +7,7 @@
  *   [REPORT]   in words, then one row per group: rows and each total, left, right, the difference,
  *              ties or off; off groups first, largest first; the grand total last
  *   [CLICK]    a group filters both grids to it (a step on each, matched as it was grouped)
- *   [KEEP]     Send to Sandbox (a note and the table), Download CSV
+ *   [KEEP]     Send to Sandbox (a note and the table), Show the math, Download CSV
  */
 import { api } from "./api";
 import { type CompareInfo } from "./compare";
@@ -181,6 +181,11 @@ export async function openTieOut(cmp: CompareInfo, pair: [Context, Context]): Pr
           api("/cards", "POST", { kind: "table", title: `Tie-out by ${r.group_by.join(", ") || "total"}`, columns: table.columns, rows: table.rows, size: { w: 8, h: 10 } }),
         ]).then(() => toast("In the Sandbox: a note and the table."), (e: Error) => toast(e.message, "error"));
       }, { icon: "agent" }),
+      button("Show the math", () => {
+        void api<{ title: string; markdown: string }>("/analysis-proof", "POST", { analysis: "tie_out", result: r, dataset: `${left} and ${right}` })
+          .then((proof) => api("/cards", "POST", { kind: "note", title: proof.title, body: proof.markdown, size: { w: 8, h: 14 } }))
+          .then(() => toast("In the Sandbox: the math, step by step."), (e: Error) => toast(e.message, "error"));
+      }, { icon: "steps", title: "Every total and difference worked out: to the Sandbox" }),
       button("Download CSV", () => saveBlob(new Blob([csv(table.columns, table.rows)], { type: "text/csv" }), `tie-out-${left}-${right}.csv`), { icon: "export" }),
     );
   };

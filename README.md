@@ -56,7 +56,8 @@ What a grid page does:
   how often each value shows up, and with an outcome, each value's odds of it against the rest ("West:
   late 46% of the time, against 15% elsewhere: 4.85 times the odds"). **Find predictors**: every column
   tested against a target by chi-square, ranked by strength, with the pairs that say the same thing.
-  **Fit test** and **Outliers** (below). Every result can go to the Sandbox, open as a grid, or go to
+  **Fit test** and **Outliers** (below). **Show the math** on any result puts its proof in the Sandbox:
+  each formula with the result's own numbers, worked to the values shown. Every result can go to the Sandbox, open as a grid, or go to
   the notebook as Python (`swissarmygrid.stats`, the same code the window ran). **Regression**: linear or
   logistic (odds ratios), effects in words with ranges, what-if predictions, predicted and miss columns,
   and Check the misses (outliers of what the model cannot explain). Each form has a **Data shape**

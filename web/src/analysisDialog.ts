@@ -146,6 +146,7 @@ export async function openFitTest(columns: string[], expectedKind?: string): Pro
         ...resultButtons({
           analysis: "fit_test",
           body: sent,
+          result: () => (answer.results ? answer : { results: [{ ...answer, column: (answer.columns ?? []).join(" and ") }] }),
           cards: () => (answer.results ? answer.results.flatMap((r) => fitCards(r, String(sent.expected))) : fitCards(answer, "together", answer.columns)),
           rows: list.length === 1 && list[0]?.categories
             ? () => ({ name: tableName(datasetName(), "fit", list[0]?.column ?? ""), rows: (list[0]?.categories ?? []).map((c) => ({ ...c })) })
@@ -312,6 +313,7 @@ export async function openOutliers(column?: string): Promise<void> {
         ...resultButtons({
           analysis: "outliers",
           body: sent,
+          result: () => (answer),
           cards: () => (answer.look === "amount" ? amountCards({ ...answer, column: which.value, method: String(sent.method ?? "robust") }) : frequencyCards({ ...answer, column: which.value })),
           rows: () => ({
             name: tableName(datasetName(), "outliers", which.value),
@@ -477,6 +479,7 @@ export async function openOdds(column?: string): Promise<void> {
         ...resultButtons({
           analysis: "odds",
           body: sent,
+          result: () => (answer),
           cards: () => oddsCards(answer),
           rows: () => ({ name: tableName(datasetName(), "odds", answer.column), rows: answer.values.map((v) => ({ ...v })) }),
         }),
@@ -602,6 +605,7 @@ export async function openPredictors(target?: string): Promise<void> {
         ...resultButtons({
           analysis: "predictors",
           body: sent,
+          result: () => (answer),
           cards: () => predictorsCards(answer),
           rows: () => ({ name: tableName(datasetName(), "predictors", answer.target), rows: answer.candidates.map((c) => ({ column: c.column, kind: c.kind, strength: c.strength, cramers_v: c.v, p: c.p, correlation: c.correlation, same_as: c.same_as ?? null, note: c.note })) }),
         }),

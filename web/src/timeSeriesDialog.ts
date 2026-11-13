@@ -116,6 +116,7 @@ export async function openTimeSeries(given: Record<string, unknown> = {}): Promi
         ...resultButtons({
           analysis: "time_series",
           body: sent,
+          result: () => r,
           cards: () => timeSeriesCards(r),
           rows: () => ({ name: tableName(datasetName(), "series", r.what), rows: r.points.map((p) => ({ period: p.period, value: p.value, trend: p.trend, season: p.season })) }),
         }),
@@ -176,6 +177,7 @@ export async function openForecast(given: Record<string, unknown> = {}): Promise
         ...resultButtons({
           analysis: "forecast",
           body: sent,
+          result: () => r,
           cards: () => forecastCards(r),
           rows: () => ({ name: tableName(datasetName(), "forecast", r.what), rows: r.forecast.map((f) => ({ ...f })) }),
         }),
