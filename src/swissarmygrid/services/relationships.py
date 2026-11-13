@@ -593,7 +593,8 @@ class Compares:
                         "count(*) FILTER (WHERE rp IS NULL), count(*) FILTER (WHERE lp IS NULL) "
                         f"FROM {cmp.table}"
                     ).fetchone() or (0, 0, 0)
-                    cmp.tallies = {"matched": int(row[0]), "left_only": int(row[1]), "right_only": int(row[2])}
+                    matched, left_only, right_only = (int(n) for n in row)
+                    cmp.tallies = {"matched": matched, "left_only": left_only, "right_only": right_only}
             cmp.signature = sig
         return left, right
 
@@ -633,7 +634,9 @@ class Compares:
                 "right_only": cmp.differ["right_only"],
             }
             self._number(
-                cur, cmp, diff.kept_sql(f"SELECT * FROM {staged}", keys, compared, options, mapping_order(keys))
+                cur,
+                cmp,
+                diff.kept_sql(f"SELECT * FROM {staged}", keys, compared, options, mapping_order(keys)),
             )
         finally:
             cur.execute(f"DROP TABLE IF EXISTS {staged}")
