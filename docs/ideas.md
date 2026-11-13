@@ -236,6 +236,36 @@ white, white text on it 5.9:1), `#ff6b73` in dark (with dark text on red buttons
 - **Open:** keep the old blue as a "Classic" theme in Settings if anyone misses it; the user guide's
   screenshots still show blue.
 
+## Tangs and the relationship finder (2026-11-13, the owner's requests; confirm or change)
+
+"The hardest part of my job is trying to determine how two tables relate to each other"; "a name for
+relationships that are saved"; "a different file format ... so they're not confused with other json
+files and you can run them in the application to make sure they work"; "if I discover a relationship
+my coworkers have no way of knowing: share relationships in the same way we can share blades".
+
+- **The name is the owner's: tangs.** A saved set of relationships is a tang (the part of a blade that
+  anchors it into the handle). The `.tang` file is JSON that must start with
+  `"swissarmygrid": "tang", "format": 1`, so no other JSON file is taken for one, and a newer format is
+  refused by name.
+- **Shared like blades, through the same folders:** the blade folders are searched for `.tang` files
+  (four levels deep, hidden folders and environments skipped), so one team folder carries both. Save as
+  tang writes to the person's own tangs or one of those folders, nowhere else. Older model JSON still
+  reads.
+- **Who and when:** a tang keeps its saved time and, if the person writes it, who saved it; never read
+  from the computer. Each join keeps its evidence ("Found 2026-11-13: 91% of values in customers, 201
+  orphans").
+- **Running a tang** checks each join in the open tables (each dataset as pushed, before a grid's
+  steps): holds, holds with orphans, broken, not open; a column's type change since saving is noted.
+- **The finder's rules** (domain/relationships.py): the key side unique; 80% of the other side's values
+  in it; names that point at the key; a key with under 50 values needs a name match; two counters from 1
+  need coverage; floats and booleans are never keys; two-column keys searched among key-like columns
+  only (a price is the most varied column of an order line); implied joins dropped; of two joins
+  between the same tables, the first column's is active. Scored on the made-up store's answer key: all
+  ten, no decoys.
+- **Rejected suggestions** are remembered while the server runs, not across restarts.
+- **Open:** keys of three columns found by containment alone; foreign keys read from a loaded catalog;
+  the relationships view of plan phase 4 (draggable tables).
+
 ## Fill in your values (2026-11-12, the owner's request; confirm or change)
 
 "Have blades auto detect ... the variables that are defined inside of the blades, so when somebody imports

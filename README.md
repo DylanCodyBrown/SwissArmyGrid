@@ -43,6 +43,12 @@ What a grid page does:
   for Polars, `.to_arrow_table()` for Arrow). Longer pandas and plain-Python translations are
   there too. The copy is run exactly as copied, in a fresh namespace holding only your table,
   and compared with the grid before it's offered; only verified code gets the Copy buttons.
+- **Relationships and tangs:** **Find relationships** works out how every open table joins, from
+  the data: each join with its kind, the share of values that match, the orphans and why (names that
+  don't match, a text column of numbers, two-column keys and second paths are handled; small number
+  columns that overlap by accident are not suggested). Accept the joins, **Run** them to see which
+  hold, and **Save as tang**: a `.tang` file with a name, description and tags, kept in your tangs or
+  in a shared folder (the blade folders), where your coworkers' Relationships window lists it.
 - **Key Finder:** pick another grid (or every other grid) and get the likely join columns:
   each column pair that shares values, with the percent of each side's distinct values found in
   the other, whether each side is unique (so which one looks like the key), and a score. Columns

@@ -349,6 +349,13 @@ Replaces the Mermaid ERD tab.
 
 ## Phase 5: relationship autodetection (optional, and very good)
 
+**Done 2026-11-13 (release 1.7.0), as the relationship finder** in the Relationships window, with the
+owner's **tangs**: saved sets of relationships as `.tang` files, shared through the blade folders. On
+`examples/sample_store.py` it finds exactly the answer key (ten joins, the two-column key, the
+text-to-number join, ship_date's second path inactive) and none of the decoys. Not built from the list
+below yet: composite keys of three columns found by containment alone, and suggestions from a loaded
+catalog's foreign keys.
+
 Built on Key Finder (`engine/keyfinder.py`). Each candidate pair gets a confidence and a reason.
 
 - Candidates: name similarity (`orders.customer_id` and `customers.cust_key`, `*_id` to a table's

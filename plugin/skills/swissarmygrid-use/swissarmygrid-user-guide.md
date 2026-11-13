@@ -186,9 +186,20 @@ Relationships, on the Table row, holds each table's primary key and the joins be
 - Splitting two tables that have a known join pre-ticks its columns in the key picker, with a crown.
 - The Key Finder marks known pairs with a crown.
 
-The window lists the shared models found in the library folders (the ones shipped with the package, `~/.swissarmygrid/models`, and any folder named in `SWISSARMYGRID_MODELS`); Apply sets one. Import a model file loads one from disk, Export downloads the current keys and joins as a file, and Draw ERD adds a copy of the diagram to the Sandbox. The ERD tab always shows the current one. Tables are matched by the names you pushed them with, so push with the names the model uses.
+**Find relationships** works out how the open tables join from their data. For each join it shows the tables and columns, its kind, a confidence bar and the evidence: the share of values that match, the orphans (values with no row on the other side), and why it thinks so. It handles names that don't match (`orders.customer_id` to `customers.cust_key`), a text column holding numbers, keys made of two columns, and two joins between the same tables (only one can be active; the second is marked inactive). Small number columns that happen to overlap, such as status codes and months, are not suggested. The confident joins are ticked: press **Accept the ticked joins**, or reject one so it isn't suggested again.
 
-You can also ask an agent to work them out: it checks each key's uniqueness and each join's match rate, then sets them for you. To share a model, export it and put the file in a library folder: `~/.swissarmygrid/models` for yourself, or a shared folder that everyone names in `SWISSARMYGRID_MODELS`.
+**Run against the open tables** checks every join in use: each one **holds**, **holds with orphans** (with a few of the orphan values), is **broken** (a column has gone, the key side repeats, or nothing matches) or is **not open**.
+
+### Tangs: sharing relationships
+
+A saved set of relationships is a **tang** (the part of a blade that anchors it into the handle, as a join anchors two tables). **Save as tang** keeps the joins in use, with a name, description, tags and, if you like, your name, as one `.tang` file:
+
+- **In your tangs**, on this computer, or
+- **In a shared folder**: the blade folders (a team share or a repository, set with Blade folders on the blades page). A tang saved there is in your coworkers' list the next time they open this window, marked **Shared**, with who saved it and when.
+
+The list at the top shows every tang found, searchable by name, description, tag or author, with how many of its tables you have open. **Apply** uses one (merged into what you use now; the toast says if it changed a join you had). **Run** checks a tang against your tables before you trust it. **Import a tang** opens a `.tang` file: you see what it holds and what it would change before applying it, and can keep it in your tangs or share it. **Export** downloads the joins in use as a `.tang` file. Only `.tang` files are tangs: ordinary JSON files in those folders are left alone. Older model files (`~/.swissarmygrid/models`, `SWISSARMYGRID_MODELS`) still work.
+
+Draw ERD adds a copy of the diagram to the Sandbox; the ERD tab always shows the joins in use. Tables are matched by the names you pushed them with, so push with the names the tang uses. An agent can find, run and explain joins for you; saving and sharing tangs is yours.
 
 ## The ERD tab
 

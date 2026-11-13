@@ -51,7 +51,9 @@ src/swissarmygrid/
     codegen.py           generated code: DuckDB, pandas, plain Python
     charts.py            chart spec validation, the aggregate query's text, Vega-Lite, Altair
     export.py            export options, provenance
-    relationships.py     keys, the Key Finder's scoring, compare, relationship models, the ERD
+    relationships.py     keys, the Key Finder's scoring, compare, relationship models, the ERD; tangs
+                         (the .tang file: a saved, shared set of relationships) and the relationship
+                         finder's rules (judge, suggest, implied joins, paths between tables)
     catalogs.py          catalog rules: dialects, names, which source column is read as what
     blades.py            a blade as text and as a record: what its code makes, asks for and imports
                          (read with ast), its pip packages, the portable .blade.py file (a
