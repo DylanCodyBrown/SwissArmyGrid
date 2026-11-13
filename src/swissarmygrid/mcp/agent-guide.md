@@ -25,6 +25,7 @@ order the app shows them, so the tool list reads like the screen:
 | `compare_` | two grids side by side | `compare_create`, `compare_change`, `compare_remove` |
 | `sandbox_` | the Sandbox tab | `sandbox_add`, `sandbox_list`, `sandbox_update` |
 | `app_` | the page itself | `app_snapshot` |
+| `analyze_` | the Table row's **Analyze** menu | `analyze_odds`, `analyze_predictors` (with `column_fit_test`, `column_outliers`) |
 | `agent_` | what only an agent has: reads and queries, the user's live events | `agent_read_grid`, `agent_query`, `agent_context`, `agent_events` |
 
 `guide` (this page), `commands` and `health` have no prefix. `commands` returns the full catalog
@@ -135,6 +136,17 @@ step), `sandbox_code` returns the Altair Python, `sandbox_list` and `sandbox_all
   that keeps just those rows, so the user sees them in the grid; it is an ordinary step they can
   undo. Say what you found and how far out it is (`score`), and leave the judgement to the user:
   an outlier is a question, not proof.
+
+- `analyze_odds`: each value's share and "1 in N"; with an `outcome`, each value's rate of it
+  against every other value and its odds ratio ("West: late 46% of the time, against 14% elsewhere:
+  4.9 times the odds, 4.2 to 5.7"). A ratio whose range includes 1 is not clearly different; under 30
+  rows it is marked `small`.
+- `analyze_predictors`: which columns go with a target, strongest first, before a regression. Read
+  `strength` (from Cramér's V), not just `p`; follow `redundant` (keep one of each pair); a `note`
+  says when a number is related but not in a straight line.
+- These and the fit test and outliers chain: odds and the fit test say whether two columns are
+  related and by how much; find predictors ranks the candidates; outliers checks the target before a
+  model is fitted. Say what you found in words, and leave decisions to the user.
 
 ## Keys, relationships and compare
 

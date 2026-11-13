@@ -124,6 +124,7 @@ def _normal(path: str) -> str:
 # Server routes with no command, each on purpose.
 NOT_COMMANDS = {
     "/shutdown": "stops the server: the user's, not the agent's",
+    "/grids/{}/analysis-code": "writes notebook code; the notebook is the user's and refuses the agent",
     "/audit": "the server refuses the agent: the log is for the user",
     "/agent/approvals/{}": "resolving an approval is the user's click, refused to the agent",
     "/agent/export-approval/{}": "reached through table_export, which asks first",

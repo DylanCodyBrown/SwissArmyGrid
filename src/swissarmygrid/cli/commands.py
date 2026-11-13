@@ -1427,16 +1427,56 @@ def column_fit_test(a: dict[str, Any]) -> Any:
     opt("method", "robust (default), iqr or zscore (amount)."),
     opt("threshold", "How far out counts as an outlier (robust 3.5, iqr 1.5, zscore 3).", "any"),
     opt("by", "Judge each group of this column separately (amount)."),
-    opt("show", "Also add the step that shows the outliers' rows.", "bool"),
+    opt("show", "Also add the step that keeps just the outliers' rows.", "bool"),
+    opt("exclude", "Also add the step that leaves the outliers out (blank rows stay).", "bool"),
     values=True,
 )
 def column_outliers(a: dict[str, Any]) -> Any:
     body = {k: a[k] for k in ("column", "look", "method", "threshold", "by") if a.get(k) not in (None, "")}
     found = api.call("POST", f"/grids/{_q(a['grid'])}/outliers", body)
-    if a.get("show") and found.get("step"):
-        step = found["step"]
-        found["shown"] = _insert_step(a["grid"], step["kind"], step["params"])
+    if a.get("show") and a.get("exclude"):
+        raise CommandError("column_outliers: show or exclude, not both.")
+    key = "step" if a.get("show") else "exclude_step" if a.get("exclude") else None
+    if key and found.get(key):
+        step = found[key]
+        found["shown" if key == "step" else "excluded"] = _insert_step(
+            a["grid"], step["kind"], step["params"]
+        )
     return found
+
+
+@command(
+    "analyze_odds",
+    "Odds: how often each value of a column shows up (share, 1 in N, the odds on any one row). With an "
+    'outcome ({"column": "late", "values": ["late"]} or, for a number, {"column": "amount", "op": "gt", '
+    '"value": 1000}), each value\'s rate of it against every other value and the odds ratio with its 95% '
+    "range (clear when the range leaves out 1). Number columns are cut into equal-sized buckets.",
+    req("grid", "Grid id."),
+    req("column", "The column whose values to count."),
+    opt("outcome", "What counts as yes (see above).", "json"),
+    opt("buckets", "Cut a number column into this many equal-sized ranges (2 to 20).", "int"),
+    values=True,
+)
+def analyze_odds(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("column", "outcome", "buckets") if a.get(k) is not None}
+    return api.call("POST", f"/grids/{_q(a['grid'])}/odds", body)
+
+
+@command(
+    "analyze_predictors",
+    "Find predictors: every other column (or `candidates`) tested together with the target by chi-square, "
+    "numbers in equal-sized buckets, ranked by Cramér's V (strength none / weak / moderate / strong), with "
+    "the straight-line correlation for number pairs, the columns skipped and why (identifiers, dates), and "
+    "pairs of candidates that say the same thing (give a regression the one to keep).",
+    req("grid", "Grid id."),
+    req("target", "The column to predict: a number or a category."),
+    opt("candidates", "Only these columns.", "list"),
+    opt("buckets", "How many ranges for number columns (default 4).", "int"),
+    values=True,
+)
+def analyze_predictors(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("target", "candidates", "buckets") if a.get(k) is not None}
+    return api.call("POST", f"/grids/{_q(a['grid'])}/predictors", body)
 
 
 @command(
@@ -1516,6 +1556,7 @@ AREAS: tuple[tuple[str, str], ...] = (
     ("table", "Ribbon, Table row"),
     ("column", "Ribbon, Column row"),
     ("cell", "Ribbon, Cell row"),
+    ("analyze", "Ribbon, Table row: the Analyze menu (odds, find predictors)"),
     ("row", "Rows"),
     ("steps", "Table Transformations panel and SQL box"),
     ("key_finder", "Key Finder"),
