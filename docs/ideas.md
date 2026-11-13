@@ -207,6 +207,17 @@ first, the server part once the Cosmic Python refactor has landed.
     starts; named dashboards save and open (`sandbox_save`, `sandbox_open`); once workspaces exist
     (plan phase 1), each workspace opens with its own. A card drawn from a table that is not open
     says so, and draws when the table is pushed again.
+  - **Sandbox history and time travel** (the owner: "make the entire sandbox have a history where you
+    can save snapshots of the sandbox at a period in time and you can time [travel]"): a snapshot is
+    the whole Sandbox frozen, every card's size and place and the data it showed (a chart's computed
+    points, a result table's rows, notes, figures and images as they were), so it opens later even
+    when its tables are gone. Named snapshots on demand ("Save snapshot"), and one automatic snapshot
+    a day (the day's first change); automatic ones trimmed to the last 60, named ones kept until
+    deleted; files beside the saved dashboards. A timeline across the Sandbox steps back and forward
+    read-only ("Viewing 10 November 2026, 09:14 · Back to now · Restore this"); Restore makes that
+    moment the live Sandbox (cards reconnect to their tables when open, else keep their frozen
+    picture) after snapshotting the current one first. Comparing two moments marks cards added,
+    removed or changed. Agent: list, take and read snapshots; restoring is the user's click.
 
 ## Steel and Swiss army knife red (2026-11-13, the owner's request; confirm or change)
 

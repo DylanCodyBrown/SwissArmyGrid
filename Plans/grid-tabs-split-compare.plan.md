@@ -85,6 +85,49 @@ set by hand in the Compare row.
 - **Cell differences** in a matched row are marked, like the changed-cell marks in preview.
 - Compare never changes either grid's steps. Turning it off puts both grids back as they were.
 
+## Diff mode and the tie-out report (the owner, 2026-11-13; build after the refactor lands)
+
+"Add another mode right beside cross compare ... a quick and easy tie report, where you could diff
+columns ... simply by pulling two tables side by side and pushing a button." The owner chose side by
+side, highlighted.
+
+### Diff mode (a fourth mode: outer, anti, cross, **diff**)
+- **The same alignment as outer:** the two grids side by side, row N on both sides is one key. Diff adds
+  a cell comparison for every column the two sides share (same name, ignoring case; the key columns
+  excluded), and shows **only the rows that differ by default**: a changed cell, or a key on one side
+  only. A toggle shows every row.
+- **Highlighted cells:** a changed cell is highlighted in both grids (the same cell, left and right); a
+  row on one side only keeps its blank placeholder beside it, as outer mode does.
+- **Summary bar** above both grids: "312 of 5,000 matched rows differ · unit_price 280 · region 40 ·
+  12 only on the left · 7 only on the right". Each column's count is a button: click it to see only the
+  rows where that column changed.
+- **How values are compared**, a small options popover: numbers equal within a tolerance (absolute,
+  default 0, or a percentage); text with or without trimming and letter case (the Key Finder's
+  normalising, which already makes 42, 42.0 and '42' meet); blank equals blank. Columns can be left out
+  of the comparison (an updated_at that always differs).
+- **Server:** one DuckDB query over the aligned mapping: per shared column, `left IS DISTINCT FROM
+  right` under the chosen rules, giving each row's changed columns (a bit list) and the counts. The
+  page asks for the changed-cell flags with the rows it already fetches, so a million-row diff still
+  scrolls in windows.
+- **Agent:** `compare_create`/`compare_change` take `mode: "diff"` and the options; `compare_read`
+  returns the summary (counts per column, one-sided counts) and `compare_diff_rows` a page of the
+  differing rows with their changed columns.
+
+### Tie-out report (a button in the compare bar, any mode)
+- **Pick what to total:** group by one or more shared columns (suggested: shared text columns with few
+  values, such as region), and the measures: row count always, plus the sum of any shared number
+  columns (suggested: all of them).
+- **The report:** one row per group: rows left, rows right, difference; for each measure: left total,
+  right total, difference, difference %; and a status, **ties** or **off**, against a tolerance
+  (absolute, or a percentage of the left total). Groups that are off come first; a grand total row
+  ends it.
+- **Click a group** to filter both grids to it (in diff mode, to its differing rows): from "Central is
+  off by 1,204.50" to the rows that make it up in one click.
+- **Keep it:** export the report (CSV or Excel), or send it to the Sandbox as a table card.
+- **Server:** two GROUP BY queries over each side's view (after its own steps), joined on the group
+  values with a full outer join, so a group present on one side only shows as off with a blank total
+  on the other. Agent: `compare_tie_out` with group columns, measures and tolerance.
+
 ## Milestones
 
 - **T1 tabs (built 2026-10-22, differently from the design above):** `/workspace` is one window
