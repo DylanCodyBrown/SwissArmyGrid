@@ -28,6 +28,7 @@ import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -60,9 +61,17 @@ class BladeStore:
     """The saved blades, and the blades in the user's blade folders. Every method is quick file work; call
     them off the event loop when it matters."""
 
-    def __init__(self, folder: Path, folders_file: Path | None = None, pins_file: Path | None = None) -> None:
+    def __init__(
+        self,
+        folder: Path,
+        folders_file: Path | None = None,
+        pins_file: Path | None = None,
+        packs: Callable[[], list[tuple[Path, str]]] | None = None,
+    ) -> None:
         self.folder = folder
         self.folders_file = folders_file
+        # Installed packs' blades folders, with each pack's label: read-only blades from a marketplace.
+        self._packs = packs or (lambda: [])
         # Favourites: this person's own, so kept on this computer, never in a blade's file.
         self.pins_file = pins_file
         self._lock = threading.Lock()
@@ -230,6 +239,23 @@ class BladeStore:
                         problems.append({"path": str(path), "error": problem})
                     if blade is not None:
                         found.append(blade)
+        for root, label in self._packs():
+            for path in sorted(root.rglob("*.py")) if root.is_dir() else []:
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                stamp = (stat.st_mtime_ns, stat.st_size)
+                cached = self._seen.get(str(path))
+                if cached is None or cached[0] != stamp:
+                    cached = (stamp, *self._load_file(path, stat.st_size, is_blade, read_blade))
+                    self._seen[str(path)] = cached
+                blade, problem = cached[1], cached[2]
+                if problem:
+                    problems.append({"path": str(path), "error": problem})
+                if blade is not None:
+                    blade.pack = label
+                    found.append(blade)
         self.problems = problems
         return found
 
@@ -261,8 +287,8 @@ class BladeStore:
         return [b for b in (self._read(p) for p in self.folder.glob("*.json")) if b is not None]
 
     def all(self) -> list[Blade]:
-        """Saved blades and folder blades; a saved blade comes first when two share a name, then the
-        first folder's."""
+        """Saved blades, folder blades and pack blades; a saved blade comes first when two share a
+        name, then the first folder's (a clone being edited), then an installed pack's."""
         by_name: dict[str, Blade] = {}
         for blade in [*self._saved(), *self._scan()]:
             by_name.setdefault(blade.name.casefold(), blade)
@@ -287,6 +313,11 @@ class BladeStore:
                     previous = self.get(previous_name)
                 except KeyError:
                     raise BladeError(f"No blade named {previous_name!r} to change.") from None
+            if previous is not None and previous.pack:
+                raise BladeError(
+                    f"{previous.name} comes from the pack {previous.pack}: change it in that pack's "
+                    "repository (a clone added as a blade folder), or save a copy under another name."
+                )
             blade = parse_blade(data, previous)
             renamed = previous is not None and previous.name.casefold() != blade.name.casefold()
             if previous is None or renamed:
@@ -321,6 +352,11 @@ class BladeStore:
     def remove(self, name: str) -> None:
         with self._lock:
             blade = self.get(name)
+            if blade.pack:
+                raise BladeError(
+                    f"{blade.name} comes from the pack {blade.pack}. Uninstall or disable the pack in Claude "
+                    "Code (/plugin) to remove its blades."
+                )
             if blade.path:
                 raise BladeError(
                     f"{blade.name} is a file in your blade folder ({blade.path}). Delete or move the file "

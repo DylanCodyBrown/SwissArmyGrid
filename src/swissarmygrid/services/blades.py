@@ -139,7 +139,8 @@ class BladeService:
             "description": blade.description,
             "tags": blade.tags,
             "pinned": blade.name.casefold() in favourites,
-            "source": "folder" if blade.path else "saved",
+            "source": "pack" if blade.pack else "folder" if blade.path else "saved",
+            "pack": blade.pack,
             "path": blade.path,
             "updated_at": blade.updated_at,
         }
@@ -399,7 +400,10 @@ class BladeService:
                         "secrets": rules.read_code(item.blade.get("code") or "").secrets
                         if item.blade.get("code")
                         else [],
-                        "conflict": {"name": taken.name, "source": "folder" if taken.path else "saved"}
+                        "conflict": {
+                            "name": taken.name,
+                            "source": "pack" if taken.pack else "folder" if taken.path else "saved",
+                        }
                         if taken
                         else None,
                         "settings": self.settings_of(

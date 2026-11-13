@@ -56,6 +56,7 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]
     env = os.environ | {
         "SWISSARMYGRID_INFO": str(tmp / "server.json"),
         "SWISSARMYGRID_STATE": str(tmp / "state"),
+        "SWISSARMYGRID_CLAUDE_DIR": str(tmp / "claude"),
     }
     saved = {key: os.environ.get(key) for key in ("SWISSARMYGRID_INFO", "SWISSARMYGRID_STATE")}
     for key in saved:

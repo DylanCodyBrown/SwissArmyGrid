@@ -53,6 +53,13 @@ def _state_dir() -> Path:
     return Path(override) if override else Path.home() / ".swissarmygrid"
 
 
+def _claude_dir() -> Path:
+    """Claude Code's folder, where installed plugins (packs) live: SWISSARMYGRID_CLAUDE_DIR (tests),
+    else Claude Code's own CLAUDE_CONFIG_DIR, else ~/.claude."""
+    override = os.environ.get("SWISSARMYGRID_CLAUDE_DIR") or os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(override) if override else Path.home() / ".claude"
+
+
 def _default_dataset_cap() -> int:
     """1 GiB per dataset (room for Excel's 1,048,576 rows on a wide table), or
     SWISSARMYGRID_MAX_DATASET_MB when set; always within the total budget."""
@@ -120,6 +127,8 @@ class Settings:
     state_dir: Path = field(default_factory=_state_dir)
     # Exports requested by an agent (MCP) land only here, never as a browser download.
     export_dir: Path = field(default_factory=lambda: _state_dir() / "exports")
+    # Claude Code's folder: installed plugins that carry blades and tangs (packs) are read from here.
+    claude_dir: Path = field(default_factory=_claude_dir)
 
     @property
     def blades_dir(self) -> Path:

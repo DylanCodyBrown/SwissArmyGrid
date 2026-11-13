@@ -728,6 +728,11 @@ class Models:
         self._library = library
         self.model = Model()
 
+    @property
+    def library_files(self) -> ModelLibrary:
+        """The tang library itself (packs copy tangs out of it)."""
+        return self._library
+
     def current(self) -> dict[str, Any]:
         return self.model.to_json()
 

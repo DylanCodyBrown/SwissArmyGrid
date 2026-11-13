@@ -237,9 +237,16 @@ class ModelFiles:
     """The library of tangs and models: the service layer's `ModelLibrary` port. `shared` gives the
     shared folders (the blade folders that exist) each time, so a change there shows at once."""
 
-    def __init__(self, state_dir: Path, shared: Callable[[], list[str]] | None = None) -> None:
+    def __init__(
+        self,
+        state_dir: Path,
+        shared: Callable[[], list[str]] | None = None,
+        packs: Callable[[], list[tuple[Path, str]]] | None = None,
+    ) -> None:
         self.state_dir = state_dir
         self._shared = shared or (lambda: [])
+        # Installed packs' tangs folders (adapters/packs.py): read-only tangs from a marketplace.
+        self._packs = packs or (lambda: [])
 
     @property
     def mine(self) -> Path:
@@ -263,6 +270,7 @@ class ModelFiles:
             if p.strip()
         ]
         folders += [(Path(p), "shared") for p in self.shared_folders()]
+        folders = [(folder, "pack") for folder, _ in self._packs()] + folders  # a clone wins over its install
         return folders
 
     def _tang_files(self, folder: Path, deep: bool) -> list[Path]:
@@ -288,13 +296,13 @@ class ModelFiles:
         for folder, where in self._folders():
             if not folder.is_dir():
                 continue
-            for path in sorted(folder.glob("*.json")) if where != "shared" else []:
+            for path in sorted(folder.glob("*.json")) if where not in ("shared", "pack") else []:
                 try:
                     model = parse_model(json.loads(path.read_text(encoding="utf-8")))
                     found[model.name] = (model, str(path))
                 except (OSError, ValueError) as error:
                     problems.append(f"{path.name}: {error}")
-            for path in self._tang_files(folder, deep=where == "shared"):
+            for path in self._tang_files(folder, deep=where in ("shared", "pack")):
                 try:
                     if path.stat().st_size > 2_000_000:
                         raise TangError("larger than 2 MB")

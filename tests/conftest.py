@@ -28,6 +28,8 @@ def make_client(tmp_path: Path, **overrides: Any) -> TestClient:
     settings = Settings(
         state_dir=tmp_path / "state",
         export_dir=tmp_path / "exports",
+        # Never this machine's own Claude Code plugins: a test lays out its own packs here.
+        claude_dir=overrides.pop("claude_dir", tmp_path / "claude"),
         max_total_bytes=overrides.pop("max_total_bytes", 512 * 1024 * 1024),
         **overrides,
     )

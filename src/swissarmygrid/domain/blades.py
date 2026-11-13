@@ -1071,6 +1071,7 @@ class Blade:
     description: str = ""
     tags: list[str] = field(default_factory=list)
     path: str | None = None  # a blade folder's file; None for a blade saved in the app
+    pack: str | None = None  # an installed pack's label (sales@team 1a2b3c): read-only, from a marketplace
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -1106,7 +1107,8 @@ class Blade:
             "description": self.description,
             "tags": list(self.tags),
             "path": self.path,
-            "source": "folder" if self.path else "saved",
+            "pack": self.pack,
+            "source": "pack" if self.pack else "folder" if self.path else "saved",
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

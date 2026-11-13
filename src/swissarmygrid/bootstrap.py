@@ -28,6 +28,7 @@ from swissarmygrid.adapters.codegen import Verifier
 from swissarmygrid.adapters.database import PriorityWorkers, duckdb_grammar, open_database
 from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.adapters.live_updates import LiveUpdates
+from swissarmygrid.adapters.packs import PackFolders
 from swissarmygrid.adapters.state_files import AuditLog, ModelFiles, RecipeFiles, is_own_file
 from swissarmygrid.adapters.views import ViewEngine
 from swissarmygrid.domain.blades import Blade
@@ -44,6 +45,7 @@ from swissarmygrid.services.datasets import DatasetService
 from swissarmygrid.services.export import Exports
 from swissarmygrid.services.grids import GridService
 from swissarmygrid.services.notebook import NotebookCells
+from swissarmygrid.services.packs import Packs
 from swissarmygrid.services.processes import ProcessRegistry, Sessions
 from swissarmygrid.services.profile import Profiles
 from swissarmygrid.services.relationships import Compares, Finder, KeyFinder, Models
@@ -75,6 +77,7 @@ class Services:
     notebook_cells: NotebookCells
     models: Models
     finder: Finder
+    packs: Packs
     keys: KeyFinder
     compares: Compares
     snapshots: Snapshots
@@ -103,10 +106,18 @@ def bootstrap(
         connection, settings.max_dataset_bytes, settings.max_total_bytes, settings.max_datasets
     )
     live = LiveUpdates()
+    # Packs: installed Claude Code plugins that carry blades and tangs, and editable clones in the
+    # blade folders. Their blades and tangs join the blade store and the tang library read-only.
+    pack_files = PackFolders(
+        settings.claude_dir,
+        shared=lambda: [f["path"] for f in blade_store.folders() if f["exists"]],
+        environ=os.environ,
+    )
     blade_store = BladeStore(
         settings.blades_dir,
         folders_file=state_dir / "blade_folders.json",
         pins_file=state_dir / "blade_pins.json",
+        packs=pack_files.blade_dirs,
     )
     recipes = RecipeFiles(state_dir / "recipes")
     verifier = Verifier(settings.duckdb_memory_limit)
@@ -150,7 +161,11 @@ def bootstrap(
     # one team folder carries blades and tangs alike.
     models = Models(
         ws,
-        ModelFiles(state_dir, shared=lambda: [f["path"] for f in blade_store.folders() if f["exists"]]),
+        ModelFiles(
+            state_dir,
+            shared=lambda: [f["path"] for f in blade_store.folders() if f["exists"]],
+            packs=pack_files.tang_dirs,
+        ),
     )
     return Services(
         settings=settings,
@@ -179,6 +194,7 @@ def bootstrap(
         notebook_cells=NotebookCells(ws, NotebookControl(notebook), verifier, DEFAULT_NOTEBOOK),
         models=models,
         finder=Finder(ws, models),
+        packs=Packs(ws, pack_files, blade_store, models.library_files),
         keys=KeyFinder(ws),
         compares=Compares(ws),
         snapshots=Snapshots(ws),
