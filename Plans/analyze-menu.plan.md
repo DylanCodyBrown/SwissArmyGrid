@@ -19,7 +19,8 @@ analyses live in a drop-down in the Table row; each has its own form.
 4. **Separate tools with hand-off buttons**, not one guided path.
 5. **Results go where the analyst chooses:** to the Sandbox (a card), to a grid (when the result is a
    table), or as Python to the notebook (a cell in the open marimo notebook, in its own tab).
-6. **Future values of predictors** in a forecast over time: picked per predictor (keep the last value,
+6. **Time series analysis** too, "built the same way" (a form, hand-offs, the three result actions).
+7. **Future values of predictors** in a forecast over time: picked per predictor (keep the last value,
    continue its own trend, or type a value). Time parts (trend, month of year, weekday) are always known.
 
 ## How the pieces work together
@@ -54,6 +55,16 @@ Odds ──────────► Fit test (together) ──► Find predic
   predictors, each with its future-value choice. It holds back the last few periods to report an
   honest typical miss, and draws history, fitted line and forecast with an 80% and a 95% band.
 
+- **Time series**: a date column, a metric totalled per period (sum, average, count; day, week, month,
+  quarter), optionally one series per value of a category. Its **shape** (trend, the seasonal pattern
+  in words such as "December runs 34% above a typical month", what is left over), **growth** (period
+  over period, the same period last year, a rolling average), **anomalies in time** (spikes and dips
+  beyond robust fences, missing periods; **Show these rows** keeps the rows of those periods, **Check
+  with Outliers** looks inside them), **level shifts** (where the series stepped and stayed), and
+  **memory** (how much one period predicts the next: whether a forecast has anything to go on).
+  Hands over to **Forecast** (same date, metric and period) and to the **Fit test** (is the seasonal
+  pattern real or chance?).
+
 ## Every result's actions
 
 - **Send to Sandbox**: a card with the result in words and its chart or table.
@@ -68,9 +79,9 @@ Odds ──────────► Fit test (together) ──► Find predic
 ## The page
 
 **Analyze** at the end of the Table row: a menu of Odds, Fit test, Find predictors, Outliers,
-Regression, Forecast. Each opens its form, filled from the selected columns. Hand-off buttons open the
+Regression, Time series, Forecast. Each opens its form, filled from the selected columns. Hand-off buttons open the
 next form already filled. The agent gets one tool per analysis (`analyze_odds`, `analyze_predictors`,
-`analyze_regression`, `analyze_predict`, `analyze_forecast`, beside `column_fit_test` and
+`analyze_regression`, `analyze_predict`, `analyze_time_series`, `analyze_forecast`, beside `column_fit_test` and
 `column_outliers`).
 
 ## The math (standard library only, no new dependency)
@@ -96,14 +107,15 @@ Rows with a blank in any used column are left out, and the count is shown.
 - **A.** The Analyze menu; the three result actions; Odds; Find predictors; Fit test and Outliers in
   the menu with Exclude these; `swissarmygrid.stats` and the notebook code for these.
 - **B.** Regression (linear and logistic), what-if, predicted and miss columns, Check the misses.
-- **C.** Forecast over time with per-predictor future values and the held-back check.
+- **C.** Time series (its decomposition is what the forecast continues), then Forecast over time with
+  per-predictor future values and the held-back check.
 
 Each phase: domain math tests first, routes, agent tools, the forms, a browser test, the docs.
 
 ## Layout
 
 domain/stats.py (distributions, linear algebra), domain/analysis.py (fit test, outliers, odds,
-predictors), domain/models.py (regression, forecast: encoding, query text, iterations);
+predictors), domain/models.py (regression, time series, forecast: encoding, query text, iterations);
 services/analysis.py and services/models.py; routes_analysis.py and routes_models.py;
 web/src/analyzeMenu.ts (the menu and the shared result actions), analysisDialog.ts (fit test,
 outliers, odds, predictors), modelDialog.ts (regression, what-if, forecast); src/swissarmygrid/stats.py
