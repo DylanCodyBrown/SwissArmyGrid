@@ -28,7 +28,14 @@ from swissarmygrid.adapters.database import PriorityWorkers, duckdb_grammar, ope
 from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.adapters.live_updates import LiveUpdates
 from swissarmygrid.adapters.packs import PackFolders
-from swissarmygrid.adapters.state_files import AuditLog, DashboardFiles, ModelFiles, RecipeFiles, is_own_file
+from swissarmygrid.adapters.state_files import (
+    AuditLog,
+    DashboardFiles,
+    ModelFiles,
+    RecipeFiles,
+    ThemeFiles,
+    is_own_file,
+)
 from swissarmygrid.adapters.views import ViewEngine
 from swissarmygrid.domain.blades import Blade
 from swissarmygrid.domain.grids import GridRegistry
@@ -184,7 +191,7 @@ def bootstrap(
         sql=SqlBox(ws, datasets, table_reader),
         exports=Exports(ws, export_writer, tickets, now=lambda: datetime.now(UTC)),
         codes=CodeService(ws, verifier),
-        cards=Cards(ws, DashboardFiles(state_dir / "dashboards")),
+        cards=Cards(ws, DashboardFiles(state_dir / "dashboards"), ThemeFiles(state_dir / "themes")),
         agent=AgentService(ws, Approvals(live), tickets, blade_store, TEMPLATES, blade_run.needed),
         sessions=Sessions(processes, store, live),
         catalogs=catalogs,

@@ -17,6 +17,12 @@
   GET    /dashboards/{name}                its versions: when, and each card's kind and title
   POST   /dashboards/{name}/open           {"version"?}: make that version the Sandbox
   DELETE /dashboards/{name}                delete it and its versions
+
+  GET    /sandbox/themes                   the themes the Sandbox can take, and its current one
+  PUT    /sandbox/theme                    {"theme": id or "app"}: the Sandbox's theme (not the grid's)
+  POST   /sandbox/themes                   a theme file {"name", "dark", "tokens"}: the user's is kept on
+                                           disk; the agent's is proposed (in memory) until the user keeps it
+  DELETE /sandbox/themes/{id}              remove one of the user's themes
 Saving writes to disk and opening replaces what the user is looking at: those three are the user's
 click, so they refuse the agent, which may list and read them.
 
@@ -145,7 +151,34 @@ def routes(cards: Cards) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    async def list_themes(request: Request) -> Response:
+        return json_response(cards.themes())
+
+    async def set_theme(request: Request) -> Response:
+        try:
+            body = await read_json(request)
+            theme = body.get("theme") if isinstance(body, dict) else None
+            return json_response(await cards.set_theme(theme, actor(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def add_theme(request: Request) -> Response:
+        try:
+            return json_response(await cards.add_theme(await read_json(request), actor(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def remove_theme(request: Request) -> Response:
+        try:
+            return json_response(await cards.remove_theme(request.path_params["theme_id"], actor(request)))
+        except Exception as error:
+            return error_response(error)
+
     return [
+        Route("/sandbox/themes", list_themes),
+        Route("/sandbox/theme", set_theme, methods=["PUT"]),
+        Route("/sandbox/themes", add_theme, methods=["POST"]),
+        Route("/sandbox/themes/{theme_id}", remove_theme, methods=["DELETE"]),
         Route("/dashboards", saved),
         Route("/dashboards", save, methods=["POST"]),
         Route("/dashboards/{name}", versions),

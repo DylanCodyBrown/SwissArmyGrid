@@ -129,6 +129,10 @@ them. Prefer a `chart` on the grid to a figure you fill yourself: the data stays
 A `plotly` or `echarts` card with `grid` and `sql` (a SELECT `FROM grid`, or from the table's name: the
 grid as shown) is filled by the server and follows the grid's steps: in Plotly a trace field naming a
 column (`"x": "region"`) gets its values; ECharts gets the result as `dataset.source`.
+`sandbox_theme` lists the Sandbox's themes (20 built in: high contrast and colourblind-safe first),
+sets one, or proposes the user's own (`file`: a name, dark or not, and #rrggbb colours; missing ones
+come from the light or dark base, and every colour is moved just far enough to stay readable). A
+proposed theme lasts until the server restarts unless the user keeps it. The grid keeps its own theme.
 `sandbox_dashboards` lists the user's saved dashboards and, with `name`, their versions and cards;
 saving, opening and deleting one are the user's (Dashboards… in the Sandbox).
 

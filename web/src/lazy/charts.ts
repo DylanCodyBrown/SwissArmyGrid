@@ -13,11 +13,23 @@
  */
 import embed, { type Result } from "vega-embed";
 
+// The element a chart draws in: its colours come from there, so a chart in the Sandbox takes the
+// Sandbox's theme (set on its element) and one anywhere else the app's. Set at the start of each draw.
+let source: Element = document.documentElement;
+
 function token(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888888";
+  return getComputedStyle(source).getPropertyValue(name).trim() || "#888888";
 }
 
-const isHc = (): boolean => (document.documentElement.dataset.theme ?? "").startsWith("hc");
+/** The theme the chart draws in: the Sandbox's (its id) when it has one, else "app". */
+function themeKey(): string {
+  return (source.closest("[data-sandbox-theme]") as HTMLElement | null)?.dataset.sandboxTheme ?? "app";
+}
+
+const isHc = (): boolean => {
+  const key = themeKey();
+  return (key === "app" ? (document.documentElement.dataset.theme ?? "") : key).startsWith("hc");
+};
 
 // ===== fill patterns =====
 
@@ -40,15 +52,17 @@ export function patternDefs(): string {
     // Light hues get a dark texture and dark hues a light one, so the texture always shows.
     const hex = color.replace("#", "");
     const lum = hex.length === 6 ? (0.299 * parseInt(hex.slice(0, 2), 16) + 0.587 * parseInt(hex.slice(2, 4), 16) + 0.114 * parseInt(hex.slice(4, 6), 16)) / 255 : 0.5;
-    return `<pattern id="sag-pat-${i + 1}" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="${color}"/>${texture(lum > 0.6 ? darkInk : ink)}</pattern>`;
+    return `<pattern id="sag-pat-${themeKey()}-${i + 1}" patternUnits="userSpaceOnUse" width="10" height="10"><rect width="10" height="10" fill="${color}"/>${texture(lum > 0.6 ? darkInk : ink)}</pattern>`;
   }).join("");
 }
 
 export function installPatterns(): void {
-  let host = document.getElementById("sag-patterns");
+  // One set of pattern fills per theme in use (the app's, and the Sandbox's own when it differs).
+  const id = `sag-patterns-${themeKey()}`;
+  let host = document.getElementById(id);
   if (!host) {
     host = document.createElementNS("http://www.w3.org/2000/svg", "svg") as unknown as HTMLElement;
-    host.id = "sag-patterns";
+    host.id = id;
     host.setAttribute("aria-hidden", "true");
     host.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden");
     document.body.append(host);
@@ -56,7 +70,7 @@ export function installPatterns(): void {
   host.innerHTML = `<defs>${patternDefs()}</defs>`;
 }
 
-const PATTERNS = TEXTURES.map((_, i) => `url(#sag-pat-${i + 1})`);
+const patterns = (): string[] => TEXTURES.map((_, i) => `url(#sag-pat-${themeKey()}-${i + 1})`);
 
 // ===== theme =====
 
@@ -117,7 +131,7 @@ function withPatterns(spec: Record<string, unknown>): Record<string, unknown> {
   const encoding = spec.encoding as Record<string, Record<string, unknown>> | undefined;
   if (!encoding?.color || (mark !== "bar" && mark !== "area")) return spec;
   const { strokeDash: _dash, ...rest } = encoding;
-  return { ...spec, encoding: { ...rest, color: { ...encoding.color, scale: { range: PATTERNS } } } };
+  return { ...spec, encoding: { ...rest, color: { ...encoding.color, scale: { range: patterns() } } } };
 }
 
 /** Angle category labels when they would not fit side by side at this width and font size
@@ -196,6 +210,7 @@ export async function drawChart(
   spec: Record<string, unknown>,
   options: { onSelect?: (value: unknown, y2?: unknown) => void; zoomable?: boolean; height?: number; large?: boolean; fontScale?: number; own?: boolean } = {},
 ): Promise<Drawn> {
+  source = element;
   installPatterns();
   if (options.own) return drawOwn(element, spec, options.height);
   let copy: Record<string, unknown> = withRawValues(withPatterns(structuredClone(spec)));

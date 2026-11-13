@@ -26,12 +26,13 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from swissarmygrid.domain import themes
 from swissarmygrid.domain.charts import _grouped, altair_code, fill_figure, validate, vega_lite
 from swissarmygrid.domain.datasets import DatasetInfo, quote
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import Step, type_family
-from swissarmygrid.services.ports import BACKGROUND, Dashboards, SqlSession
+from swissarmygrid.services.ports import BACKGROUND, Dashboards, SqlSession, ThemeShelf
 from swissarmygrid.services.workspace import NotFound, Refused, Workspace
 
 _TABLE_CARD_ROWS: int = 100
@@ -295,10 +296,70 @@ def _place(card: Card) -> tuple[bool, float]:
 
 
 class Cards:
-    def __init__(self, ws: Workspace, dashboards: Dashboards | None = None) -> None:
+    def __init__(
+        self, ws: Workspace, dashboards: Dashboards | None = None, theme_shelf: ThemeShelf | None = None
+    ) -> None:
         self.ws = ws
         self.dashboards = dashboards
         self._cards: dict[str, Card] = {}
+        # The Sandbox's theme: "app" (follow the app's), a built-in's id, or one of the user's own.
+        self._shelf_themes = theme_shelf
+        self._theme: str = themes.APP
+        self._custom: dict[str, themes.Theme] = {}
+        for file in theme_shelf.all() if theme_shelf else []:
+            try:
+                kept = themes.read_theme(file)
+            except themes.ThemeError:
+                continue  # edited by hand into something else
+            self._custom[kept.id] = kept
+
+    # ===== the Sandbox's theme =====
+
+    def _theme_by_id(self, theme_id: str) -> themes.Theme | None:
+        return themes.BY_ID.get(theme_id) or self._custom.get(theme_id)
+
+    def themes(self) -> dict[str, Any]:
+        """Every theme the Sandbox can take, and the one it has."""
+        listed = [*themes.BUILT_IN, *self._custom.values()]
+        current = self._theme_by_id(self._theme)
+        return {
+            "current": self._theme,
+            "theme": current.to_json() if current else None,
+            "themes": [t.to_json() for t in listed],
+        }
+
+    async def set_theme(self, theme_id: Any, who: str) -> dict[str, Any]:
+        if theme_id != themes.APP and (not isinstance(theme_id, str) or self._theme_by_id(theme_id) is None):
+            raise NotFound(f"No Sandbox theme {theme_id!r}: GET /sandbox/themes lists them.")
+        self._theme = str(theme_id)
+        await self.ws.live.broadcast({"type": "cards_updated", "grid": None})
+        self.ws.audit.write(who, "sandbox_theme", self._theme)
+        return {"current": self._theme}
+
+    async def add_theme(self, raw: Any, who: str) -> dict[str, Any]:
+        """A theme from its file. The user's are kept on disk (their import is the save); the agent's live
+        in memory, marked as the agent's, until the user keeps one (adds it again themselves)."""
+        theme = themes.read_theme(raw, by_agent=who == "agent")
+        if theme.id not in self._custom and len(self._custom) >= themes.MAX_CUSTOM:
+            raise ValueError(f"At most {themes.MAX_CUSTOM} themes of your own: remove one first.")
+        self._custom[theme.id] = theme
+        if who != "agent" and self._shelf_themes is not None:
+            self._shelf_themes.write(theme.id, theme.file())
+        await self.ws.live.broadcast({"type": "cards_updated", "grid": None})
+        self.ws.audit.write(who, "add_theme", theme.label)
+        return theme.to_json()
+
+    async def remove_theme(self, theme_id: str, who: str) -> dict[str, Any]:
+        if theme_id not in self._custom:
+            raise NotFound(f"No theme of yours named {theme_id!r} (the built-in ones stay).")
+        del self._custom[theme_id]
+        if self._shelf_themes is not None:
+            self._shelf_themes.delete(theme_id)
+        if self._theme == theme_id:
+            self._theme = themes.APP
+        await self.ws.live.broadcast({"type": "cards_updated", "grid": None})
+        self.ws.audit.write(who, "remove_theme", theme_id)
+        return {"removed": theme_id}
 
     def get(self, card_id: str) -> Card:
         card = self._cards.get(card_id)
@@ -439,7 +500,9 @@ class Cards:
                     "version": number,
                     "saved": v.get("saved"),
                     "cards": [
-                        {"kind": c.get("kind"), "title": c.get("title", "")} for c in v.get("cards", [])
+                        {"kind": c.get("kind"), "title": c.get("title", "")}
+                        for c in v.get("cards", [])
+                        if c.get("kind") != "theme"
                     ],
                 }
                 for number, v in enumerate(body["versions"], start=1)
@@ -455,6 +518,9 @@ class Cards:
             raise ValueError("The Sandbox is empty: nothing to save.")
         kept = [{k: c[k] for k in _KEPT if k in c} | {"frozen": _frozen(c)} for c in shown]
         saved = datetime.now(UTC).isoformat(timespec="seconds")
+        theme = self._theme_by_id(self._theme)
+        if theme is not None:  # the dashboard keeps its look, a theme of the user's own included
+            kept.append({"kind": "theme", "theme": theme.file() | {"id": theme.id}})
         version = self._shelf().add_version(name, kept, saved)
         self.ws.audit.write(who, "save_dashboard", name, cards=len(kept), version=version)
         return {"name": name, "version": version, "cards": len(kept), "saved": saved}
@@ -469,7 +535,11 @@ class Cards:
         if not isinstance(number, int) or not 1 <= number <= len(versions):
             raise ValueError(f"version is 1 to {len(versions)}.")
         self._cards = {}
+        self._theme = themes.APP
         for order, saved in enumerate(versions[number - 1].get("cards", []), start=1):
+            if saved.get("kind") == "theme":
+                self._restore_theme(saved.get("theme"))
+                continue
             try:
                 card = check_card(saved) | {
                     k: saved[k] for k in _KEPT if k in saved and k not in ("columns", "rows")
@@ -497,6 +567,19 @@ class Cards:
         live = sum(1 for c in self._cards.values() if _on_a_grid(c) and c["grid"] is not None)
         frozen = sum(1 for c in self._cards.values() if _on_a_grid(c) and c["grid"] is None)
         return {"name": name, "version": number, "cards": len(self._cards), "live": live, "as_saved": frozen}
+
+    def _restore_theme(self, file: Any) -> None:
+        if not isinstance(file, dict):
+            return
+        if file.get("id") in themes.BY_ID:
+            self._theme = str(file["id"])
+            return
+        try:
+            theme = themes.read_theme(file)
+        except themes.ThemeError:
+            return
+        self._custom.setdefault(theme.id, theme)
+        self._theme = theme.id
 
     def delete_saved(self, name: str, who: str) -> dict[str, Any]:
         if not self._shelf().delete(name):

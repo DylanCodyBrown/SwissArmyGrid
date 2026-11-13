@@ -51,7 +51,8 @@ export function safeOption(text: string): Record<string, unknown> {
 export function drawECharts(host: HTMLElement, text: string, dark: boolean): EChartsDrawn {
   const option = safeOption(text);
   const chart = echarts.init(host, dark ? "dark" : undefined, { renderer: "canvas" });
-  chart.setOption({ backgroundColor: "transparent", color: themePalette(), ...option });
+  const ink = getComputedStyle(host).getPropertyValue("--fg").trim() || undefined;
+  chart.setOption({ backgroundColor: "transparent", color: themePalette(host), textStyle: { color: ink }, ...option });
   return {
     resize: () => chart.resize(),
     destroy: () => chart.dispose(),

@@ -214,6 +214,16 @@ class Dashboards(Protocol):
     def delete(self, name: str) -> bool: ...
 
 
+class ThemeShelf(Protocol):
+    """The user's imported Sandbox themes, one file each (as themes.read_theme reads them)."""
+
+    def all(self) -> list[dict[str, Any]]: ...
+
+    def write(self, theme_id: str, file: dict[str, Any]) -> None: ...
+
+    def delete(self, theme_id: str) -> bool: ...
+
+
 class Recipes(Protocol):
     """Saved recipes: a dataset name's steps and settings, with no rows."""
 

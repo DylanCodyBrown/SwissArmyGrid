@@ -4,6 +4,7 @@ written: the audit log, saved recipes and dashboards, the connection file and th
   the audit log        one JSON line per action, never a cell value
   recipes              a grid's steps and settings, saved on the user's click, with no rows
   dashboards           a Sandbox saved on the user's click: its cards as drawn, the last 60 versions
+  themes               Sandbox themes the user imported (colours only), one small file each
   the connection file  where the running server is, and its token (owner-only)
   the model library    relationship models: the shipped ones, the user's, and SWISSARMYGRID_MODELS
 
@@ -207,6 +208,40 @@ class DashboardFiles:
 
     def delete(self, name: str) -> bool:
         path = self._path(name)
+        if path.exists():
+            path.unlink()
+            return True
+        return False
+
+
+# ===== the user's Sandbox themes =====
+
+
+class ThemeFiles:
+    """Imported Sandbox themes in one folder: what the service layer's `ThemeShelf` port is here."""
+
+    def __init__(self, folder: Path) -> None:
+        self.folder = folder
+
+    def all(self) -> list[dict[str, Any]]:
+        found = []
+        for path in sorted(self.folder.glob("*.json")) if self.folder.is_dir() else []:
+            try:
+                body = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(body, dict):
+                found.append(body)
+        return found
+
+    def write(self, theme_id: str, file: dict[str, Any]) -> None:
+        self.folder.mkdir(parents=True, exist_ok=True)
+        (self.folder / f"{validate_name(theme_id)}.json").write_text(
+            json.dumps(file, indent=2), encoding="utf-8"
+        )
+
+    def delete(self, theme_id: str) -> bool:
+        path = self.folder / f"{validate_name(theme_id)}.json"
         if path.exists():
             path.unlink()
             return True

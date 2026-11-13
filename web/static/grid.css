@@ -696,6 +696,26 @@ body.popout .steps-panel {
   overflow: auto;
   padding: 10px;
   background: var(--bg);
+  /* The Sandbox may carry a theme of its own (sandboxThemes.ts): its text takes that theme's colour. */
+  color: var(--fg);
+}
+
+/* Print a Sandbox theme as it looks on screen: backgrounds included. */
+.panel-body[data-sandbox-theme] {
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.theme-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.theme-controls select {
+  color: var(--fg);
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
 }
 
 .step-list {

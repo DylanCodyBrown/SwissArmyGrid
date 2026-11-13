@@ -921,6 +921,25 @@ def dashboards(a: dict[str, Any]) -> Any:
     return api.call("GET", f"/dashboards/{_q(a['name'])}" if a.get("name") else "/dashboards")
 
 
+@command(
+    "sandbox_theme",
+    "The Sandbox's themes; set one (theme), or propose your own (file). The grid keeps its own theme.",
+    opt("theme", "A theme's id, or app to follow the app."),
+    opt("file", '{"name", "dark", "tokens": {"bg": "#rrggbb", ..., "cat": [8 colours]}}', "json"),
+)
+def sandbox_theme(a: dict[str, Any]) -> Any:
+    if a.get("file") is not None:
+        return api.call("POST", "/sandbox/themes", a["file"])
+    if a.get("theme"):
+        return api.call("PUT", "/sandbox/theme", {"theme": a["theme"]})
+    listed = api.call("GET", "/sandbox/themes")
+    # Names and notes only: the agent picks by id, and needs no colour values to do it.
+    return {
+        "current": listed["current"],
+        "themes": [{k: t[k] for k in ("id", "label", "dark", "group", "note")} for t in listed["themes"]],
+    }
+
+
 @command("sandbox_delete", "Remove a card.", req("card", "Card id."))
 def delete_card(a: dict[str, Any]) -> Any:
     return api.call("DELETE", f"/cards/{_q(a['card'])}")

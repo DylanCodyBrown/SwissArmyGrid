@@ -71,6 +71,7 @@ src/swissarmygrid/
                          memory, growth; the forecast (trend, steps, season, predictors, held-back check)
     tieout.py            the tie-out report: shared columns, the two GROUP BYs joined, ties or off
     proofs.py            Show the math: each analysis result as a step-by-step proof (markdown)
+    themes.py            the Sandbox's 20 themes and imported ones, every colour made readable (WCAG)
     diff.py              compare's diff mode: which cells differ (tolerance, trim, case), as SQL and Python
     packs.py             a pack (a Claude Code plugin with blades/ and tangs/): names, the new marketplace's
                          files, Claude Code's install record read loosely, which plugins are switched off
@@ -112,7 +113,7 @@ src/swissarmygrid/
                          only: sag.blade uses it too); which packages this Python has
     codegen.py           runs copied code and compares it with the grid
     export.py            CSV, Excel and Parquet writers; the export folder
-    state_files.py       the audit log, recipes, saved dashboards, the connection file, the model library
+    state_files.py       the audit log, recipes, saved dashboards and themes, the connection file, the model library
     live_updates.py      the pages' and VS Code windows' sockets
     packs.py             installed packs in Claude Code's plugin folder, editable ones in the blade
                          folders; writing a new marketplace and a pack's files
@@ -137,7 +138,7 @@ src/swissarmygrid/
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (110 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (111 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
@@ -149,6 +150,7 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          forecast (Plotly charts in the window); cheatSheets.ts each form's Data shape;
                          analysisCards.ts every result as Sandbox cards (a report-style note and a chart);
                          sandboxDashboards.ts saving and opening the Sandbox as named dashboards;
+                         sandboxThemes.ts the Sandbox's own theme (tokens on its element only);
                          tieOutDialog.ts the compare's tie-out report (Tie-out… in the Compare row);
                          bladeAnalysis.ts analysis blades (your own analyses) in the Analyze menu;
                          sandboxPages.ts Page view, Print to PDF and moving cards; sandboxExport.ts the

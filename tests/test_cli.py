@@ -147,6 +147,7 @@ NOT_COMMANDS = {
     "/analysis-proof": "Show the math on a result the window holds; the agent reads results whole",
     "/blades/analyses": "as /blades",
     "/grids/{}/blade-analysis": "runs the user's own analysis blade (their code): refused to the agent",
+    "/sandbox/themes/{}": "removing one of the user's themes is the user's (the theme menu)",
     "/python/send": "code into the user's own Python: only the user's click, refused to the agent",
     "/python/take": "as /python/send (sag.paste() calls it)",
     "/python/sent": "as /python/send",

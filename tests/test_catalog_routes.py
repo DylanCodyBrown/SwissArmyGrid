@@ -221,6 +221,7 @@ def test_inspect_templates_and_install_checks(client: TestClient) -> None:
         "Files",
         "Vaults",
         "Other",
+        "Analyses",
     }
     for packages in [[], ["pyodbc; rm -rf /"], ["--index-url=http://evil"], ["a"] * 21, "pyodbc"]:
         refused = client.post("/blades/install", json={"packages": packages}, headers=AUTH)

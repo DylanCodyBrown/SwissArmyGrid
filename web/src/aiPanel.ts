@@ -34,6 +34,7 @@ import { saveBlob } from "./profileView";
 import { state } from "./state";
 import { sandboxMarkdown, svgToPng } from "./sandboxExport";
 import { dashboardsDialog } from "./sandboxDashboards";
+import { applySandboxTheme, loadThemes, sandboxDark, sandboxTheme, themeControls } from "./sandboxThemes";
 import { PAPERS, fitPages, makeMovable, moveCard, paginate, printPages, type Paper } from "./sandboxPages";
 import { effectiveTheme, onThemeChange, setTheme, themeChoice } from "./theme";
 import type { Drawn } from "./lazy/charts";
@@ -370,10 +371,16 @@ async function render(): Promise<void> {
   if (mode === "collapsed") return;
   // The panel's title, centered and large like a table's name, above what it holds.
   body.append(h("h1", { id: "ai-panel-title", class: "sandbox-title" }, "Sandbox"));
+  // The Sandbox's own theme, on its body only: the grid keeps the app's.
+  const themes = await loadThemes().catch(() => null);
+  applySandboxTheme(body, themes?.theme ?? null);
+  themeBar = themes ? themeControls(themes, () => void render()) : null;
   await renderCards(body);
 }
 
 // ===== cards =====
+
+let themeBar: HTMLElement | null = null; // the theme picker, for the Sandbox's toolbar
 
 let onBoard = 0; // how many cards the Sandbox shows (the Dashboards window warns before replacing them)
 
@@ -399,6 +406,7 @@ async function renderCards(body: HTMLElement): Promise<void> {
         : null,
       button("Print to PDF", () => void printSandbox(), { icon: "export", title: "Print the pages (choose Save as PDF in the print dialog)" }),
       button("Export markdown", () => void exportMarkdown(), { icon: "code", title: "The whole Sandbox as one markdown file, charts embedded as pictures: to keep, or to give an AI model" }),
+      themeBar,
       button("Dashboards…", () => dashboardsDialog(onBoard, () => void render()), { icon: "columns", title: "Save the Sandbox as a named dashboard, or open one you saved (with its history)" }),
     ),
   );
@@ -456,7 +464,7 @@ const pictures = new Map<string, () => Promise<string | null>>();
 /** The whole Sandbox as one markdown file, every drawing a PNG; drawn on light paper like the PDF. */
 async function exportMarkdown(): Promise<void> {
   const theme = themeChoice();
-  const dark = effectiveTheme() !== "light";
+  const dark = !sandboxTheme() && effectiveTheme() !== "light"; // a Sandbox theme exports as it is
   try {
     if (dark) setTheme("light");
     await render();
@@ -479,7 +487,7 @@ async function exportMarkdown(): Promise<void> {
 async function printSandbox(): Promise<void> {
   const wasPages = pageView();
   const theme = themeChoice();
-  const dark = effectiveTheme() !== "light";
+  const dark = !sandboxTheme() && effectiveTheme() !== "light"; // a Sandbox theme prints as it is
   await printPages(
     paper(),
     async () => {
@@ -534,7 +542,7 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
   );
   element.append(resizeGrip(card, element));
   makeMovable(element, header, card.id, order[index + 1] ?? null, () => void render());
-  const dark = effectiveTheme() !== "light";
+  const dark = sandboxDark(); // the Sandbox's theme, or the app's when it follows it
   const failed = (slot: HTMLElement, e: unknown): void => {
     slot.textContent = `This could not be drawn: ${(e as Error).message}`;
     slot.classList.add("error-text");

@@ -27,8 +27,9 @@ export function contained(svg: string): Node {
 }
 
 /** The theme's chart colours (grid.css --cat-1 .. --cat-8), for figures that set none of their own. */
-export function themePalette(): string[] {
-  const style = getComputedStyle(document.documentElement);
+/** The theme's eight series colours, read where the drawing goes (the Sandbox's own theme there). */
+export function themePalette(where: Element = document.documentElement): string[] {
+  const style = getComputedStyle(where);
   return [1, 2, 3, 4, 5, 6, 7, 8].map((i) => style.getPropertyValue(`--cat-${i}`).trim()).filter(Boolean);
 }
 

@@ -42,28 +42,30 @@ export function safeFigure(text: string): { data: Record<string, unknown>[]; lay
 
 /** A figure may name the theme's colors ("theme:accent", "theme:muted", "theme:ok"): resolved now, so
  * the same figure looks right in every theme and follows a theme change when it redraws. */
-function themed<T>(value: T): T {
+function themed<T>(value: T, where: Element): T {
   if (typeof value === "string") {
     const match = /^theme:([a-z0-9-]+)$/.exec(value);
     if (!match) return value;
-    return (getComputedStyle(document.documentElement).getPropertyValue(`--${match[1]}`).trim() || value) as T;
+    return (getComputedStyle(where).getPropertyValue(`--${match[1]}`).trim() || value) as T;
   }
-  if (Array.isArray(value)) return value.map(themed) as T;
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, themed(v)])) as T;
+  if (Array.isArray(value)) return value.map((v) => themed(v, where)) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, themed(v, where)])) as T;
   return value;
 }
 
 export async function drawPlotly(host: HTMLElement, text: string, dark: boolean): Promise<PlotlyDrawn> {
   const checked = safeFigure(text);
-  const data = themed(checked.data);
-  const layout = themed(checked.layout);
-  const ink = dark ? "#e8ecef" : "#1c2228";
-  const grid = dark ? "#343c45" : "#c8d0d8";
+  const data = themed(checked.data, host);
+  const layout = themed(checked.layout, host);
+  // The ink and grid lines of the theme the figure draws in (the Sandbox's own, there).
+  const style = getComputedStyle(host);
+  const ink = style.getPropertyValue("--fg").trim() || (dark ? "#e8ecef" : "#1c2228");
+  const grid = style.getPropertyValue("--border").trim() || (dark ? "#343c45" : "#c8d0d8");
   const styled = {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
     margin: { l: 48, r: 16, t: layout.title ? 40 : 16, b: 40 },
-    colorway: themePalette(),
+    colorway: themePalette(host),
     ...layout,
     font: { color: ink, ...((layout.font as object | undefined) ?? {}) },
     xaxis: { gridcolor: grid, zerolinecolor: grid, ...((layout.xaxis as object | undefined) ?? {}) },
