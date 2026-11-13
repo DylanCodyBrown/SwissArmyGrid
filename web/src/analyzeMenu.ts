@@ -4,12 +4,13 @@
  *
  *   [ANALYZE ▾]        Odds, Fit test, Find predictors, Outliers: each opens its form, filled from the
  *                      selected columns (analysisDialog.ts)
- *   [SEND TO SANDBOX]  a note card: the result in words (POST /grids/{id}/cards)
+ *   [SEND TO SANDBOX]  a report-style note and its chart, side by side (analysisCards.ts; POST cards)
  *   [OPEN AS GRID]     a tabular result as a new grid (PUT /datasets/{name}?new_grid=1, JSON rows)
  *   [TO NOTEBOOK]      the analysis as Python in the open notebook: POST /grids/{id}/analysis-code, then
  *                      POST /notebook/drop; the notebook opens in its own tab
  */
 import { api, grid, token } from "./api";
+import type { SandboxCard } from "./analysisCards";
 import { button, h, icon, toast } from "./dom";
 import { state } from "./state";
 
@@ -17,8 +18,8 @@ export interface ResultActions {
   /** The analysis's name for the server (odds, predictors, outliers, fit_test) and the request it ran. */
   analysis: string;
   body: Record<string, unknown>;
-  /** The result in words, for a Sandbox note. */
-  note: () => { title: string; markdown: string };
+  /** The result as Sandbox cards: a report-style note and its chart (analysisCards.ts). */
+  cards: () => SandboxCard[];
   /** The result as rows, for a new grid (and the name to give it). */
   rows?: () => { name: string; rows: Record<string, unknown>[] };
 }
@@ -90,10 +91,10 @@ export function resultButtons(actions: ResultActions): HTMLButtonElement[] {
 }
 
 async function toSandbox(actions: ResultActions): Promise<void> {
-  const { title, markdown } = actions.note();
   try {
-    await api(`${grid}/cards`, "POST", { kind: "note", title, body: markdown });
-    toast("In the Sandbox.");
+    const cards = actions.cards();
+    for (const card of cards) await api(`${grid}/cards`, "POST", card);
+    toast(`In the Sandbox: ${cards.length === 1 ? "a note" : "a note and its chart"}.`);
   } catch (e) {
     toast((e as Error).message, "error");
   }

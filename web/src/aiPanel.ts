@@ -127,7 +127,11 @@ function resizeGrip(card: Card, element: HTMLElement): HTMLElement {
   const set = (size: { w: number; h: number }, save: boolean, fixed = true): void => {
     applySize(element, size, fixed);
     grip.setAttribute("aria-valuetext", `${size.w} of ${COLUMNS} columns wide, ${size.h} rows tall`);
-    if (save) remember(`sandbox.size.${card.id}`, `${size.w}x${size.h}`);
+    if (save) {
+      remember(`sandbox.size.${card.id}`, `${size.w}x${size.h}`);
+      // Kept on the server too, so Page view, the PDF and another browser see the same board.
+      void api(`/cards/${card.id}`, "PATCH", { size }).catch(() => undefined);
+    }
   };
   set(sizeOf(card), false, hasOwnSize(card));
   grip.addEventListener("pointerdown", (down) => {

@@ -1,0 +1,343 @@
+/**
+ * analysisCards.ts: an analysis result as Sandbox cards that read as a report (Plans/sandbox-report.plan.md,
+ * S1): a note (a title, the verdict, a table of the key rows, the key numbers in bold, the cautions) and a
+ * Plotly chart beside it, the two sized to share one row. Charts name the theme's colors ("theme:accent"),
+ * which lazy/plotly.ts resolves when it draws, so they look right in every theme.
+ */
+
+export interface SandboxCard {
+  kind: "note" | "plotly";
+  title: string;
+  body: string;
+  size: { w: number; h: number };
+}
+
+const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const whole = new Intl.NumberFormat("en-US");
+export const fmt = (v: unknown): string => (v === null || v === undefined ? "" : typeof v === "number" ? (Number.isInteger(v) ? whole.format(v) : number.format(v)) : String(v));
+const pct = (v: number | null | undefined): string => (v === null || v === undefined ? "" : `${(100 * v).toFixed(v < 0.1 ? 1 : 0)}%`);
+const pText = (p: number): string => (p < 0.0001 ? "< 0.0001" : p.toFixed(4));
+/** A cell's text: a bar inside a value would end the cell early. */
+const cell = (v: unknown): string => fmt(v).replace(/\|/g, "\\|").replace(/\n/g, " ");
+
+export function mdTable(head: string[], rows: unknown[][], right: boolean[] = []): string {
+  const rule = head.map((_, i) => (right[i] ? "---:" : "---"));
+  return [`| ${head.join(" | ")} |`, `| ${rule.join(" | ")} |`, ...rows.map((r) => `| ${r.map(cell).join(" | ")} |`)].join("\n");
+}
+
+/** A note and its chart, sized to sit side by side: the note five columns, the chart seven. */
+function pair(title: string, markdown: string, figure: Record<string, unknown> | null): SandboxCard[] {
+  const lines = markdown.split("\n").length;
+  const h = Math.max(7, Math.min(18, Math.ceil((lines * 23 + 60) / 52)));
+  const cards: SandboxCard[] = [{ kind: "note", title, body: markdown, size: { w: figure ? 5 : 12, h } }];
+  if (figure) cards.push({ kind: "plotly", title: `${title} (chart)`, body: JSON.stringify(figure), size: { w: 7, h } });
+  return cards;
+}
+
+const BASE_LAYOUT = { margin: { l: 56, r: 16, t: 12, b: 48 }, font: { size: 12 }, hovermode: "closest" };
+
+// ===== the fit test =====
+
+export interface FitCardInput {
+  column?: string;
+  statistic: number;
+  df: number;
+  p: number;
+  n: number;
+  effect_size: number;
+  effect_name: string;
+  effect: string;
+  verdict: string;
+  warnings: string[];
+  categories?: { value: string; observed: number; expected: number; residual: number }[];
+  conformity?: string;
+  conformity_mad?: number;
+  cells?: { a: string; b: string; observed: number; expected: number; residual: number }[];
+}
+
+export function fitCards(r: FitCardInput, expected: string, pairNames?: string[]): SandboxCard[] {
+  const what = pairNames ? `${pairNames[0]} and ${pairNames[1]}` : (r.column ?? "");
+  const lines = [
+    `# Fit test: ${what}`,
+    `**${r.verdict}**`,
+    "",
+    mdTable(["Chi-square", "Degrees of freedom", "p-value", "Rows", r.effect_name], [[fmt(r.statistic), fmt(r.df), pText(r.p), fmt(r.n), `${fmt(r.effect_size)} (${r.effect})`]], [true, true, true, true, true]),
+  ];
+  if (r.conformity) lines.push("", `Benford's law: **${r.conformity}** (mean absolute deviation of the digit shares ${number.format(r.conformity_mad ?? 0)}, Nigrini's ranges).`);
+  let figure: Record<string, unknown> | null = null;
+  if (r.categories) {
+    const far = [...r.categories].sort((a, b) => Math.abs(b.residual) - Math.abs(a.residual)).slice(0, 8);
+    lines.push("", "#### Furthest from expected", mdTable(["Value", "Seen", "Expected", "Off by"], far.map((c) => [c.value, c.observed, c.expected, `${c.residual > 0 ? "+" : ""}${fmt(c.residual)}`]), [false, true, true, true]));
+    const shown = expected.startsWith("benford") ? r.categories : r.categories.slice(0, 30);
+    figure = {
+      data: [
+        { type: "bar", name: "Seen", x: shown.map((c) => c.value), y: shown.map((c) => c.observed), marker: { color: shown.map((c) => (Math.abs(c.residual) >= 2 ? "theme:accent" : "theme:border-strong")) } },
+        { type: "scatter", mode: "lines+markers", name: "Expected", x: shown.map((c) => c.value), y: shown.map((c) => c.expected), line: { color: "theme:fg", width: 2 }, marker: { size: 5 } },
+      ],
+      layout: { ...BASE_LAYOUT, xaxis: { type: "category", title: { text: expected.startsWith("benford") ? "First digits" : (r.column ?? "") } }, yaxis: { title: { text: "Rows" } }, legend: { orientation: "h", y: 1.08 }, bargap: 0.25 },
+    };
+  } else if (r.cells && pairNames) {
+    const top = r.cells.slice(0, 10);
+    lines.push("", "#### The combinations furthest from independence", mdTable([pairNames[0] ?? "", pairNames[1] ?? "", "Seen", "Expected", "Off by"], top.map((c) => [c.a, c.b, c.observed, c.expected, `${c.residual > 0 ? "+" : ""}${fmt(c.residual)}`]), [false, false, true, true, true]));
+    const bars = [...top].reverse();
+    figure = {
+      data: [{ type: "bar", orientation: "h", x: bars.map((c) => c.residual), y: bars.map((c) => `${c.a} · ${c.b}`), marker: { color: bars.map((c) => (c.residual > 0 ? "theme:accent" : "theme:ok")) }, hovertemplate: "%{y}: %{x:.2f}<extra></extra>" }],
+      layout: { ...BASE_LAYOUT, margin: { l: 140, r: 16, t: 12, b: 48 }, xaxis: { title: { text: "Seen against expected (standardized)" }, zeroline: true }, yaxis: { automargin: true } },
+    };
+  }
+  if (r.warnings.length) lines.push("", ...r.warnings.map((w) => `> ${w}`));
+  return pair(`Fit test: ${what}`, lines.join("\n"), figure);
+}
+
+// ===== odds =====
+
+export interface OddsCardInput {
+  column: string;
+  rows: number;
+  outcome: string | null;
+  rate?: number;
+  bucketed: boolean;
+  values: { value: string; rows: number; share: number; one_in: number; rate?: number; rest_rate?: number | null; odds_ratio?: number; low?: number; high?: number; clear?: boolean; small?: boolean }[];
+  together?: { verdict: string };
+}
+
+export function oddsCards(r: OddsCardInput): SandboxCard[] {
+  if (!r.outcome) {
+    const top = r.values.slice(0, 15);
+    const markdown = [
+      `# How often each ${r.column} shows up`,
+      `**${fmt(r.values.length)} values over ${fmt(r.rows)} rows.**${r.bucketed ? ` ${r.column} is a number, shown in equal-sized ranges.` : ""}`,
+      "",
+      mdTable([r.column, "Rows", "Share", "1 in"], top.map((v) => [v.value, v.rows, pct(v.share), fmt(v.one_in)]), [false, true, true, true]),
+    ].join("\n");
+    const bars = [...top].reverse();
+    return pair(`Odds: ${r.column}`, markdown, {
+      data: [{ type: "bar", orientation: "h", x: bars.map((v) => v.share), y: bars.map((v) => v.value), marker: { color: "theme:accent" }, hovertemplate: "%{y}: %{x:.1%}<extra></extra>" }],
+      layout: { ...BASE_LAYOUT, margin: { l: 110, r: 16, t: 12, b: 48 }, xaxis: { title: { text: "Share of rows" }, tickformat: ".0%" }, yaxis: { automargin: true, type: "category" } },
+    });
+  }
+  const top = r.values[0];
+  const clear = r.values.filter((v) => v.clear);
+  const lines = [
+    `# Odds of ${r.outcome} by ${r.column}`,
+    `${r.outcome}: **${pct(r.rate)}** of ${fmt(r.rows)} rows. ${r.together?.verdict ?? ""}`,
+  ];
+  if (top?.clear) lines.push("", `**${top.value}: ${r.outcome} ${pct(top.rate)} of the time, against ${pct(top.rest_rate)} elsewhere: ${fmt(top.odds_ratio)} times the odds.**`);
+  lines.push(
+    "",
+    mdTable(
+      [r.column, "Rows", `${r.outcome} rate`, "Elsewhere", "Odds ratio", "95% range"],
+      r.values.slice(0, 15).map((v) => [`${v.clear ? "**" : ""}${v.value}${v.clear ? "**" : ""}${v.small ? " *" : ""}`, v.rows, pct(v.rate), pct(v.rest_rate), fmt(v.odds_ratio), `${fmt(v.low)} to ${fmt(v.high)}`]),
+      [false, true, true, true, true, true],
+    ),
+    "",
+    `> Bold values are clearly different: their range leaves out 1.${r.values.some((v) => v.small) ? " * fewer than 30 rows: rough." : ""}${clear.length ? "" : " No value is clearly different."}`,
+  );
+  const shown = [...r.values.slice(0, 20)].reverse();
+  const figure = {
+    data: [
+      {
+        type: "scatter",
+        mode: "markers",
+        x: shown.map((v) => v.odds_ratio),
+        y: shown.map((v) => v.value),
+        error_x: { type: "data", symmetric: false, array: shown.map((v) => (v.high ?? 0) - (v.odds_ratio ?? 0)), arrayminus: shown.map((v) => (v.odds_ratio ?? 0) - (v.low ?? 0)), color: "theme:muted", thickness: 1.5, width: 4 },
+        marker: { size: 10, color: shown.map((v) => (!v.clear ? "theme:muted" : (v.odds_ratio ?? 1) > 1 ? "theme:accent" : "theme:ok")) },
+        hovertemplate: "%{y}: %{x:.2f} times the odds<extra></extra>",
+      },
+    ],
+    layout: {
+      ...BASE_LAYOUT,
+      margin: { l: 110, r: 16, t: 12, b: 48 },
+      xaxis: { type: "log", title: { text: `Odds ratio for ${r.outcome} (log scale; 1 means no difference)` }, ...logTicks(shown.flatMap((v) => [v.low ?? 1, v.high ?? 1])) },
+      yaxis: { automargin: true, type: "category" },
+      shapes: [{ type: "line", x0: 1, x1: 1, yref: "paper", y0: 0, y1: 1, line: { color: "theme:fg", width: 1, dash: "dot" } }],
+      showlegend: false,
+    },
+  };
+  return pair(`Odds of ${r.outcome} by ${r.column}`, lines.join("\n"), figure);
+}
+
+/** Readable ticks for a log axis of ratios: 0.5, 0.7, 1, 1.5, 2, 3, 5, 10... within the data's range. */
+function logTicks(values: number[]): Record<string, unknown> {
+  const finite = values.filter((v) => Number.isFinite(v) && v > 0);
+  const low = Math.min(1, ...finite) / 1.15;
+  const high = Math.max(1, ...finite) * 1.15;
+  const nice = [0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1, 1.5, 2, 3, 5, 7, 10, 20, 50, 100, 200, 500];
+  const ticks = nice.filter((v) => v >= low && v <= high);
+  return { range: [Math.log10(low), Math.log10(high)], tickvals: ticks, ticktext: ticks.map(String), minor: { showgrid: false } };
+}
+
+// ===== find predictors =====
+
+export interface PredictorsCardInput {
+  target: string;
+  target_bucketed: boolean;
+  candidates: { column: string; strength: string; v: number; correlation: number | null; note: string | null; same_as?: string; bucketed: boolean }[];
+  skipped: { column: string; reason: string }[];
+  redundant: { keep: string; drop: string }[];
+}
+
+const STRENGTH_COLOR: Record<string, string> = { strong: "theme:accent", moderate: "theme:warn", weak: "theme:muted", none: "theme:border" };
+
+export function predictorsCards(r: PredictorsCardInput): SandboxCard[] {
+  const worth = r.candidates.filter((c) => c.strength === "strong" || c.strength === "moderate");
+  const lines = [
+    `# What goes with ${r.target}`,
+    worth.length ? `**${worth.map((c) => c.column).join(", ")} ${worth.length === 1 ? "goes" : "go"} with ${r.target}.**` : `**No column goes clearly with ${r.target}.**`,
+    "",
+    mdTable(
+      ["Column", "Strength", "Cramér's V", "Correlation", "Note"],
+      r.candidates.slice(0, 15).map((c) => [c.column, c.strength, fmt(c.v), c.correlation === null ? "" : fmt(c.correlation), c.same_as ? `says the same as ${c.same_as}` : (c.note ?? "")]),
+      [false, false, true, true, false],
+    ),
+  ];
+  if (r.redundant.length) lines.push("", `For a regression keep one of each pair: ${r.redundant.map((p) => `${p.keep} (not ${p.drop})`).join(", ")}.`);
+  if (r.skipped.length) lines.push("", `> Skipped: ${r.skipped.map((s) => `${s.column} (${s.reason})`).join("; ")}.`);
+  const bars = [...r.candidates.slice(0, 15)].reverse();
+  const figure = {
+    data: [
+      {
+        type: "bar",
+        orientation: "h",
+        x: bars.map((c) => c.v),
+        y: bars.map((c) => (c.same_as ? `${c.column} (= ${c.same_as})` : c.column)),
+        marker: { color: bars.map((c) => STRENGTH_COLOR[c.strength] ?? "theme:muted"), opacity: bars.map((c) => (c.same_as ? 0.45 : 1)) },
+        hovertemplate: "%{y}: Cramér's V %{x:.2f}<extra></extra>",
+      },
+    ],
+    layout: {
+      ...BASE_LAYOUT,
+      margin: { l: 120, r: 16, t: 12, b: 48 },
+      xaxis: { title: { text: `How much each tells about ${r.target} (Cramér's V)` }, range: [0, Math.max(0.35, ...bars.map((c) => c.v)) * 1.05] },
+      yaxis: { automargin: true, type: "category" },
+      shapes: [0.1, 0.2, 0.3].map((x) => ({ type: "line", x0: x, x1: x, yref: "paper", y0: 0, y1: 1, line: { color: "theme:border-strong", width: 1, dash: "dot" } })),
+      annotations: [
+        { x: 0.15, y: 1.04, yref: "paper", text: "weak", showarrow: false, font: { size: 10, color: "theme:muted" } },
+        { x: 0.25, y: 1.04, yref: "paper", text: "moderate", showarrow: false, font: { size: 10, color: "theme:muted" } },
+        { x: 0.33, y: 1.04, yref: "paper", text: "strong", showarrow: false, font: { size: 10, color: "theme:muted" }, xanchor: "left" },
+      ],
+      showlegend: false,
+    },
+  };
+  return pair(`Predictors of ${r.target}`, lines.join("\n"), figure);
+}
+
+// ===== outliers =====
+
+export interface AmountCardInput {
+  column: string;
+  by: string | null;
+  method: string;
+  rows: number;
+  low: number;
+  high: number;
+  groups: number;
+  groups_flagged: number;
+  fences: { group: string | null; rows: number; low_fence: number | null; high_fence: number | null; median: number; low: number; high: number }[];
+  outliers: { group: string | null; value: number; score: number }[];
+}
+
+const METHOD_WORDS: Record<string, string> = { robust: "distance from the median", iqr: "quartile fences (Tukey)", zscore: "mean and standard deviation" };
+
+export function amountCards(r: AmountCardInput): SandboxCard[] {
+  const total = r.low + r.high;
+  const lines = [
+    `# Outliers in ${r.column}${r.by ? ` within each ${r.by}` : ""}`,
+    total ? `**${fmt(total)} of ${fmt(r.rows)} values look out of place: ${fmt(r.high)} high, ${fmt(r.low)} low.**` : `**Nothing stands out among ${fmt(r.rows)} values.**`,
+    "",
+    `Judged by ${METHOD_WORDS[r.method] ?? r.method}.`,
+  ];
+  const one = !r.by ? r.fences[0] : undefined;
+  if (one && one.low_fence !== null) lines.push(`Usual range: **${fmt(one.low_fence)} to ${fmt(one.high_fence)}** (median ${fmt(one.median)}).`);
+  if (r.by && r.fences.length) {
+    lines.push("", `#### ${fmt(r.groups_flagged)} of ${fmt(r.groups)} ${r.by} values have outliers`, mdTable([r.by, "Values", "Usual range", "Low", "High"], r.fences.slice(0, 10).map((f) => [f.group ?? "(blank)", f.rows, `${fmt(f.low_fence)} to ${fmt(f.high_fence)}`, f.low, f.high]), [false, true, false, true, true]));
+  }
+  if (r.outliers.length) {
+    lines.push("", "#### The furthest out", mdTable([...(r.by ? [r.by] : []), r.column, "Score"], r.outliers.slice(0, 10).map((o) => [...(r.by ? [o.group ?? "(blank)"] : []), o.value, `${o.score > 0 ? "+" : ""}${fmt(o.score)}`]), [...(r.by ? [false] : []), true, true]));
+  }
+  lines.push("", "> An outlier is a question, not proof: look at its rows before deciding.");
+  const groups = r.by ? [...new Set([...r.fences.map((f) => f.group ?? "(blank)"), ...r.outliers.map((o) => o.group ?? "(blank)")])] : ["all"];
+  const y = (g: string | null): string => (r.by ? (g ?? "(blank)") : "all");
+  const fenced = r.by ? r.fences : r.fences.slice(0, 1);
+  const figure = {
+    data: [
+      {
+        type: "scatter",
+        mode: "markers",
+        x: r.outliers.map((o) => o.value),
+        y: r.outliers.map((o) => y(o.group)),
+        marker: { size: 10, color: "theme:accent", line: { color: "theme:fg", width: 1 } },
+        hovertemplate: "%{x}<extra></extra>",
+        name: "Outliers",
+      },
+      {
+        type: "scatter",
+        mode: "markers",
+        x: fenced.map((f) => f.median),
+        y: fenced.map((f) => y(f.group)),
+        marker: { symbol: "line-ns-open", size: 18, color: "theme:fg" },
+        hovertemplate: "median %{x}<extra></extra>",
+        name: "Median",
+      },
+    ],
+    layout: {
+      ...BASE_LAYOUT,
+      margin: { l: r.by ? 110 : 40, r: 16, t: 12, b: 48 },
+      xaxis: { title: { text: `${r.column}: the usual range shaded` }, ...amountRange(fenced, r.outliers) },
+      yaxis: { type: "category", automargin: true, categoryarray: groups, visible: Boolean(r.by) },
+      shapes: fenced
+        .filter((f) => f.low_fence !== null && f.high_fence !== null)
+        .map((f) => ({ type: "rect", xref: "x", yref: "y", x0: f.low_fence, x1: f.high_fence, y0: groups.indexOf(y(f.group)) - 0.3, y1: groups.indexOf(y(f.group)) + 0.3, fillcolor: "theme:ok", opacity: 0.18, line: { width: 0 } })),
+      showlegend: false,
+    },
+  };
+  return pair(`Outliers in ${r.column}`, lines.join("\n"), figure);
+}
+
+/** The axis from the lowest point worth seeing to the highest: a fence below zero for a column of
+ * positive amounts (a skewed spread) is cut at zero rather than drawing empty space. */
+function amountRange(fences: AmountCardInput["fences"], outliers: AmountCardInput["outliers"]): Record<string, unknown> {
+  const points = [...fences.flatMap((f) => [f.median, f.low_fence, f.high_fence]), ...outliers.map((o) => o.value)].filter((v): v is number => typeof v === "number");
+  if (!points.length) return {};
+  const positive = fences.every((f) => f.median > 0) && outliers.every((o) => o.value >= 0);
+  const low = positive ? Math.max(0, Math.min(...points)) : Math.min(...points);
+  const high = Math.max(...points);
+  const pad = (high - low) * 0.04 || 1;
+  return { range: [positive && low === 0 ? 0 : low - pad, high + pad] };
+}
+
+export interface FrequencyCardInput {
+  column: string;
+  distinct: number;
+  typical: number;
+  rarer: number;
+  commoner: number;
+  outliers: { value: string; count: number; score: number }[];
+}
+
+export function frequencyCards(r: FrequencyCardInput): SandboxCard[] {
+  const total = r.rarer + r.commoner;
+  const lines = [
+    `# Values of ${r.column} seen too often or too rarely`,
+    total ? `**${fmt(total)} of ${fmt(r.distinct)} values stand out: ${fmt(r.rarer)} rarer and ${fmt(r.commoner)} commoner than the usual ${fmt(r.typical)} rows per value.**` : `**Nothing stands out among ${fmt(r.distinct)} values (usually ${fmt(r.typical)} rows each).**`,
+  ];
+  if (r.outliers.length) lines.push("", mdTable(["Value", "Rows", "", "Score"], r.outliers.slice(0, 15).map((o) => [o.value, o.count, o.score < 0 ? "rarer" : "commoner", fmt(o.score)]), [false, true, false, true]));
+  lines.push("", "> Rarer values are often typos; commoner ones, copies or defaults.");
+  if (!r.outliers.length) return pair(`Frequency outliers in ${r.column}`, lines.join("\n"), null);
+  const shown = r.outliers.slice(0, 20);
+  const counts = shown.map((o) => o.count);
+  const spread = Math.max(...counts, r.typical) / Math.max(1, Math.min(...counts, r.typical));
+  const figure = {
+    data: [{ type: "bar", x: shown.map((o) => o.value), y: counts, marker: { color: shown.map((o) => (o.score < 0 ? "theme:ok" : "theme:accent")) }, hovertemplate: "%{x}: %{y} rows<extra></extra>" }],
+    layout: {
+      ...BASE_LAYOUT,
+      xaxis: { type: "category", title: { text: r.column } },
+      yaxis: { title: { text: "Rows" }, type: spread > 50 ? "log" : "linear" },
+      shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: r.typical, y1: r.typical, line: { color: "theme:fg", width: 1, dash: "dot" } }],
+      annotations: [{ xref: "paper", x: 1, y: spread > 50 ? Math.log10(r.typical) : r.typical, text: `usual: ${fmt(r.typical)} rows`, showarrow: false, xanchor: "right", yanchor: "bottom", font: { size: 10 } }],
+      showlegend: false,
+    },
+  };
+  return pair(`Frequency outliers in ${r.column}`, lines.join("\n"), figure);
+}

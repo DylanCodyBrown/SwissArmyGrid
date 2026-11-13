@@ -442,3 +442,12 @@ def test_cards_move_before_another_and_can_start_a_page(client: TestClient) -> N
     assert [c["new_page"] for c in cards(client, grid)] == [False, True, False]
     assert client.patch(f"/cards/{ids[1]}", json={"before": "nope"}, headers=AUTH).status_code == 400
     assert titles() == ["one", "two", "three"]  # a refused move changes nothing
+
+
+def test_a_cards_size_is_kept_and_checked(client: TestClient) -> None:
+    grid = grid_id(push(client, "small", pa.table({"a": [1, 2]})))
+    card = add(client, grid, {"kind": "note", "body": "hi", "size": {"w": 5, "h": 8}}).json()["card"]
+    assert cards(client, grid)[0]["size"] == {"w": 5, "h": 8}
+    assert client.patch(f"/cards/{card}", json={"size": {"w": 7, "h": 4}}, headers=AUTH).status_code == 200
+    assert cards(client, grid)[0]["size"] == {"w": 7, "h": 4}
+    assert client.patch(f"/cards/{card}", json={"size": {"w": 13, "h": 4}}, headers=AUTH).status_code == 400

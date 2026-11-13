@@ -38,8 +38,23 @@ export function safeFigure(text: string): { data: Record<string, unknown>[]; lay
   return { data: data as Record<string, unknown>[], layout };
 }
 
+/** A figure may name the theme's colors ("theme:accent", "theme:muted", "theme:ok"): resolved now, so
+ * the same figure looks right in every theme and follows a theme change when it redraws. */
+function themed<T>(value: T): T {
+  if (typeof value === "string") {
+    const match = /^theme:([a-z0-9-]+)$/.exec(value);
+    if (!match) return value;
+    return (getComputedStyle(document.documentElement).getPropertyValue(`--${match[1]}`).trim() || value) as T;
+  }
+  if (Array.isArray(value)) return value.map(themed) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, themed(v)])) as T;
+  return value;
+}
+
 export async function drawPlotly(host: HTMLElement, text: string, dark: boolean): Promise<PlotlyDrawn> {
-  const { data, layout } = safeFigure(text);
+  const checked = safeFigure(text);
+  const data = themed(checked.data);
+  const layout = themed(checked.layout);
   const ink = dark ? "#e8ecef" : "#1c2228";
   const grid = dark ? "#343c45" : "#c8d0d8";
   const styled = {

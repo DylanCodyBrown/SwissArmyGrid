@@ -154,6 +154,18 @@ def check_card(body: Any) -> Card:
         out["sql"] = sql
     else:
         out["spec"] = body.get("spec")
+    size = body.get("size")
+    if size is not None:
+        # The card's place on the 12-column board: w columns wide, h rows tall (the page's grid units).
+        if (
+            not isinstance(size, dict)
+            or not isinstance(size.get("w"), int)
+            or not isinstance(size.get("h"), int)
+            or not 2 <= size["w"] <= 12
+            or not 3 <= size["h"] <= 30
+        ):
+            raise ValueError('size is {"w": 2 to 12 columns, "h": 3 to 30 rows}.')
+        out["size"] = {"w": size["w"], "h": size["h"]}
     return out
 
 

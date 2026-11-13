@@ -67,6 +67,6 @@ def test_the_analyze_menu_chains_odds_fit_predictors_and_outliers(
         expect(page.locator(".steps-strip")).to_contain_text("1 step")
 
         page.locator(".tab-agent").click()
-        expect(page.locator("#ai-panel")).to_contain_text("Odds: region, late")
+        expect(page.locator("#ai-panel")).to_contain_text("Odds of late by region")
     finally:
         page.close()

@@ -12,6 +12,7 @@
  *                 Test together -> the fit test on the target and that column
  */
 import { api, grid } from "./api";
+import { amountCards, fitCards, frequencyCards, oddsCards, predictorsCards } from "./analysisCards";
 import { datasetName, registerAnalysis, resultButtons, tableName } from "./analyzeMenu";
 import { button, clear, formatCount, h, isNumericType, openDialog, toast } from "./dom";
 import { selection, viewColumns } from "./gridView";
@@ -142,10 +143,7 @@ export async function openFitTest(columns: string[], expectedKind?: string): Pro
         ...resultButtons({
           analysis: "fit_test",
           body: sent,
-          note: () => ({
-            title: `Fit test: ${picked().join(", ")}`,
-            markdown: list.map((r) => `**${r.column ?? ""}**: ${r.verdict}\n\nChi-square ${fmt(r.statistic)}, ${r.df} degrees of freedom, ${r.effect_name} ${fmt(r.effect_size)} (${r.effect}).${r.conformity ? ` Benford: ${r.conformity}.` : ""}`).join("\n\n"),
-          }),
+          cards: () => (answer.results ? answer.results.flatMap((r) => fitCards(r, String(sent.expected))) : fitCards(answer, "together", answer.columns)),
           rows: list.length === 1 && list[0]?.categories
             ? () => ({ name: tableName(datasetName(), "fit", list[0]?.column ?? ""), rows: (list[0]?.categories ?? []).map((c) => ({ ...c })) })
             : undefined,
@@ -310,7 +308,7 @@ export async function openOutliers(column?: string): Promise<void> {
         ...resultButtons({
           analysis: "outliers",
           body: sent,
-          note: () => ({ title: `Outliers in ${which.value}`, markdown: view.querySelector(".analysis-verdict")?.textContent ?? "" }),
+          cards: () => (answer.look === "amount" ? amountCards({ ...answer, column: which.value, method: String(sent.method ?? "robust") }) : frequencyCards({ ...answer, column: which.value })),
           rows: () => ({
             name: tableName(datasetName(), "outliers", which.value),
             rows: answer.look === "amount"
@@ -471,7 +469,7 @@ export async function openOdds(column?: string): Promise<void> {
         ...resultButtons({
           analysis: "odds",
           body: sent,
-          note: () => ({ title: `Odds: ${answer.column}${answer.outcome ? `, ${answer.outcome}` : ""}`, markdown: oddsWords(answer) }),
+          cards: () => oddsCards(answer),
           rows: () => ({ name: tableName(datasetName(), "odds", answer.column), rows: answer.values.map((v) => ({ ...v })) }),
         }),
       );
@@ -542,13 +540,6 @@ function oddsView(r: OddsResult): HTMLElement {
   );
 }
 
-function oddsWords(r: OddsResult): string {
-  if (!r.outcome) return r.values.slice(0, 10).map((v) => `- ${v.value}: ${percent(v.share)} of rows, 1 in ${fmt(v.one_in)}`).join("\n");
-  const clear = r.values.filter((v) => v.clear).slice(0, 10);
-  const lines = clear.map((v) => `- ${v.value}: ${percent(v.rate)} against ${percent(v.rest_rate)} elsewhere, ${fmt(v.odds_ratio)} times the odds (${fmt(v.low)} to ${fmt(v.high)})`);
-  return `${r.outcome}: ${percent(r.rate)} of ${formatCount(r.rows)} rows. ${r.together?.verdict ?? ""}\n\n${lines.join("\n") || "No value is clearly different."}`;
-}
-
 // ===== find predictors =====
 
 interface Candidate {
@@ -599,10 +590,7 @@ export async function openPredictors(target?: string): Promise<void> {
         ...resultButtons({
           analysis: "predictors",
           body: sent,
-          note: () => ({
-            title: `Predictors of ${answer.target}`,
-            markdown: answer.candidates.slice(0, 10).map((c) => `- ${c.column}: ${c.strength} (Cramér's V ${fmt(c.v)}${c.correlation === null ? "" : `, correlation ${fmt(c.correlation)}`})${c.same_as ? `, says the same as ${c.same_as}` : ""}`).join("\n"),
-          }),
+          cards: () => predictorsCards(answer),
           rows: () => ({ name: tableName(datasetName(), "predictors", answer.target), rows: answer.candidates.map((c) => ({ column: c.column, kind: c.kind, strength: c.strength, cramers_v: c.v, p: c.p, correlation: c.correlation, same_as: c.same_as ?? null, note: c.note })) }),
         }),
       );
