@@ -115,6 +115,24 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   LIMIT 100` 94 -> 6 ms; CSV export 6.2 -> 2.1 s (byte for byte the same); Excel export 50 ->
   45.6 s (xlsxwriter's own writes and close are the rest). `tests/test_performance.py` after:
   first window 13 ms, sort 247 ms, filter 51 ms, profile 39 ms.
+- (2026-11-13) Measured through the full app (test client) on 2,000,000 made-up rows x 10 columns
+  with a filter and a sort step (1,600,000 rows in view), 4 cores, before -> after. The Sandbox's
+  five charts (`GET /cards`): 1,446 -> 157 ms the first time, 18 ms after (a chart reads the view
+  cache, a grouped chart is one query, points are kept by view key and spec). Copy as code (DuckDB),
+  checked against the grid: 18.6 -> 9.5 s. Compare against 1,000,000 rows: create 531 -> 396 ms,
+  diff mode 3,427 -> 1,511 ms, a window of 200 rows 33 -> 15 ms (the same counts, rows and order
+  in every mode). Key Finder against three other grids (1,000,000 rows): 5.7 -> 4.2 s. CSV export:
+  6.2 -> 4.5 s, byte for byte the same over 128 option sets on every column type. A 294 MiB Arrow
+  push: 172 ms and one copy of the table less (`pa.BufferReader`, not `io.BytesIO`). Agent describe:
+  357 ms, then 2 ms until the table is pushed again. Measured and left alone: find predictors as
+  one quartile query and one GROUPING SETS query (edges 160 -> 154 ms, cells 187 -> 126 ms of about
+  550 ms: not worth a second code path).
+- (2026-11-13) DuckDB 2.0.0 and pyarrow 26: `x IN (SELECT unnest(?))` with a list parameter reads
+  only the row groups the values fall in, where 200 literals in `IN (...)` scanned the table (22 ms
+  -> 4.5 ms on 1,600,000 rows). `Array.to_pylist()` on a date32 column makes a Python date a value
+  (1.4 s for 1,600,000); `cast(pa.string())` gives the same ISO text in 0.1 s for days a Python date
+  holds (0001-01-01 to 9999-12-31; past them `to_pylist` raises OverflowError, as before). A dataset
+  closed and opened again under its name is version 1 again: view keys carry `DatasetInfo.serial`.
 - (2026-11-12) Agent tool sweep (`tests/test_tool_sweep.py`): all 88 MCP tools through the MCP
   server's `call_tool`, at levels 0-3, with sensible and hostile arguments, against the sample
   store on a real port: 706 cases pass in about 75 s. Found and fixed on the way: 500s from a
