@@ -121,7 +121,7 @@ def create_app(
             *routes_catalog.routes(ctx.catalogs),
             *routes_blades.routes(ctx.blades),
             *routes_notebook.routes(ctx.notebook_cells, ctx.notebook, ctx.notebook_cookie, settings.web_root),
-            *routes_relationships.routes(ctx.models, ctx.keys, ctx.compares),
+            *routes_relationships.routes(ctx.models, ctx.finder, ctx.keys, ctx.compares),
             *routes_processes.routes(ctx.sessions),
             *routes_snapshots.routes(ctx.snapshots),
             WebSocketRoute("/ws", live),

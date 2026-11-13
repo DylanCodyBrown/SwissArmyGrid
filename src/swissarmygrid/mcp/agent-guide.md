@@ -21,7 +21,7 @@ order the app shows them, so the tool list reads like the screen:
 | `row_` | rows | `row_read`, `row_count`, `row_limit`, `row_highlight`, `row_select` |
 | `steps_` | the grid's steps (the strip under its title; Table Transformations opens in its own tab) | `steps_add`, `steps_edit`, `steps_delete`, `steps_toggle`, `steps_move`, `steps_put`, `steps_apply_sql`, `steps_run_sql`, `steps_python` |
 | `key_finder_` | the Key Finder window | `key_finder_run`, `key_finder_candidates` |
-| `relationships_`, `erd_` | the Relationships dialog and the ERD tab | `relationships_get`, `relationships_set`, `erd_draw` |
+| `relationships_`, `erd_` | the Relationships window (tangs, the finder) and the ERD tab | `relationships_find`, `relationships_check`, `erd_draw` |
 | `compare_` | two grids side by side | `compare_create`, `compare_change`, `compare_remove` |
 | `sandbox_` | the Sandbox tab | `sandbox_add`, `sandbox_list`, `sandbox_update` |
 | `app_` | the page itself | `app_snapshot` |
@@ -126,9 +126,20 @@ The grid keeps one relationship model: each table's primary key and the joins be
 joins line up a compare by themselves and show with a crown in the Key Finder, and primary keys get a
 key mark in the grid headers.
 
-- `relationships_library` and `relationships_apply_library`: the model files in the library folders
-  (shipped with the package, `~/.swissarmygrid/models` and the folders in `SWISSARMYGRID_MODELS`).
-  Check this first; the model may already exist.
+- **Tangs** are saved sets of relationships (`.tang` files) that people share through the same
+  folders as blades. `relationships_library` lists them (the user's own and the team's shared ones,
+  with their tags, author and which tables are open) and `relationships_apply_library` applies one.
+  Check this first: a coworker may already have worked it out.
+- `relationships_find`: how the open tables join, worked out from the data. Each suggestion gives
+  the join, its kind, a confidence, the share of values that match, the orphans and the reasons
+  (names that point at the key, a two-column key, a second path between two tables marked
+  inactive). Show the user the evidence; they accept joins in the Relationships window, or you set
+  the ones they agree to with `relationships_set`. Prefer this to guessing from column names.
+- `relationships_check`: run the current relationships, or a saved tang, against the open tables:
+  each join holds, holds with orphans (with up to five orphan values, as data), is broken (a column
+  gone, a key that repeats, nothing matching) or is not open. Run a tang before you rely on it.
+- `relationships_path`: the chain of joins between two tables (orders to categories goes through
+  order_lines and products).
 - `key_finder_run`: likely join columns between two grids, with the share of each side found in the
   other, plus `unique_key`: the column combination that tells the grid's first 400,000 rows apart.
   Counts only. `key_finder_candidates` lists the grids it can compare against.

@@ -917,17 +917,44 @@ def set_relationships(a: dict[str, Any]) -> Any:
 
 @command(
     "relationships_library",
-    "The relationship models in the library folders, and which of their tables are open now.",
+    "The saved tangs (relationship sets: the user's and the team's shared ones) and which tables are open",
 )
 def library(a: dict[str, Any]) -> Any:
     return api.call("GET", "/relationships/library")
 
 
-@command(
-    "relationships_apply_library", "Apply a library relationship model by name.", req("name", "Model name.")
-)
+@command("relationships_apply_library", "Apply a saved tang by name (merges)", req("name", "Tang name."))
 def apply_library(a: dict[str, Any]) -> Any:
     return api.call("POST", f"/relationships/library/{_q(a['name'])}")
+
+
+@command(
+    "relationships_find",
+    "Find how the open tables join: suggestions with evidence (match share, orphans, why); best first",
+    opt("tables", "Dataset names to look at (default every open one).", "list"),
+)
+def find_relationships(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/relationships/find", {"tables": a.get("tables")} if a.get("tables") else {})
+
+
+@command(
+    "relationships_check",
+    "Run the current relationships (or a saved tang) against the open tables: holds, orphans or broken",
+    opt("tang", "A saved tang's name (default the current relationships)."),
+    values=True,
+)
+def check_relationships(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/relationships/check", {"tang": a["tang"]} if a.get("tang") else {})
+
+
+@command(
+    "relationships_path",
+    "The chain of joins that links two tables through the current relationships",
+    req("start", "Dataset name to start from."),
+    req("end", "Dataset name to reach."),
+)
+def relationship_path(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/relationships/path", params={"from": a["start"], "to": a["end"]})
 
 
 @command(

@@ -232,6 +232,16 @@ class FakeLibrary:
     def read(self) -> tuple[dict[str, tuple[Model, str]], list[str]]:
         return {m.name: (m, f"shelf/{m.name}.json") for m in self.models}, ["broken.json: not a model"]
 
+    def shared_folders(self) -> list[str]:
+        return []
+
+    def where(self, path: str) -> str:
+        return "mine"
+
+    def save(self, model: Model, folder: str | None) -> str:
+        self.models = (*self.models, model)
+        return f"shelf/{model.name}.tang"
+
 
 def test_the_relationship_model_merges_and_announces_itself(tmp_path: Any) -> None:
     ws = workspace(tmp_path, "orders", "customers")
@@ -244,7 +254,7 @@ def test_the_relationship_model_merges_and_announces_itself(tmp_path: Any) -> No
     listed = models.library()
     assert listed["folders"] == ["shelf"] and listed["problems"] == ["broken.json: not a model"]
     assert listed["models"][0]["open_tables"] == ["customers", "orders"]
-    with pytest.raises(NotFound, match="No model named 'cellar'"):
+    with pytest.raises(NotFound, match="No tang named 'cellar'"):
         asyncio.run(models.apply_library("cellar", "user"))
 
     current = asyncio.run(models.apply_library("bakery", "agent"))

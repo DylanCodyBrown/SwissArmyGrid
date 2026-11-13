@@ -14,13 +14,22 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 from swissarmygrid.domain.datasets import validate_name
-from swissarmygrid.domain.relationships import Model, parse_model
+from swissarmygrid.domain.relationships import (
+    TANG_SUFFIX,
+    Model,
+    TangError,
+    parse_model,
+    read_tang,
+    tang_file_name,
+    write_tang,
+)
 from swissarmygrid.domain.steps import Step, ViewSettings, steps_from_json
 
 # ===== the audit log =====
@@ -206,43 +215,118 @@ def is_own_file(path: str, state_dir: Path, export_dir: Path) -> bool:
     return target == connection or inside_state
 
 
-# ===== the model library =====
-# A folder of model files (domain/relationships.py has the shape). Three places, read in this order,
-# a later file with the same name winning:
+# ===== the tang library =====
+# Tangs (saved sets of relationships, domain/relationships.py has the .tang shape) and the older model
+# JSON files. Read in this order, a later one with the same name winning:
 #
 #   1. the models shipped in the package (src/swissarmygrid/models/*.json), released with it
-#   2. ~/.swissarmygrid/models/*.json: a person's own
-#   3. every folder in SWISSARMYGRID_MODELS (separated by ; on Windows): for example a shared folder
-#      of models, or a repository's models folder
+#   2. ~/.swissarmygrid/models/*.json: a person's own older models
+#   3. ~/.swissarmygrid/tangs/*.tang: a person's own tangs ("mine"), where Save tang writes by default
+#   4. every folder in SWISSARMYGRID_MODELS (separated by ; on Windows)
+#   5. the shared folders: the blade folders, so one team folder carries blades and tangs alike
+#      (.tang files at any depth up to SHARED_DEPTH, hidden folders and environments skipped). A tang
+#      saved there is in a coworker's list the next time their window opens.
+
+SHARED_DEPTH = 4
+_SKIPPED_DIRS = frozenset(
+    {"__pycache__", "node_modules", "site-packages", ".venv", "venv", "env", "build", "dist"}
+)
 
 
 class ModelFiles:
-    """The library of relationship models: the service layer's `ModelLibrary` port."""
+    """The library of tangs and models: the service layer's `ModelLibrary` port. `shared` gives the
+    shared folders (the blade folders that exist) each time, so a change there shows at once."""
 
-    def __init__(self, state_dir: Path) -> None:
+    def __init__(self, state_dir: Path, shared: Callable[[], list[str]] | None = None) -> None:
         self.state_dir = state_dir
+        self._shared = shared or (lambda: [])
+
+    @property
+    def mine(self) -> Path:
+        return self.state_dir / "tangs"
 
     def folders(self) -> list[str]:
-        return [str(folder) for folder in self._folders()]
+        return [str(folder) for folder, _ in self._folders()]
 
-    def _folders(self) -> list[Path]:
-        folders = [Path(str(files("swissarmygrid").joinpath("models"))), self.state_dir / "models"]
-        folders += [
-            Path(p) for p in os.environ.get("SWISSARMYGRID_MODELS", "").split(os.pathsep) if p.strip()
+    def shared_folders(self) -> list[str]:
+        return [p for p in self._shared() if Path(p).is_dir()]
+
+    def _folders(self) -> list[tuple[Path, str]]:
+        folders = [
+            (Path(str(files("swissarmygrid").joinpath("models"))), "package"),
+            (self.state_dir / "models", "mine"),
+            (self.mine, "mine"),
         ]
+        folders += [
+            (Path(p), "environment")
+            for p in os.environ.get("SWISSARMYGRID_MODELS", "").split(os.pathsep)
+            if p.strip()
+        ]
+        folders += [(Path(p), "shared") for p in self.shared_folders()]
         return folders
 
+    def _tang_files(self, folder: Path, deep: bool) -> list[Path]:
+        if not deep:
+            return sorted(folder.glob(f"*{TANG_SUFFIX}"))
+        found: list[Path] = []
+        for root, dirs, names in os.walk(folder):
+            depth = len(Path(root).relative_to(folder).parts)
+            dirs[:] = (
+                []
+                if depth >= SHARED_DEPTH
+                else sorted(d for d in dirs if not d.startswith(".") and d not in _SKIPPED_DIRS)
+            )
+            found += [Path(root) / n for n in sorted(names) if n.endswith(TANG_SUFFIX)]
+            if len(found) > 2000:
+                break
+        return found
+
     def read(self) -> tuple[dict[str, tuple[Model, str]], list[str]]:
-        """Every library model by name (with its file), and the files that could not be read."""
+        """Every tang and model by name (with its file), and the files that could not be read."""
         found: dict[str, tuple[Model, str]] = {}
         problems: list[str] = []
-        for folder in self._folders():
+        for folder, where in self._folders():
             if not folder.is_dir():
                 continue
-            for path in sorted(folder.glob("*.json")):
+            for path in sorted(folder.glob("*.json")) if where != "shared" else []:
                 try:
                     model = parse_model(json.loads(path.read_text(encoding="utf-8")))
                     found[model.name] = (model, str(path))
                 except (OSError, ValueError) as error:
                     problems.append(f"{path.name}: {error}")
+            for path in self._tang_files(folder, deep=where == "shared"):
+                try:
+                    if path.stat().st_size > 2_000_000:
+                        raise TangError("larger than 2 MB")
+                    model = read_tang(path.read_text(encoding="utf-8"))
+                    found[model.name] = (model, str(path))
+                except (OSError, ValueError) as error:
+                    problems.append(f"{path.name}: {error}")
         return found, problems
+
+    def where(self, path: str) -> str:
+        """Which kind of folder a library file is in: package, mine, environment or shared."""
+        target = Path(path).resolve()
+        for folder, kind in reversed(self._folders()):
+            try:
+                if target.is_relative_to(folder.resolve()):
+                    return kind
+            except OSError:
+                continue
+        return "mine"
+
+    def save(self, model: Model, folder: str | None) -> str:
+        """Write the tang into the person's own folder, or into one of the shared folders (and no
+        other). The same name writes the same file again: saving a tang updates it."""
+        if folder is None:
+            target = self.mine
+        else:
+            shared = {os.path.normcase(str(Path(p).resolve())): Path(p) for p in self.shared_folders()}
+            chosen = shared.get(os.path.normcase(str(Path(folder).resolve())))
+            if chosen is None:
+                raise ValueError("Save into your own tangs or one of the shared folders (the blade folders).")
+            target = chosen
+        target.mkdir(parents=True, exist_ok=True)
+        path = target / tang_file_name(model.name)
+        path.write_text(write_tang(model), encoding="utf-8")
+        return str(path)

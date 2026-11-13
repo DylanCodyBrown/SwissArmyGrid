@@ -7,7 +7,9 @@ the relations the caller hands in (each grid's view), and the use cases are at t
 
   KeyFinder   possible join columns between this grid and other grids, and this grid's own key
   Compares    two grids side by side, aligned row for row on key columns
-  Models      the current model (keys and relationships), the shared library, the ERD
+  Models      the current model (keys and relationships); tangs: the library (the person's own and
+              the shared folders), save, export, review and apply, and running a tang against the
+              open tables; the relationship finder across the open tables; the ERD
 
 Both sides of a Key Finder or a compare are grid views (each after its own steps), so a user can
 filter two grids down first and then ask how they join. Pairs carry counts, never values.
@@ -22,9 +24,11 @@ from __future__ import annotations
 import json
 import secrets
 import threading
+import time
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from swissarmygrid.domain.datasets import Column, DatasetInfo
@@ -32,21 +36,31 @@ from swissarmygrid.domain.grids import POS, Grid
 from swissarmygrid.domain.relationships import (
     MAX_ALTERNATIVES,
     MAX_KEY_COLUMNS,
+    Candidate,
     ColumnStats,
     CompareSpec,
     KeyOptions,
     Model,
+    Relationship,
     _joined,
     _value_list,
+    conflicts,
     differences,
+    key_family,
     keyed_sql,
     mapping_sql,
     merge,
     mermaid_erd,
+    name_likeness,
     normalized,
     parse_model,
+    path_between,
+    read_tang,
     relationship,
     score,
+    suggest,
+    tang_file_name,
+    write_tang,
 )
 from swissarmygrid.domain.steps import quote
 from swissarmygrid.services.grids import truncate
@@ -691,11 +705,17 @@ class Compares:
 
 
 class ModelLibrary(Protocol):
-    """The library of model files (adapters/state_files.py)."""
+    """The library of tangs and model files (adapters/state_files.py)."""
 
     def folders(self) -> list[str]: ...
 
+    def shared_folders(self) -> list[str]: ...
+
     def read(self) -> tuple[dict[str, tuple[Model, str]], list[str]]: ...
+
+    def where(self, path: str) -> str: ...
+
+    def save(self, model: Model, folder: str | None) -> str: ...
 
 
 class Models:
@@ -733,25 +753,162 @@ class Models:
                 {
                     "name": name,
                     "description": model.description,
+                    "tags": list(model.tags),
+                    "saved_at": model.saved_at,
+                    "author": model.author,
                     "file": path,
+                    "where": self._library.where(path),
+                    "tang": path.endswith(".tang"),
                     "tables": sorted(model.tables()),
                     "open_tables": sorted(model.tables() & open_names),
                     "relationships": len(model.relationships),
                 }
-                for name, (model, path) in sorted(found.items())
+                for name, (model, path) in sorted(found.items(), key=lambda kv: kv[0].casefold())
             ],
             "folders": self._library.folders(),
+            "shared_folders": self._library.shared_folders(),
             "problems": problems,
         }
 
-    async def apply_library(self, name: str, who: str) -> dict[str, Any]:
-        """Apply (merge) one library model."""
+    def _named(self, name: str) -> Model:
         found, _ = self._library.read()
-        entry = found.get(name)
+        entry = found.get(name) or next(
+            (v for k, v in found.items() if k.casefold() == name.casefold()), None
+        )
         if entry is None:
-            raise NotFound(f"No model named {name!r} in the library.")
-        self.model = merge(self.model, entry[0])
-        return await self._changed(who, entry[0].name)
+            raise NotFound(f"No tang named {name!r} in the library.")
+        return entry[0]
+
+    async def apply_library(self, name: str, who: str) -> dict[str, Any]:
+        """Apply (merge) one library tang; the answer names what it changed in the current one."""
+        tang = self._named(name)
+        changed = conflicts(self.model, tang)
+        self.model = merge(self.model, tang)
+        return await self._changed(who, tang.name) | {"changed": changed}
+
+    # ===== tangs: save, export, review and apply a .tang file =====
+
+    def _with_columns(self, model: Model) -> dict[str, tuple[tuple[str, str], ...]]:
+        """The open tables' columns and types, for every table the model names."""
+        return {
+            i.name: tuple((c.name, c.type) for c in i.columns)
+            for i in self.ws.store.all()
+            if i.name in model.tables()
+        } | {t: c for t, c in model.columns.items() if self.ws.store.get(t) is None}
+
+    def snapshot(self, body: Any) -> Model:
+        """The current model as a tang to save: its name, description, tags and author from `body`,
+        the open tables' columns, and the time."""
+        body = body if isinstance(body, dict) else {}
+        current = self.model.to_json()
+        named = parse_model(
+            current
+            | {
+                "name": body.get("name") or (self.model.name if self.model.name != "current" else ""),
+                "description": body.get("description", self.model.description),
+                "tags": body.get("tags", list(self.model.tags)),
+                "author": body.get("author", self.model.author),
+            }
+        )
+        if not self.model.tables():
+            raise ValueError("Nothing to save yet: find or set some relationships first.")
+        return Model(
+            named.name,
+            named.description,
+            named.keys,
+            named.sources,
+            named.relationships,
+            named.tags,
+            self._with_columns(named),
+            datetime.now(UTC).isoformat(timespec="seconds"),
+            named.author,
+        )
+
+    async def save_tang(self, body: Any, who: str) -> dict[str, Any]:
+        """Save the current relationships as a tang: in the person's own tangs, or a shared folder
+        (`folder`), where coworkers' windows list it."""
+        if not isinstance(body, dict) or not isinstance(body.get("name"), str) or not body["name"].strip():
+            raise ValueError('Send {"name": "Sales store", "description", "tags", "author", "folder"}.')
+        tang = self.snapshot(body)
+        folder = body.get("folder") or None
+        path = self._library.save(tang, folder if isinstance(folder, str) else None)
+        self.model = Model(
+            tang.name, tang.description, tang.keys, tang.sources, tang.relationships, tang.tags,
+            tang.columns, tang.saved_at, tang.author,
+        )  # fmt: skip
+        self.ws.audit.write(who, "save_tang", None, tang=tang.name, shared=bool(folder))
+        await self.ws.live.broadcast({"type": "relationships_updated"})
+        return {"saved": tang.name, "file": path, "where": self._library.where(path)}
+
+    def export_tang(self) -> tuple[str, str]:
+        """The current relationships as .tang text, and a file name for it."""
+        tang = self.snapshot({})
+        name = tang.name if tang.name != "current" else "relationships"
+        return write_tang(tang), tang_file_name(name)
+
+    def review(self, text: Any) -> dict[str, Any]:
+        """What a .tang file holds, before anything is applied: its tables (which are open), its
+        relationships and keys, and what applying it would change in the current ones."""
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError('Send {"text": "<the .tang file\'s text>"}.')
+        tang = read_tang(text)
+        open_names = {i.name for i in self.ws.store.all()}
+        return {
+            "tang": tang.to_json(),
+            "open_tables": sorted(tang.tables() & open_names),
+            "missing_tables": sorted(tang.tables() - open_names),
+            "changes": conflicts(self.model, tang),
+        }
+
+    async def import_tang(self, body: Any, who: str) -> dict[str, Any]:
+        """Apply a .tang file's relationships (merged into the current ones), and with `save` keep it
+        in the person's own tangs or a shared folder too."""
+        body = body if isinstance(body, dict) else {}
+        text = body.get("text")
+        reviewed = self.review(text)
+        tang = read_tang(str(text))
+        self.model = merge(self.model, tang)
+        answer = await self._changed(who, tang.name) | {"changed": reviewed["changes"]}
+        if body.get("save"):
+            folder = body.get("folder") or None
+            path = self._library.save(tang, folder if isinstance(folder, str) else None)
+            answer |= {"file": path, "where": self._library.where(path)}
+        return answer
+
+    # ===== run a tang: does each relationship still hold in the open tables? =====
+
+    async def check(self, body: Any, who: str) -> dict[str, Any]:
+        """Run the current relationships, or a library tang (`tang`), against the open tables. Each
+        relationship: holds, holds with orphans, broken (with why), or not open."""
+        body = body if isinstance(body, dict) else {}
+        model = self._named(body["tang"]) if isinstance(body.get("tang"), str) else self.model
+        if not model.relationships:
+            raise ValueError("No relationships to run yet.")
+        infos = {i.name: i for i in self.ws.store.all()}
+        cursor = self.ws.store.cursor()
+
+        def job() -> list[dict[str, Any]]:
+            timer = threading.Timer(self.ws.settings.key_finder_timeout_seconds, cursor.interrupt)
+            timer.start()
+            try:
+                return [check_relationship(cursor, r, infos, model.columns) for r in model.relationships]
+            finally:
+                timer.cancel()
+
+        try:
+            results = await self.ws.workers.run(AGENT if who == "agent" else BACKGROUND, job)
+        except self.ws.interrupted:
+            raise TimedOut("The run stopped at the time limit: run it with fewer tables open.") from None
+        counts: dict[str, int] = {}
+        for r in results:
+            counts[r["status"]] = counts.get(r["status"], 0) + 1
+        self.ws.audit.write(who, "run_tang", None, tang=model.name, results=counts)
+        return {"tang": model.name, "results": results, "counts": counts}
+
+    def path(self, start: str, end: str) -> dict[str, Any]:
+        """How two tables join through the current relationships: the shortest chain of joins."""
+        chain = path_between(self.model.relationships, start, end)
+        return {"from": start, "to": end, "joins": [r.to_json() for r in chain], "found": bool(chain)}
 
     def erd(self, wanted: set[str]) -> dict[str, Any]:
         """The current model as Mermaid erDiagram text."""
@@ -765,3 +922,279 @@ class Models:
             )
         text = mermaid_erd(self.model, columns, only)
         return {"mermaid": text, "tables": sorted(only or self.model.tables())}
+
+
+def check_relationship(
+    cursor: SqlSession,
+    rel: Relationship,
+    infos: dict[str, DatasetInfo],
+    saved: dict[str, tuple[tuple[str, str], ...]],
+) -> dict[str, Any]:
+    """One relationship run against the open tables (each dataset as pushed, before any grid's
+    steps): its status and the counts behind it. Orphan samples are values from the user's data."""
+    out = rel.to_json()
+    many, one = (rel.from_table, rel.from_columns), (rel.to_table, rel.to_columns)
+    if rel.kind == "one-to-many":
+        many, one = one, many  # the key is on the "from" side
+    notes: list[str] = []
+    missing_tables = [t for t in (rel.from_table, rel.to_table) if t not in infos]
+    if missing_tables:
+        return out | {
+            "status": "not open",
+            "detail": f"Push {' and '.join(missing_tables)} to run this join.",
+        }
+    columns: dict[tuple[str, str], Column] = {
+        (t, c.name): c for t in (rel.from_table, rel.to_table) for c in infos[t].columns
+    }
+    gone = [f"{t}.{c}" for t, cols in (many, one) for c in cols if (t, c) not in columns]
+    if gone:
+        return out | {"status": "broken", "detail": f"{', '.join(gone)} is no longer in the table."}
+    for t, cols in (many, one):
+        was = dict(saved.get(t, ()))
+        for c in cols:
+            if c in was and was[c] != columns[(t, c)].type:
+                notes.append(f"{t}.{c} was {was[c]}, now {columns[(t, c)].type}")
+    options = KeyOptions()
+    exprs: dict[str, list[str | None]] = {}
+    for which, (t, cols) in (("a", many), ("b", one)):
+        sql = [normalized(columns[(t, c)], options) for c in cols]
+        if any(x is None for x in sql):
+            return out | {
+                "status": "broken",
+                "detail": f"{t}.{', '.join(cols)} holds values that are never keys.",
+            }
+        exprs[which] = sql
+    keys = [f"k{i}" for i in range(len(many[1]))]
+    a = _keyed(exprs["a"], keys, infos[many[0]].table)
+    b = _keyed(exprs["b"], keys, infos[one[0]].table)
+    using = ", ".join(keys)
+    row = cursor.execute(
+        f"WITH a AS {a}, b AS {b}, ad AS (SELECT DISTINCT * FROM a), bd AS (SELECT DISTINCT * FROM b) "
+        f"SELECT (SELECT count(*) FROM a), (SELECT count(*) FROM ad), (SELECT count(*) FROM b), "
+        f"(SELECT count(*) FROM bd), (SELECT count(*) FROM ad JOIN bd USING ({using}))"
+    ).fetchone() or (0, 0, 0, 0, 0)
+    a_rows, a_distinct, b_rows, b_distinct, found = (int(x) for x in row)
+    orphan_sql = f"WITH a AS {a}, b AS {b} SELECT DISTINCT * FROM a ANTI JOIN b USING ({using})"
+    samples = [
+        list(r) if len(r) > 1 else r[0]
+        for r in cursor.execute(f"{orphan_sql} ORDER BY ALL LIMIT 5").fetchall()
+    ]
+    a_unique, b_unique = a_rows == a_distinct, b_rows == b_distinct
+    actual = (
+        "one-to-one"
+        if a_unique and b_unique
+        else "many-to-one"
+        if b_unique
+        else "one-to-many"
+        if a_unique
+        else "many-to-many"
+    )
+    if rel.kind == "one-to-many" and actual in ("many-to-one", "one-to-many"):
+        actual = "one-to-many" if actual == "many-to-one" else "many-to-one"
+    orphans = a_distinct - found
+    match = round(found / a_distinct, 4) if a_distinct else 0.0
+    counts = {"match": match, "orphans": orphans, "orphan_samples": samples, "actual_kind": actual}
+    key_side = f"{one[0]}.{', '.join(one[1])}"
+    if not found:
+        return (
+            out
+            | counts
+            | {"status": "broken", "detail": "No value matches: the join finds nothing.", "notes": notes}
+        )
+    if rel.kind != "many-to-many" and not b_unique:
+        repeats = b_rows - b_distinct
+        detail = f"{key_side} is meant to be the key, but {repeats:,} of its values repeat."
+        return out | counts | {"status": "broken", "detail": detail, "notes": notes}
+    if actual != rel.kind:
+        notes.append(f"Declared {rel.kind}; the data is {actual}.")
+    if orphans:
+        detail = f"{match:.1%} of values match; {orphans:,} have no row in {key_side}."
+        return out | counts | {"status": "orphans", "detail": detail, "notes": notes}
+    return out | counts | {"status": "holds", "detail": "Every value matches.", "notes": notes}
+
+
+# ===== the relationship finder =====
+
+
+def _keyed(exprs: list[str | None], names: list[str], table_sql: str) -> str:
+    """A table's rows as its key columns, named k0, k1 ..., rows with a blank key left out."""
+    picked = ", ".join(f"{e} AS {n}" for e, n in zip(exprs, names, strict=True))
+    filled = " AND ".join(f"{n} IS NOT NULL" for n in names)
+    return f"(SELECT * FROM (SELECT {picked} FROM {table_sql}) WHERE {filled})"
+
+
+def find_candidates(
+    cursor: SqlSession, infos: list[DatasetInfo], options: KeyOptions, row_limit: int
+) -> tuple[list[Candidate], dict[str, tuple[str, ...]]]:
+    """Every column of every table found in another table's unique column, with the counts the
+    domain judges (each dataset as pushed); and the two-column keys of tables with no single one."""
+    profiles: dict[str, list[tuple[ColumnStats, str]]] = {}
+    for info in infos:
+        profiles[info.name], _ = profile_side(cursor, f"SELECT * FROM {info.table}", info.columns, options)
+    position = {(i.name, c.name): n for i in infos for n, c in enumerate(i.columns)}
+    family = {(i.name, c.name): key_family(c.type) for i in infos for c in i.columns}
+    candidates: list[Candidate] = []
+    for a in infos:
+        for b in infos:
+            left, keys = profiles[a.name], [p for p in profiles[b.name] if p[0].unique]
+            if a.name == b.name or not left or not keys:
+                continue
+            sql = (
+                f"WITH a AS ({_value_list(f'SELECT * FROM {a.table}', left)}), "
+                f"b AS ({_value_list(f'SELECT * FROM {b.table}', keys)}) "
+                "SELECT a.c, b.c, count(*) FROM a JOIN b USING (v) GROUP BY ALL"
+            )
+            for li, ri, shared in cursor.execute(sql).fetchall():
+                s, t = left[int(li)][0], keys[int(ri)][0]
+                candidates.append(
+                    Candidate(
+                        a.name,
+                        (s.name,),
+                        b.name,
+                        (t.name,),
+                        s.distinct,
+                        t.distinct,
+                        int(shared),
+                        s.unique,
+                        True,
+                        position[(a.name, s.name)],
+                        (family[(a.name, s.name)], family[(b.name, t.name)]),
+                    )
+                )
+    composite: dict[str, tuple[str, ...]] = {}
+    for info in infos:
+        if any(stats.unique for stats, _ in profiles[info.name]):
+            continue
+        # Only columns that can be keys: the greedy search starts with the most varied column, and a
+        # price (a float) is the most varied column of an order line, never part of its key.
+        keyish = tuple(c for c in info.columns if key_family(c.type) not in ("float", "boolean"))
+        found = most_distinct(cursor, f"SELECT * FROM {info.table}", keyish, options, row_limit)
+        last = found["steps"][-1] if found["steps"] else None
+        if last and last["unique"] and 2 <= len(last["columns"]) <= 4 and not found["limited"]:
+            composite[info.name] = tuple(last["columns"])
+    by_name = {i.name: i for i in infos}
+    for table, key in composite.items():
+        target = by_name[table]
+        target_cols = {c.name: c for c in target.columns}
+        for src in infos:
+            if src.name == table:
+                continue
+            mapped: list[str] = []
+            for k in key:
+                likeness, best = max(
+                    ((name_likeness(c.name, table, k), c.name) for c in src.columns), default=(0.0, "")
+                )
+                if likeness < 0.9 or best in mapped:
+                    break
+                mapped.append(best)
+            if len(mapped) != len(key):
+                continue
+            src_cols = {c.name: c for c in src.columns}
+            left_sql = [normalized(src_cols[m], options) for m in mapped]
+            right_sql = [normalized(target_cols[k], options) for k in key]
+            if any(x is None for x in (*left_sql, *right_sql)):
+                continue
+            names = [f"k{i}" for i in range(len(key))]
+
+            using = ", ".join(names)
+            row = cursor.execute(
+                f"WITH a AS {_keyed(left_sql, names, src.table)}, "
+                f"b AS {_keyed(right_sql, names, target.table)}, "
+                "ad AS (SELECT DISTINCT * FROM a), bd AS (SELECT DISTINCT * FROM b) "
+                f"SELECT (SELECT count(*) FROM a), (SELECT count(*) FROM ad), (SELECT count(*) FROM bd), "
+                f"(SELECT count(*) FROM ad JOIN bd USING ({using}))"
+            ).fetchone() or (0, 0, 0, 0)
+            a_rows, a_distinct, b_distinct, shared = (int(x) for x in row)
+            if a_distinct:
+                candidates.append(
+                    Candidate(
+                        src.name,
+                        tuple(mapped),
+                        table,
+                        key,
+                        a_distinct,
+                        b_distinct,
+                        shared,
+                        a_rows == a_distinct,
+                        True,
+                        position[(src.name, mapped[0])],
+                        (family[(src.name, mapped[0])], family[(table, key[0])]),
+                    )
+                )
+    return candidates, composite
+
+
+class Finder:
+    """The relationship finder: which joins hold between the open tables (the domain judges).
+    Suggestions the person rejects are not offered again while the server runs."""
+
+    def __init__(self, ws: Workspace, models: Models) -> None:
+        self.ws = ws
+        self.models = models
+        self.rejected: set[tuple[str, tuple[str, ...], str, tuple[str, ...]]] = set()
+
+    async def find(self, body: Any, who: str) -> dict[str, Any]:
+        body = body if isinstance(body, dict) else {}
+        wanted = body.get("tables")
+        infos = [i for i in self.ws.store.all() if not wanted or i.name in wanted]
+        if len(infos) < 2:
+            raise ValueError("Open (push) at least two tables to find how they relate.")
+        if len(infos) > 40:
+            raise ValueError('Pick at most 40 tables ("tables": [...]).')
+        settings = self.ws.settings
+        cursor = self.ws.store.cursor()
+        started = time.monotonic()
+
+        def job() -> tuple[list[Candidate], dict[str, tuple[str, ...]]]:
+            timer = threading.Timer(settings.key_finder_timeout_seconds * 2, cursor.interrupt)
+            timer.start()
+            try:
+                return find_candidates(cursor, infos, KeyOptions(), settings.key_finder_unique_rows)
+            finally:
+                timer.cancel()
+
+        try:
+            candidates, composite = await self.ws.workers.run(AGENT if who == "agent" else BACKGROUND, job)
+        except self.ws.interrupted:
+            limit = settings.key_finder_timeout_seconds * 2
+            raise TimedOut(f"The finder stopped after {limit:.0f} seconds: pick fewer tables.") from None
+        found = suggest(candidates)
+        current = self.models.model.relationships
+        day = datetime.now(UTC).date().isoformat()
+        suggestions: list[dict[str, Any]] = []
+        for s in found:
+            r = s.relationship
+            if (r.from_table, r.from_columns, r.to_table, r.to_columns) in self.rejected and not body.get(
+                "include_rejected"
+            ):
+                continue
+            evidence = f"Found {day}: {s.containment:.0%} of values in {r.to_table}" + (
+                f", {s.orphans:,} orphans" if s.orphans else ""
+            )
+            known = any(r.same_join(c) for c in current)
+            suggestions.append(s.to_json() | {"evidence": evidence, "known": known})
+        keys = {s.relationship.to_table: list(s.relationship.to_columns) for s in found} | {
+            t: list(k) for t, k in composite.items()
+        }
+        self.ws.audit.write(who, "find_relationships", None, tables=len(infos), found=len(suggestions))
+        return {
+            "tables": [i.name for i in infos],
+            "suggestions": suggestions,
+            "keys": keys,
+            "rejected": len(self.rejected),
+            "seconds": round(time.monotonic() - started, 2),
+        }
+
+    def reject(self, body: Any) -> dict[str, Any]:
+        """Do not suggest this join again (while the server runs); `undo` brings it back."""
+        if not isinstance(body, dict):
+            raise ValueError('Send {"from", "from_columns", "to", "to_columns"}.')
+        r = parse_model({"relationships": [body | {"kind": body.get("kind", "many-to-one")}]}).relationships[
+            0
+        ]
+        key = (r.from_table, r.from_columns, r.to_table, r.to_columns)
+        if body.get("undo"):
+            self.rejected.discard(key)
+        else:
+            self.rejected.add(key)
+        return {"rejected": len(self.rejected)}

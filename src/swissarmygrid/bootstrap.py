@@ -46,7 +46,7 @@ from swissarmygrid.services.grids import GridService
 from swissarmygrid.services.notebook import NotebookCells
 from swissarmygrid.services.processes import ProcessRegistry, Sessions
 from swissarmygrid.services.profile import Profiles
-from swissarmygrid.services.relationships import Compares, KeyFinder, Models
+from swissarmygrid.services.relationships import Compares, Finder, KeyFinder, Models
 from swissarmygrid.services.snapshots import Snapshots
 from swissarmygrid.services.sql import SqlBox
 from swissarmygrid.services.workspace import Addresses, Workspace
@@ -74,6 +74,7 @@ class Services:
     blades: BladeService
     notebook_cells: NotebookCells
     models: Models
+    finder: Finder
     keys: KeyFinder
     compares: Compares
     snapshots: Snapshots
@@ -145,6 +146,12 @@ def bootstrap(
     catalogs = CatalogService(
         ws, CatalogStore(connection, settings.max_catalogs, settings.max_catalog_rows), table_reader
     )
+    # Tangs come from the person's own folder and the shared folders, which are the blade folders:
+    # one team folder carries blades and tangs alike.
+    models = Models(
+        ws,
+        ModelFiles(state_dir, shared=lambda: [f["path"] for f in blade_store.folders() if f["exists"]]),
+    )
     return Services(
         settings=settings,
         ws=ws,
@@ -170,7 +177,8 @@ def bootstrap(
             environ=os.environ,
         ),
         notebook_cells=NotebookCells(ws, NotebookControl(notebook), verifier, DEFAULT_NOTEBOOK),
-        models=Models(ws, ModelFiles(state_dir)),
+        models=models,
+        finder=Finder(ws, models),
         keys=KeyFinder(ws),
         compares=Compares(ws),
         snapshots=Snapshots(ws),

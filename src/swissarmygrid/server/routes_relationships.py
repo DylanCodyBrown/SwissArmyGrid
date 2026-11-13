@@ -7,6 +7,19 @@
   POST /relationships/library/{name}     apply that library model (merge)
   GET  /relationships/erd?tables=a,b     the current model as Mermaid erDiagram text
 
+  Tangs (saved, shared sets of relationships; the .tang file in domain/relationships.py):
+  POST /relationships/tangs              {"name", "description", "tags", "author", "folder"}: save the
+                                         current relationships as a tang (own tangs, or a shared folder)
+  GET  /relationships/tang               the current relationships as a .tang file (a download)
+  POST /relationships/import             {"text", "apply", "save", "folder"}: without apply, what the
+                                         tang holds and what applying it would change; with it, merge
+  POST /relationships/check              {"tang": name}: run it (or the current) against the open tables
+  POST /relationships/find               {"tables": [...]}: the finder's suggestions, with evidence
+  POST /relationships/reject             a suggestion not to offer again ({"undo": true} brings it back)
+  GET  /relationships/path?from=a&to=b   the shortest chain of joins between two tables
+
+  Saving, exporting and importing tang files are the user's; the agent finds, runs and reads.
+
   GET  /grids/{id}/key-finder            the grids a Key Finder can compare against
   POST /grids/{id}/key-finder            {"target": grid id | "*", "options": {...}}
        -> pairs (column, target grid, column, shared values, % found each way, score), best first,
@@ -34,10 +47,12 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.server.http import actor, error_response, json_response, query_int, read_json
-from swissarmygrid.services.relationships import Compares, KeyFinder, Models
+from swissarmygrid.services.relationships import Compares, Finder, KeyFinder, Models
+
+_USERS_ONLY = "Tang files are the user's: save, export and import them in the Relationships window."
 
 
-def routes(models: Models, keys: KeyFinder, compares: Compares) -> list[BaseRoute]:
+def routes(models: Models, finder: Finder, keys: KeyFinder, compares: Compares) -> list[BaseRoute]:
     ws = keys.ws
 
     # ===== the model =====
@@ -156,12 +171,77 @@ def routes(models: Models, keys: KeyFinder, compares: Compares) -> list[BaseRout
         except Exception as error:
             return error_response(error)
 
+    # ===== tangs and the finder =====
+
+    async def save_tang(request: Request) -> Response:
+        if actor(request) == "agent":
+            return Response(_USERS_ONLY, status_code=403)
+        try:
+            return json_response(await models.save_tang(await read_json(request), actor(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def export_tang(request: Request) -> Response:
+        if actor(request) == "agent":
+            return Response(_USERS_ONLY, status_code=403)
+        try:
+            text, name = models.export_tang()
+            return Response(
+                text,
+                media_type="application/vnd.swissarmygrid.tang+json; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{name}"'},
+            )
+        except Exception as error:
+            return error_response(error)
+
+    async def import_tang(request: Request) -> Response:
+        if actor(request) == "agent":
+            return Response(_USERS_ONLY, status_code=403)
+        try:
+            body = await read_json(request)
+            if isinstance(body, dict) and body.get("apply"):
+                return json_response(await models.import_tang(body, actor(request)))
+            return json_response(models.review(body.get("text") if isinstance(body, dict) else None))
+        except Exception as error:
+            return error_response(error)
+
+    async def check(request: Request) -> Response:
+        try:
+            return json_response(await models.check(await read_json(request), actor(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def find_relationships(request: Request) -> Response:
+        try:
+            return json_response(await finder.find(await read_json(request), actor(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def reject(request: Request) -> Response:
+        try:
+            return json_response(finder.reject(await read_json(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def path(request: Request) -> Response:
+        start, end = request.query_params.get("from", ""), request.query_params.get("to", "")
+        if not start or not end:
+            return Response("Name two tables: /relationships/path?from=a&to=b", status_code=400)
+        return json_response(models.path(start, end))
+
     return [
         Route("/relationships", get_current),
         Route("/relationships", set_current, methods=["POST"]),
         Route("/relationships/library", library),
         Route("/relationships/library/{name}", apply_library, methods=["POST"]),
         Route("/relationships/erd", erd),
+        Route("/relationships/tangs", save_tang, methods=["POST"]),
+        Route("/relationships/tang", export_tang),
+        Route("/relationships/import", import_tang, methods=["POST"]),
+        Route("/relationships/check", check, methods=["POST"]),
+        Route("/relationships/find", find_relationships, methods=["POST"]),
+        Route("/relationships/reject", reject, methods=["POST"]),
+        Route("/relationships/path", path),
         Route("/grids/{grid_id}/key-finder", candidates),
         Route("/grids/{grid_id}/key-finder", find, methods=["POST"]),
         Route("/grids/{grid_id}/key-finder/sample", sample, methods=["POST"]),
