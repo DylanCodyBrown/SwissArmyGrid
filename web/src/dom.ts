@@ -115,6 +115,8 @@ const ICONS: Record<string, string> = {
   exclude: '<circle cx="12" cy="12" r="8"/><path d="M6.5 6.5l11 11"/>',
   keep: '<path d="M4 7h16M7 12h10M10 17h4"/>',
   rows: '<path d="M4 5h16M4 10h16M4 15h16M4 20h16"/>',
+  // The tour: a question mark in a circle.
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1.1-1.5 2.2M12 17h.01"/>',
 };
 
 export function icon(name: string): SVGSVGElement {

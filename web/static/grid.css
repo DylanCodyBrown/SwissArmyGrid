@@ -3139,3 +3139,276 @@ body.popout .app-row {
 .rel-run tr.run-broken td:nth-child(2) {
   color: var(--error);
 }
+
+/* ===== The tour (tour.ts): a spotlight on the real control, a card beside it, then a game ===== */
+.tour-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tour-btn.tour-new .icon-svg {
+  color: var(--accent);
+  animation: tour-pulse 1.6s ease-in-out infinite;
+}
+
+.tour-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tour-bubble .tour-bubble-go {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tour-bubble .btn.ghost {
+  color: inherit;
+}
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+
+.tour.tour-dim {
+  background: rgba(10, 13, 16, 0.55);
+}
+
+.tour-spot {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(10, 13, 16, 0.55);
+  pointer-events: none;
+  transition: left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease;
+}
+
+.tour-card {
+  position: fixed;
+  box-sizing: border-box;
+  padding: 18px 18px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  text-align: center;
+  transition: left 0.3s ease, top 0.3s ease;
+}
+
+.tour-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  animation: tour-pop 0.35s ease-out;
+}
+
+.tour-icon .icon-svg {
+  width: 28px;
+  height: 28px;
+}
+
+.tour-word {
+  margin: 10px 0 4px;
+  font-size: 22px;
+}
+
+.tour-line,
+.tour-clue {
+  margin: 0 0 10px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.tour-clue {
+  color: var(--fg);
+  font-size: 16px;
+}
+
+.tour-kicker {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tour-code {
+  display: block;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface);
+  text-align: left;
+  white-space: pre;
+}
+
+.tour-dots {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+
+.tour-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.tour-dot.done {
+  background: var(--border-strong);
+}
+
+.tour-dot.here {
+  width: 18px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.tour-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.tour-actions > :first-child {
+  margin-right: auto;
+}
+
+.tour-choices {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tour-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tour-choice:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.tour-choice.right {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: var(--ok-fg);
+}
+
+.tour-choice.wrong {
+  border-color: var(--error);
+  background: var(--error-soft);
+  animation: tour-shake 0.35s;
+}
+
+/* The score: a Swiss army knife with one blade opened per right answer. */
+.tour-knife {
+  position: relative;
+  width: 120px;
+  height: 70px;
+  margin: 0 auto 4px;
+}
+
+.tour-handle {
+  position: absolute;
+  left: 10px;
+  bottom: 6px;
+  width: 100px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--accent);
+}
+
+.tour-handle::after {
+  content: "+";
+  position: absolute;
+  inset: 0;
+  color: var(--accent-fg);
+  font-weight: 800;
+  line-height: 22px;
+}
+
+.tour-blade {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  width: 8px;
+  height: 46px;
+  border-radius: 4px 4px 1px 1px;
+  background: var(--steel-sheen);
+  border: 1px solid var(--border-strong);
+  transform-origin: 50% 100%;
+  transform: translateX(calc(var(--i) * 17px)) rotate(90deg) translateY(4px);
+  transition: transform 0.5s cubic-bezier(0.3, 1.5, 0.6, 1);
+  transition-delay: calc(var(--i) * 0.12s);
+}
+
+.tour-blade.open {
+  transform: translateX(calc(var(--i) * 17px)) rotate(calc(-30deg + var(--i) * 15deg));
+}
+
+@keyframes tour-pulse {
+  50% {
+    transform: scale(1.25);
+  }
+}
+
+@keyframes tour-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+
+@keyframes tour-shake {
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot,
+  .tour-card,
+  .tour-blade {
+    transition: none;
+  }
+
+  .tour-icon,
+  .tour-choice.wrong,
+  .tour-btn.tour-new .icon-svg {
+    animation: none;
+  }
+}

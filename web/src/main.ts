@@ -35,6 +35,7 @@ import { mountBottomBar, setLive } from "./bottomBar";
 import { $, button, clear, h, toast } from "./dom";
 import { renderKeyFinder } from "./keyFinder";
 import { settingsButton } from "./settingsWindow";
+import { tourButton } from "./tour";
 import { openCompareDialog } from "./compareDialog";
 import { activateGrid, activeContext, addGrid, contextOf, contextsOf, dropGrid, mountPanes, onSplitCreated, openGrids, resyncGrids } from "./panes";
 import { mountRibbon } from "./ribbon";
@@ -192,7 +193,7 @@ async function start(): Promise<void> {
       "div",
       { class: "ribbon-group", role: "toolbar", "aria-label": "Application tools" },
       h("div", { class: "ribbon-caption", title: "SwissArmyGrid itself" }, h("strong", {}, "Application"), h("span", {}, "SwissArmyGrid")),
-      h("div", { class: "ribbon-tools" }, settingsButton(), bladesButton(), notebookButton()),
+      h("div", { class: "ribbon-tools" }, settingsButton(), bladesButton(), notebookButton(), tourButton()),
     ),
   );
   mountRibbon($(".ribbon"), openColumnProfile);
