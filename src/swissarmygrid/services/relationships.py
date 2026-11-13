@@ -113,10 +113,12 @@ def find_keys(
     target_columns: tuple[Column, ...],
     options: KeyOptions,
     same_table: bool = False,
+    source_profile: tuple[list[tuple[ColumnStats, str]], list[dict[str, str]]] | None = None,
 ) -> dict[str, Any]:
     """Every column pair of `source` x `target` (two SQL relations) with shared values, best
-    first. `same_table` leaves out a column paired with itself."""
-    left, left_skipped = profile_side(cursor, source, source_columns, options)
+    first. `same_table` leaves out a column paired with itself. `source_profile`: what
+    profile_side said of `source` already (it is the same against every target)."""
+    left, left_skipped = source_profile or profile_side(cursor, source, source_columns, options)
     right, right_skipped = profile_side(cursor, target, target_columns, options)
     pairs: list[dict[str, Any]] = []
     if left and right:
@@ -392,19 +394,24 @@ class KeyFinder:
             pairs: list[dict[str, Any]] = []
             skipped: dict[str, Any] = {}
             checked: list[str] = []
+            # This grid's own columns, profiled for the first target and used for the rest (a pass
+            # over the whole view, counting every column's distinct values, for each target before).
+            profiled: list[tuple[list[tuple[ColumnStats, str]], list[dict[str, str]]]] = []
+
+            def keys(tgt_sql: str, tgt_cols: tuple[Column, ...], same_table: bool) -> dict[str, Any]:
+                if not profiled:
+                    profiled.append(profile_side(cur, src_sql, src_cols, options))
+                return find_keys(
+                    cur, src_sql, src_cols, tgt_sql, tgt_cols, options, same_table, source_profile=profiled[0]
+                )
+
             for target in chosen:
                 with ExitStack() as held_target:
                     tgt_sql, tgt_cols, tgt_info = self._view(cur, target, held_target)
                     found = self._timed(
                         cur,
-                        lambda tgt_sql=tgt_sql, tgt_cols=tgt_cols, tgt_info=tgt_info: find_keys(
-                            cur,
-                            src_sql,
-                            src_cols,
-                            tgt_sql,
-                            tgt_cols,
-                            options,
-                            same_table=tgt_info.name == src_info.name,
+                        lambda tgt_sql=tgt_sql, tgt_cols=tgt_cols, tgt_info=tgt_info: keys(
+                            tgt_sql, tgt_cols, tgt_info.name == src_info.name
                         ),
                     )
                 for pair in found["pairs"]:
