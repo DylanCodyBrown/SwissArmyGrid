@@ -70,7 +70,7 @@ def test_the_agent_lists_blades_without_their_code_or_secrets(client: TestClient
 
 def test_the_agent_reads_the_starter_blades(client: TestClient) -> None:
     starters = client.get("/agent/blade-templates", headers=AGENT).json()["templates"]
-    assert len(starters) == 35 and all("code" not in t for t in starters)
+    assert len(starters) == 38 and all("code" not in t for t in starters)
     one = client.get("/agent/blade-templates", params={"id": starters[0]["id"]}, headers=AGENT).json()
     assert one["code"] and one["kind"] == starters[0]["kind"]
     assert client.get("/agent/blade-templates", params={"id": "nope"}, headers=AGENT).status_code == 404

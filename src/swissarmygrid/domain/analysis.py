@@ -874,3 +874,8 @@ def shape_notes(
                 f"Within each {chosen[1]}: {groups:,} groups, about {each:,.0f} values each."
             )
     return notes
+
+
+def whole_view_queries(relation: str) -> tuple[str, str]:
+    """(how many rows, every row) of a grid's view: what an analysis blade is handed."""
+    return f"SELECT count(*) FROM {relation}", f"SELECT * FROM {relation}"

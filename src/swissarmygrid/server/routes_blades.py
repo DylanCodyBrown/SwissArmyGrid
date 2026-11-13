@@ -16,6 +16,8 @@ and accounts, and runs):
   GET    /blades/{name}/export       the blade as a portable .blade.py file
   GET    /blades/export?names=       several (or all) as a zip of them
   POST   /blades/import              review what files hold (nothing saved or run), then apply choices
+  GET    /blades/analyses            the analysis blades, for the Analyze menu
+  POST   /grids/{id}/blade-analysis  {"name", "columns", "env"}: run an analysis blade on the grid's rows
 
 The use cases are services/blades.py. (The agent's own narrow door, /agent/blades, is routes_agent.py.)
 """
@@ -166,6 +168,28 @@ def routes(blades: BladeService) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    async def analyses(request: Request) -> Response:
+        if actor(request) == "agent":
+            return _agent_refused()
+        return json_response(blades.analyses())
+
+    async def analyze(request: Request) -> Response:
+        """The user's own analysis on the grid's rows as shown, run in a child process like Test."""
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            body = await read_json(request)
+            if not isinstance(body, dict) or not isinstance(body.get("name"), str):
+                raise ValueError('Send {"name": the analysis blade, "columns": [the selected columns]}.')
+            grid, info = blades.ws.grid_and_info(request.path_params["grid_id"])
+            return json_response(await blades.analyze(body["name"], grid, info, body, actor(request)))
+        except NeedsValues as error:
+            return _needs(error)
+        except RefreshError as error:
+            return _run_failed(error)
+        except Exception as error:
+            return error_response(error)
+
     async def python(request: Request) -> Response:
         """What sag.blade() runs in the caller's Python. Secret values included: only the user's own
         Python asks (the token is the user's; the agent is refused)."""
@@ -258,6 +282,8 @@ def routes(blades: BladeService) -> list[BaseRoute]:
         Route("/blades/inspect", inspect_code, methods=["POST"]),
         Route("/blades/fill", fill_settings, methods=["POST"]),
         Route("/blades/install", install, methods=["POST"]),
+        Route("/blades/analyses", analyses),
+        Route("/grids/{grid_id}/blade-analysis", analyze, methods=["POST"]),
         Route("/blades/{name}", get_blade),
         Route("/blades/{name}", save_blade, methods=["PUT"]),
         Route("/blades/{name}", remove_blade, methods=["DELETE"]),

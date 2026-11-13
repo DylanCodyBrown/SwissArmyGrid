@@ -242,7 +242,10 @@ file, an API, a vault); in any Python, `conn = sag.blade("Warehouse")` runs it t
   if they click Allow (they have 3 minutes; a page of SwissArmyGrid must be open). Write
   `secret("password")` where a password goes and never put a value in the code: the user types it on
   the blade's save screen. Give it a description and tags (the app it serves, say) so the user can
-  find it. A taken name is refused: you cannot change or remove the user's blades.
+  find it. A taken name is refused: you cannot change or remove the user's blades. Kind `analysis` is
+  the user's own analysis: `def analyze(df, columns): ...` over the grid's rows (a pandas DataFrame),
+  returning markdown, a DataFrame or a figure (or a list of them); once allowed it shows in their Analyze
+  menu. You never run it: they do.
 - After it is saved, tell the user which secrets to type (`secrets_to_type`) and which packages are
   missing (`packages_missing`); a catalog query lets them press Refresh to load its catalog.
 

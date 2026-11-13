@@ -264,3 +264,11 @@ def test_a_figure_with_sql_is_filled_on_its_grid_and_follows_its_steps(client: T
         "/cards", json={"kind": "plotly", "title": "", "body": json.dumps(plotly), "sql": sql}, headers=AUTH
     )
     assert free.status_code == 400
+
+
+def test_a_table_of_its_own_rows_on_a_grid_draws_beside_the_grids_cards(client: TestClient) -> None:
+    gid = grid_id(push(client, "sales", pa.table({"region": ["North"]})))
+    own = {"kind": "table", "title": "From a blade", "columns": ["shop", "rows"], "rows": [["Mill", 2]]}
+    assert client.post(f"/grids/{gid}/cards", json=own, headers=AUTH).status_code == 200
+    shown = cards(client)
+    assert [c["title"] for c in shown] == ["From a blade"] and shown[0]["rows"] == [["Mill", 2]]

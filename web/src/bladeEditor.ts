@@ -13,7 +13,7 @@ import { exportBlades } from "./bladeLibrary";
 
 // ===== shapes the server sends (server/routes_catalog.py) =====
 
-export type BladeKind = "sql" | "other" | "vault" | "secret";
+export type BladeKind = "sql" | "other" | "vault" | "secret" | "analysis";
 
 export interface BladeSummary {
   name: string;
@@ -149,7 +149,18 @@ const KIND_LABELS: Record<BladeKind, string> = {
   other: "Other",
   vault: "Vault",
   secret: "Secret",
+  analysis: "Analysis",
 };
+
+/** What a new analysis blade starts from: the rows in, markdown and a table out. */
+const ANALYSIS_STARTER = `import pandas as pd
+
+
+def analyze(df: pd.DataFrame, columns: list[str]) -> list:
+    picked = df[columns] if columns else df
+    note = f"## {len(df):,} rows\\n\\nWhat stands out in {', '.join(columns) or 'the table'}."
+    return [note, picked.describe(include="all").transpose().reset_index(names="column")]
+`;
 
 /** "a, b,c" -> ["a", "b", "c"]: tags as typed, commas between. */
 export function splitTags(text: string): string[] {
@@ -607,6 +618,13 @@ export async function editBlade(
     clear(kindHost);
     const isCode = draft.kind !== "secret";
     codeFieldset.hidden = !isCode;
+    codeHint.textContent = draft.kind === "analysis"
+      ? "A function of the grid's rows: def analyze(df): ... gets them as a pandas DataFrame (add a second argument for the selected columns). Return markdown text, a table, a figure, or a list of them. It shows in the Analyze menu."
+      : "Python that reaches outside to load something. Write secret(\"password\") where a password goes.";
+    if (draft.kind === "analysis" && !draft.code.trim()) {
+      draft.code = codeBox.value = ANALYSIS_STARTER;
+      codeBox.dispatchEvent(new Event("input"));
+    }
     if (draft.kind === "sql") {
       const dialect = h("select", { "aria-label": "SQL dialect" });
       for (const [value, label] of DIALECTS) dialect.append(h("option", { value, selected: value === draft.dialect }, label));
@@ -730,11 +748,12 @@ export async function editBlade(
       ),
     );
   };
+  const codeHint = h("p", { class: "hint" });
   const codeFieldset = h(
     "fieldset",
     {},
     h("legend", {}, "Code"),
-    h("p", { class: "hint" }, "Python that reaches outside to load something. Write secret(\"password\") where a password goes."),
+    codeHint,
     codeBox,
     madeHost,
     secretsHost,

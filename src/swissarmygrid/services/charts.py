@@ -345,7 +345,7 @@ class Cards:
                 shown["points"] = min(len(fetched), limit)
                 if len(fetched) > limit:
                     shown["note"] = f"Showing the first {limit:,} rows of the query."
-            elif card["kind"] == "table":
+            elif card["kind"] == "table" and "sql" in card:
                 guarded = guard(
                     card["sql"], {i.name for i in ws.store.all()}, compiled.sql, grammar=ws.grammar
                 )

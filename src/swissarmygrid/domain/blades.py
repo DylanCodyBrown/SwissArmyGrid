@@ -151,6 +151,15 @@ def read_code(code: str, label: str = "the blade") -> BladeCode:
     )
 
 
+def _function_params(code: str, name: str) -> int | None:
+    """How many positional arguments the top-level function `name` takes; None when it is not one."""
+    for statement in parse_code(code).body:
+        if isinstance(statement, ast.FunctionDef) and statement.name == name:
+            args = statement.args
+            return len(args.posonlyargs) + len(args.args)
+    return None
+
+
 def import_lines(code: str) -> list[str]:
     """The code's top-level import statements, as written (for adding to a script's top)."""
     tree = parse_code(code)
@@ -369,7 +378,10 @@ def missing_module_hint(module: str) -> str:
 FORMAT: int = 1
 HEADER_TYPE: str = "swissarmygrid-blade"
 SUFFIX: str = ".blade.py"
-KINDS: tuple[str, ...] = ("sql", "other", "vault", "secret")
+# An analysis blade is the user's own analysis: a function of the grid's rows (a pandas DataFrame, and
+# optionally the selected columns) that returns markdown, a table, a figure, or a list or dict of them.
+# It shows in the Analyze menu and runs in a child process, like Refresh.
+KINDS: tuple[str, ...] = ("sql", "other", "vault", "secret", "analysis")
 _OPEN = re.compile(r"^# /// (?P<type>[a-zA-Z0-9-]+)$")
 _CLOSE: str = "# ///"
 _MAX_FILE_BYTES: int = 1_000_000
@@ -1213,6 +1225,19 @@ def parse_blade(data: Any, previous: Blade | None = None, now: float = 0.0) -> B
         )
     blade.variable = variable
 
+    if kind == "analysis":
+        params = _function_params(blade.code, variable)
+        if params is None:
+            raise BladeError(
+                f"An analysis blade's {variable!r} is a function of the rows: def {variable}(df): ... "
+                "(and, if you want them, the selected columns: def analyze(df, columns): ...)."
+            )
+        if not 1 <= params <= 2:
+            raise BladeError(
+                f"{variable} takes the rows (df), and optionally the selected columns: 1 or 2 arguments."
+            )
+        return blade
+
     if kind == "sql":
         try:
             blade.dialect = normalize_dialect(_text(data, "dialect", 32) or None)
@@ -1266,7 +1291,7 @@ class Template:
     id: str
     label: str
     group: str  # "Databases", "Files", "Vaults", "Other"
-    kind: str  # "sql", "other" or "vault"
+    kind: str  # "sql", "other", "vault" or "analysis"
     code: str
     variable: str
     dialect: str = "other"

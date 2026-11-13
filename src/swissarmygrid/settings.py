@@ -102,6 +102,8 @@ class Settings:
     # Excel's sheet limit: the SQL box shows a result as large as a worksheet can hold.
     max_sql_rows: int = EXCEL_MAX_ROWS
     max_chart_points: int = 5_000
+    # An analysis blade gets the grid's rows as a DataFrame in a child process: up to this many.
+    max_analysis_rows: int = 2_000_000
     max_response_bytes: int = 8 * MIB
     # The SQL box sends its whole result at once (grid windows are paged), so it gets room for it.
     max_sql_response_bytes: int = 1 * GIB

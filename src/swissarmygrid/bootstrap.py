@@ -125,8 +125,10 @@ def bootstrap(
     recipes = RecipeFiles(state_dir / "recipes")
     verifier = Verifier(settings.duckdb_memory_limit)
 
-    async def run_blade(blade: Blade, mode: str, typed: dict[str, str]) -> dict[str, Any]:
-        job = blade_runner.payload(blade_store, blade, mode, typed)
+    async def run_blade(
+        blade: Blade, mode: str, typed: dict[str, str], extra: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        job = blade_runner.payload(blade_store, blade, mode, typed, extra)
         return await blade_runner.run(job, settings.blade_timeout_seconds)
 
     # ===== the workspace: the ports every use case shares =====

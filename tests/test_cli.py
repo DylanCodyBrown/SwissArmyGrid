@@ -145,6 +145,8 @@ NOT_COMMANDS = {
     "/catalog": "page shell",
     "/catalogs/{}/script": "the catalog's right-click Script as; the agent has catalog_columns' first SELECT",
     "/analysis-proof": "Show the math on a result the window holds; the agent reads results whole",
+    "/blades/analyses": "as /blades",
+    "/grids/{}/blade-analysis": "runs the user's own analysis blade (their code): refused to the agent",
     "/python/send": "code into the user's own Python: only the user's click, refused to the agent",
     "/python/take": "as /python/send (sag.paste() calls it)",
     "/python/sent": "as /python/send",

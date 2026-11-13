@@ -181,7 +181,7 @@ def test_every_template_reads_as_python_and_names_its_variable(template: object)
     if template.catalog_language == "sql":
         assert "SELECT" in (template.catalog_command or "").upper()
     assert json.dumps(template.to_json())
-    assert template.kind in ("sql", "other", "vault")
+    assert template.kind in ("sql", "other", "vault", "analysis")
 
 
 def test_there_are_twenty_databases_files_and_vaults() -> None:

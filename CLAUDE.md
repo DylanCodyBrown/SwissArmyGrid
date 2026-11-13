@@ -127,7 +127,7 @@ src/swissarmygrid/
     security.py          the guard: 127.0.0.1, the token, Host and Origin
     lifecycle.py, launcher.py, __main__.py   ports, single instance, clean exit; `swissarmygrid`
     blade_runner.py      Refresh/Test in a child process; installing packages
-    blade_templates.py   the 35 starter blades
+    blade_templates.py   the 38 starter blades (3 analyses)
 
   client/push_client.py  push(), ensure_server()
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
@@ -150,6 +150,7 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          analysisCards.ts every result as Sandbox cards (a report-style note and a chart);
                          sandboxDashboards.ts saving and opening the Sandbox as named dashboards;
                          tieOutDialog.ts the compare's tie-out report (Tie-out… in the Compare row);
+                         bladeAnalysis.ts analysis blades (your own analyses) in the Analyze menu;
                          sandboxPages.ts Page view, Print to PDF and moving cards; sandboxExport.ts the
                          markdown export; cellMenu.ts the right-click menus on cells and headers;
                          tour.ts is the first-time tour (the Application row's question mark: a

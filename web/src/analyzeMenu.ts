@@ -10,6 +10,7 @@
  *                      then copied and queued for sag.paste() (toPython.ts)
  */
 import { api, grid } from "./api";
+import { analysisBlades, openBladesPage, runBladeAnalysis } from "./bladeAnalysis";
 import { toPython } from "./toPython";
 import type { SandboxCard } from "./analysisCards";
 import { button, h, icon, toast } from "./dom";
@@ -59,6 +60,16 @@ function openMenu(event: MouseEvent): void {
   menu.style.top = `${anchor.bottom + 4}px`;
   menu.style.left = `${Math.min(anchor.left, window.innerWidth - menu.offsetWidth - 8)}px`;
   (menu.querySelector("button") as HTMLButtonElement | null)?.focus();
+  // Your own analyses (analysis blades), under the built-in ones.
+  void analysisBlades().then((mine) => {
+    if (!menu.isConnected) return;
+    menu.append(
+      h("div", { class: "menu-rule", role: "separator" }),
+      h("div", { class: "menu-label" }, "Your analyses"),
+      ...mine.map((blade) => h("button", { type: "button", role: "menuitem", title: blade.description || blade.name, onclick: () => { menu.remove(); void runBladeAnalysis(blade); } }, icon("cog"), blade.name)),
+      h("button", { type: "button", role: "menuitem", onclick: () => { menu.remove(); openBladesPage(); } }, icon("plus"), mine.length ? "Make another…" : "Make your own…"),
+    );
+  });
   setTimeout(() =>
     document.addEventListener("click", function away(e) {
       if (!menu.contains(e.target as Node)) {

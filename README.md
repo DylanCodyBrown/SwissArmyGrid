@@ -235,7 +235,10 @@ replaces the card in place when the cell runs again.
 
 - **Kinds:** SQL connection (with its dialect), other (any code), vault (Azure Key Vault, AWS,
   Google, HashiCorp, 1Password, a `.env` file, the operating system's vault: each secret mapped to an
-  environment variable) and secret (variable names only; the values are typed each session).
+  environment variable), secret (variable names only; the values are typed each session) and
+  **analysis**: your own analysis, `def analyze(df, columns): ...` over the grid's rows as a pandas
+  DataFrame, returning markdown, a table or a figure. It shows under **Your analyses** in the Analyze
+  menu, runs in a child process like Refresh, and its result can go to the Sandbox. Three starters.
 - **Secrets:** `secret("password")` in a blade's code. Its value is kept in the operating system's
   vault (Windows Credential Manager, macOS Keychain), never in the blade's file; an environment
   variable of the same name works too.

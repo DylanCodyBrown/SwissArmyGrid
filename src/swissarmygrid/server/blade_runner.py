@@ -13,13 +13,17 @@ catalog) or a plain error with every secret value replaced by ****.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import io
 import json
 import os
 import shutil
 import sys
 from pathlib import Path
 from typing import Any
+
+import pyarrow.ipc as ipc
 
 from swissarmygrid.adapters.blades import BladeStore
 from swissarmygrid.domain.blades import Blade
@@ -33,11 +37,22 @@ class RefreshError(RuntimeError):
         self.missing_module = missing_module
 
 
-def payload(store: BladeStore, blade: Blade, mode: str, typed: dict[str, str]) -> dict[str, Any]:
-    """What the child needs: the blade, the vault blades that supply its missing secrets, typed values."""
+def payload(
+    store: BladeStore, blade: Blade, mode: str, typed: dict[str, str], extra: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """What the child needs: the blade, the vault blades that supply its missing secrets, typed values.
+    For an analysis (`extra`): the grid's rows as an Arrow table (sent as Arrow IPC) and the columns."""
     vaults, _ = store.providers(blade)
+    rows: dict[str, Any] = {}
+    if extra and extra.get("table") is not None:
+        sink = io.BytesIO()
+        with ipc.new_stream(sink, extra["table"].schema) as writer:
+            writer.write_table(extra["table"])
+        encoded = base64.b64encode(sink.getvalue()).decode("ascii")
+        rows = {"rows": encoded, "columns": extra.get("columns", [])}
     return {
-        "mode": mode,  # "catalog" or "test"
+        **rows,
+        "mode": mode,  # "catalog", "test" or "analysis"
         "label": blade.name,
         "kind": blade.kind,
         "code": blade.code,
@@ -150,6 +165,8 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
             values = run_vault(job["code"], job["variable"], job["vault_mapping"], secrets, job["label"])
             return {"ok": True, "variables": sorted(values)}  # names only: the values stay in this process
         value, names = run_code(job["code"], job["variable"], secrets, job["label"])
+        if job["mode"] == "analysis":
+            return _analysis(value, job)
         try:
             if job["mode"] == "test":
                 return {"ok": True, "type": f"{type(value).__module__}.{type(value).__qualname__}"}
@@ -166,6 +183,45 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
             if secret and len(secret) >= 3:
                 message = message.replace(secret, "****")
         return {"error": message, "missing_module": error.missing_module}
+
+
+def _analysis(function: Any, job: dict[str, Any]) -> dict[str, Any]:
+    """Call the user's analysis on the grid's rows and turn what it returns into Sandbox cards."""
+    import inspect
+
+    import pyarrow as pa
+
+    from swissarmygrid.adapters.blade_run import BladeRunError
+    from swissarmygrid.client.sandbox_client import card_for
+
+    if not callable(function):
+        raise BladeRunError(f"{job['label']}'s {job['variable']!r} is not a function.")
+    table = ipc.open_stream(io.BytesIO(base64.b64decode(job["rows"]))).read_all()
+    frame = table.to_pandas() if isinstance(table, pa.Table) else table
+    takes = len(inspect.signature(function).parameters)
+    try:
+        answer = function(frame, list(job.get("columns", []))) if takes >= 2 else function(frame)
+    except BaseException as error:
+        if isinstance(error, KeyboardInterrupt | SystemExit):
+            raise
+        raise BladeRunError(f"{job['label']} stopped: {type(error).__name__}: {error}") from None
+    title = None
+    parts = answer if isinstance(answer, list | tuple) else [answer]
+    if isinstance(answer, dict) and not ({"data", "$schema"} & set(answer)):
+        title = answer.get("title")
+        parts = [answer[k] for k in ("markdown", "table", "figure") if answer.get(k) is not None]
+    cards = []
+    for part in parts[:12]:
+        if part is None:
+            continue
+        try:
+            cards.append(card_for(part))
+        except (TypeError, ValueError) as error:
+            message = f"{job['label']} returned something the Sandbox can't show: {error}"
+            raise BladeRunError(message) from None
+    if not cards:
+        raise BladeRunError(f"{job['label']} returned nothing to show: return markdown, a table or a figure.")
+    return {"title": title, "cards": cards}
 
 
 def main() -> None:

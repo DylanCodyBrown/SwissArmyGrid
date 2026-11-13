@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Protocol
 
 from swissarmygrid.domain import blades as rules
+from swissarmygrid.domain.analysis import whole_view_queries
 from swissarmygrid.domain.blades import (
     Blade,
     BladeCodeError,
@@ -31,7 +32,10 @@ from swissarmygrid.domain.blades import (
     install_command,
     pip_name,
 )
+from swissarmygrid.domain.datasets import DatasetInfo
+from swissarmygrid.domain.grids import Grid
 from swissarmygrid.services.catalogs import CatalogService
+from swissarmygrid.services.ports import BACKGROUND, SqlSession
 from swissarmygrid.services.workspace import Workspace
 
 _PIP_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\-]{0,99}(\[[A-Za-z0-9,._\-]{1,100}\])?")
@@ -95,7 +99,7 @@ class BladeService:
         catalogs: CatalogService,
         templates: Sequence[Template],
         packages: Callable[[str], list[Package]],
-        run_blade: Callable[[Blade, str, dict[str, str]], Awaitable[dict[str, Any]]],
+        run_blade: Callable[..., Awaitable[dict[str, Any]]],
         install_packages: Callable[[list[str]], Awaitable[tuple[int | None, str]]],
         python: str,
         environ: Mapping[str, str],
@@ -106,7 +110,7 @@ class BladeService:
         self._templates = templates
         # The packages a blade's code needs, each marked installed here or not (adapters/blade_run.py).
         self._packages = packages
-        # Run a blade in a child process: "catalog" or "test" (server/blade_runner.py).
+        # Run a blade in a child process: "catalog", "test" or "analysis" (server/blade_runner.py).
         self._run_blade = run_blade
         self._install_packages = install_packages
         # SwissArmyGrid's own Python (where Refresh runs), and the environment suggestions come from.
@@ -276,6 +280,48 @@ class BladeService:
     async def test(self, blade: Blade, body: Any) -> dict[str, Any]:
         """Run it in a child process: does it work?"""
         return await self._run_blade(blade, "test", self._typed_values(blade, body))
+
+    # ===== analysis blades: the user's own analyses in the Analyze menu =====
+
+    def analyses(self) -> dict[str, Any]:
+        """The analysis blades, for the Analyze menu: name, description, favourite."""
+        found = [b for b in self._blades.all() if b.kind == "analysis"]
+        return {"analyses": [{"name": b.name, "description": b.description, "tags": b.tags} for b in found]}
+
+    async def analyze(
+        self, name: str, grid: Grid, info: DatasetInfo, body: dict[str, Any], who: str
+    ) -> dict[str, Any]:
+        """Run the analysis blade `name` on the grid's rows as it shows them (its steps), in a child
+        process: {"title", "cards"}, ready for the Sandbox."""
+        blade = self._blades.get(name)
+        if blade.kind != "analysis":
+            raise BladeError(f"{blade.name} is not an analysis blade.")
+        columns = body.get("columns") or []
+        if not isinstance(columns, list) or not all(isinstance(c, str) for c in columns):
+            raise BladeError("columns is a list of the grid's column names.")
+        ws = self.ws
+        limit = ws.settings.max_analysis_rows
+
+        def read(cur: SqlSession) -> Any:
+            with ws.views.reading(cur, info, grid.steps, grid.settings) as rows:
+                how_many, every = whole_view_queries(f"({rows}) AS src")
+                counted = cur.execute(how_many).fetchone()
+                if counted and int(counted[0]) > limit:
+                    raise BladeError(
+                        f"{counted[0]:,} rows is more than an analysis blade takes ({limit:,}): "
+                        "filter the grid first."
+                    )
+                return cur.execute(every).to_arrow_table()
+
+        table = await ws.grid_query(grid, None, BACKGROUND, read)
+        typed = self._typed_values(blade, body)
+        answer = await self._run_blade(blade, "analysis", typed, {"table": table, "columns": columns})
+        ws.audit.write(who, "blade_analysis", info.name, blade=blade.name)
+        return {
+            "title": answer.get("title") or blade.name,
+            "cards": answer.get("cards", []),
+            "blade": blade.name,
+        }
 
     def run_failure(self, message: str, missing_module: str | None) -> dict[str, Any]:
         """What the page shows for a failed run: the message, and the install when a module is missing."""

@@ -1,4 +1,5 @@
-"""Starter blades: the most used databases, common file patterns and vaults (plan, the owner's request).
+"""Starter blades: the most used databases, common file patterns, vaults and a few analyses (plan, the
+owner's request).
 
 Each template is a starting point the user edits on the save screen: the driver's import, the
 connection with placeholders (`my-server`, `my_database`), `secret("password")` where a password goes,
@@ -636,5 +637,67 @@ session.headers["Authorization"] = "Bearer " + secret("token")""",
     ),
 )
 
-TEMPLATES: tuple[Template, ...] = (*DATABASES, *FILES, *VAULTS, *OTHER)
+# ===== your own analyses (the Analyze menu) =====
+# A function of the grid's rows (a pandas DataFrame, as the grid shows them) and, if it takes a second
+# argument, the selected columns. It returns markdown, a table, a figure, or a list or dict of them.
+
+ANALYSES: tuple[Template, ...] = (
+    Template(
+        "summary",
+        "Summary of every column",
+        "Analyses",
+        "analysis",
+        """import pandas as pd
+
+
+def analyze(df: pd.DataFrame) -> list:
+    summary = df.describe(include="all").transpose().reset_index(names="column")
+    note = f"## {len(df):,} rows, {len(df.columns)} columns\\n\\nCounts, means and spreads of each column."
+    return [note, summary]""",
+        "analyze",
+        note="Runs on the grid's rows as it shows them; its result can go to the Sandbox.",
+    ),
+    Template(
+        "pareto",
+        "Pareto: which values make 80%",
+        "Analyses",
+        "analysis",
+        """import pandas as pd
+
+
+def analyze(df: pd.DataFrame, columns: list[str]) -> list:
+    column = columns[0] if columns else df.columns[0]
+    counts = df[column].value_counts().rename_axis(column).reset_index(name="rows")
+    counts["share"] = counts["rows"] / counts["rows"].sum()
+    counts["running share"] = counts["share"].cumsum()
+    few = int((counts["running share"] < 0.8).sum()) + 1
+    note = (
+        f"## {column}: {few} of {len(counts):,} values make 80% of the rows\\n\\n"
+        "The values, commonest first, with their running share."
+    )
+    return [note, counts.head(50)]""",
+        "analyze",
+        note="Select a column first; without one it takes the first.",
+    ),
+    Template(
+        "correlations",
+        "Correlations of the number columns",
+        "Analyses",
+        "analysis",
+        """import pandas as pd
+
+
+def analyze(df: pd.DataFrame) -> dict:
+    numbers = df.select_dtypes("number")
+    table = numbers.corr().round(3).reset_index(names="column")
+    return {
+        "title": "Correlations",
+        "markdown": "Pearson's r between every pair of number columns: 1 moves together, -1 opposite.",
+        "table": table,
+    }""",
+        "analyze",
+    ),
+)
+
+TEMPLATES: tuple[Template, ...] = (*DATABASES, *FILES, *VAULTS, *OTHER, *ANALYSES)
 BY_ID: dict[str, Template] = {t.id: t for t in TEMPLATES}
