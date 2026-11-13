@@ -176,10 +176,37 @@ first, the server part once the Cosmic Python refactor has landed.
   through svgSafe (no scripts, handlers, animations, embedded HTML or outside links); Plotly refuses map
   traces (they fetch tiles) and keeps only inline layout images; ECharts drops images, links, the
   graphic layer and the data view, and draws tooltips as text.
-- **Next (server, after the refactor):** the new kinds and image cards in the cards routes, card sizes
-  kept on the server (now in the browser), `sag.show(fig)` from any Python (matplotlib, seaborn,
-  Plotly figures as JSON), MCP tools for the agent, and dashboards saved to disk that reopen with the
-  workspace.
+- **Next (server, after the refactor), the owner's follow-up:** "a sag command to push anything to the
+  sandbox ... the script can push anything that is visual"; "the MCPs should be fully aware of what
+  tools are available to build graphs and charts"; "an agent can push rendered markdown ... resizable
+  like a text box"; "no gaps in MCP tools ... the agents will need to understand what they are looking
+  at, what's available and what data they can plot with". The design:
+  - **`sag.sandbox(thing, title=None, *, key=None, size=None, kind=None)`** in Python (standard library
+    only; it duck-types what it is given): a matplotlib or seaborn figure (`savefig`, PNG), a Plotly
+    figure (`to_json`), an Altair chart (`to_dict`, drawn as Vega-Lite), a graphviz `Digraph`/`Source`
+    (`.source`), a PIL image, PNG/JPEG/SVG bytes or a file path, a DataFrame (a table card, first rows),
+    Markdown text (a note), and Mermaid, DOT or ECharts text with `kind=`. Explicit, not every image:
+    the script decides what is worth showing. **`key=`** names a card, so running a cell again
+    replaces its card instead of adding another. Returns the card's id. `sag sandbox ...` in the
+    terminal does the same for files.
+  - **Cards not tied to a table:** a card from Python or the agent may belong to no grid ("Python").
+  - **The agent's tools:** `sandbox_formats` (every card kind, its exact format, limits, a small
+    example of each, and how sizing works: what it can build); `sandbox_add` for every kind, Markdown
+    notes included (an image from a file path the agent saved, since the MCP server runs on the same
+    computer); `sandbox_update`; `sandbox_layout` (sizes and order, to arrange a dashboard);
+    `sandbox_list` describing each card (kind, title, size, the table it uses, a short summary of its
+    content, never a whole image) so the agent understands what is on screen; `app_snapshot` of the
+    Sandbox to see it.
+  - **What data it can plot with:** the existing table tools (open tables, columns and types,
+    profiles, `agent_query`) plus **data-bound figures**: a Plotly or ECharts card may name a table and
+    a query; the server runs it (capped at 5,000 rows, as charts are) and fills the figure (ECharts'
+    `dataset.source`, Plotly columns by name). Big data never passes through the agent, and the card
+    follows the table's steps.
+  - **Sizes on the server**, so a dashboard is the same in every browser; notes size like a text box.
+  - **Saved dashboards:** the Sandbox is saved to disk as it changes and reopens when SwissArmyGrid
+    starts; named dashboards save and open (`sandbox_save`, `sandbox_open`); once workspaces exist
+    (plan phase 1), each workspace opens with its own. A card drawn from a table that is not open
+    says so, and draws when the table is pushed again.
 
 ## Steel and Swiss army knife red (2026-11-13, the owner's request; confirm or change)
 
