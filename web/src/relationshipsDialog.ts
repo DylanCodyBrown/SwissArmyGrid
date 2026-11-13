@@ -33,7 +33,7 @@ interface LibraryTang {
   saved_at: string;
   author: string;
   file: string;
-  where: "mine" | "shared" | "package" | "environment";
+  where: "mine" | "shared" | "package" | "environment" | "pack";
   tang: boolean;
   tables: string[];
   open_tables: string[];
@@ -65,7 +65,7 @@ interface RunResult extends Join {
   notes?: string[];
 }
 
-const WHERE: Record<LibraryTang["where"], string> = { mine: "Mine", shared: "Shared", package: "Built in", environment: "Folder" };
+const WHERE: Record<LibraryTang["where"], string> = { mine: "Mine", shared: "Shared", package: "Built in", environment: "Folder", pack: "Pack" };
 const STATUS: Record<RunResult["status"], [string, string]> = {
   holds: ["check", "Holds"],
   orphans: ["filter", "Holds, with orphans"],

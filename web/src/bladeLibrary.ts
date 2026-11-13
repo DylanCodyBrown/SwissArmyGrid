@@ -273,3 +273,181 @@ export async function editBladeFolders(onDone: () => void): Promise<void> {
     }, { class: "primary", icon: "save" }),
   );
 }
+
+// ===== packs: blades and tangs from your team's Claude Code marketplace =====
+
+interface PackInfo {
+  name: string;
+  marketplace: string;
+  version: string;
+  label: string;
+  root: string;
+  blades: number;
+  tangs: number;
+  enabled: boolean;
+  editable: boolean;
+}
+
+interface PacksAnswer {
+  installed: PackInfo[];
+  editable: PackInfo[];
+  plugins_root: string;
+  commands: { add: string; install: string; update: string };
+}
+
+function commandLine(text: string): HTMLElement {
+  return h(
+    "div",
+    { class: "row-actions" },
+    h("code", { class: "command-line" }, text),
+    button("Copy", () => void navigator.clipboard.writeText(text).then(() => toast("Copied.")), { icon: "copy", iconOnly: true, class: "ghost" }),
+  );
+}
+
+/** The Packs window: installed packs (read-only blades and tangs), editable ones (a clone of the team's
+ * repository in a blade folder) with Add blades and tangs, and a new marketplace repository. */
+export async function openPacks(onDone: () => void): Promise<void> {
+  let state: PacksAnswer;
+  try {
+    state = await api<PacksAnswer>("/packs");
+  } catch (error) {
+    toast((error as Error).message, "error");
+    return;
+  }
+  const { body, foot, close } = openDialog("Packs: blades and tangs from your team's marketplace", true);
+  const packRow = (p: PackInfo, action: HTMLElement | null): HTMLElement =>
+    h(
+      "li",
+      { class: "tang-item" },
+      h(
+        "div",
+        { class: "tang-text" },
+        h("strong", {}, p.name),
+        p.marketplace ? h("span", { class: "hint" }, ` @ ${p.marketplace}`) : null,
+        h("span", { class: "badge" }, p.editable ? "editable clone" : p.enabled ? `version ${p.version}` : "switched off in Claude Code"),
+        h("div", { class: "hint" }, `${p.blades} blades · ${p.tangs} tangs · `, h("code", {}, p.root)),
+      ),
+      action,
+    );
+  append(
+    body,
+    h(
+      "p",
+      { class: "hint" },
+      "A pack is a Claude Code plugin with a blades/ folder and a tangs/ folder. Your team keeps packs in a marketplace: a GitHub repository. Installed packs show their blades on this page and their tangs in the Relationships window, read-only, marked with the pack.",
+    ),
+    h("h3", {}, "Installed"),
+    state.installed.length
+      ? h("ul", { class: "tang-list" }, ...state.installed.map((p) => packRow(p, null)))
+      : h("p", { class: "hint" }, `No packs installed (looked in ${state.plugins_root}).`),
+    h("h3", {}, "Get your team's packs, in Claude Code"),
+    commandLine(state.commands.add),
+    commandLine(state.commands.install),
+    h("p", { class: "hint" }, "Then, to get the team's latest:"),
+    commandLine(state.commands.update),
+    h("h3", {}, "Change a pack"),
+    h(
+      "p",
+      { class: "hint" },
+      "Clone the marketplace's repository and add the clone as a blade folder. Its packs are listed here: add blades and tangs to one, commit, and open a pull request. Once merged, everyone updates.",
+    ),
+    state.editable.length
+      ? h(
+          "ul",
+          { class: "tang-list" },
+          ...state.editable.map((p) => packRow(p, button("Add blades and tangs", () => void addToPack(p, onDone), { icon: "plus", class: "primary" }))),
+        )
+      : h("p", { class: "hint" }, "No clone of a marketplace in your blade folders yet."),
+  );
+  foot.append(
+    button("New marketplace repository", () => newMarketplace(() => {
+      close();
+      onDone();
+      void openPacks(onDone);
+    }), { icon: "plus", title: "Start a marketplace with one pack, ready to push to GitHub" }),
+    button("Close", close, { class: "primary" }),
+  );
+}
+
+async function addToPack(pack: PackInfo, onDone: () => void): Promise<void> {
+  let blades: { name: string; source: string }[] = [];
+  let tangs: { name: string; where: string }[] = [];
+  try {
+    blades = (await api<{ blades: { name: string; source: string }[] }>("/blades")).blades.filter((b) => b.source !== "pack");
+    tangs = (await api<{ models: { name: string; where: string }[] }>("/relationships/library")).models.filter((t) => t.where !== "pack");
+  } catch (error) {
+    toast((error as Error).message, "error");
+    return;
+  }
+  const { body, foot, close } = openDialog(`Add to ${pack.name}`);
+  const picks = (items: string[], label: string): [HTMLElement, () => string[]] => {
+    const boxes = items.map((n) => [n, h("input", { type: "checkbox", "aria-label": `${label} ${n}` }) as HTMLInputElement] as const);
+    const list = h("div", { class: "check-list" }, ...boxes.map(([n, box]) => h("label", { class: "check" }, box, n)));
+    return [list, () => boxes.filter(([, b]) => b.checked).map(([n]) => n)];
+  };
+  const [bladeList, chosenBlades] = picks(blades.map((b) => b.name), "Blade");
+  const [tangList, chosenTangs] = picks(tangs.map((t) => t.name), "Tang");
+  const replace = h("input", { type: "checkbox", "aria-label": "Replace files already in the pack" }) as HTMLInputElement;
+  append(
+    body,
+    h("p", { class: "hint" }, `Copies them into ${pack.root} (blades/ and tangs/), ready to commit. Secrets never travel: only their names.`),
+    h("h3", {}, "Blades"),
+    blades.length ? bladeList : h("p", { class: "hint" }, "No blades of your own yet."),
+    h("h3", {}, "Tangs"),
+    tangs.length ? tangList : h("p", { class: "hint" }, "No tangs yet."),
+    h("label", { class: "check" }, replace, "Replace a file already in the pack"),
+  );
+  foot.append(
+    button("Cancel", close, { class: "ghost" }),
+    button("Add", () => {
+      void api<{ written: string[]; kept: string[] }>("/packs/add", "POST", { pack: pack.root, blades: chosenBlades(), tangs: chosenTangs(), replace: replace.checked }).then(
+        (answer) => {
+          close();
+          toast(`Added ${answer.written.length} files to ${pack.name}${answer.kept.length ? `; kept ${answer.kept.length} already there` : ""}. Commit and push them to share.`);
+          onDone();
+        },
+        (error: Error) => toast(error.message, "error"),
+      );
+    }, { class: "primary", icon: "plus" }),
+  );
+}
+
+function newMarketplace(onDone: () => void): void {
+  const { body, foot, close } = openDialog("New marketplace repository");
+  const field = (label: string, input: HTMLElement): HTMLElement => h("label", { class: "field" }, h("span", {}, label), input);
+  const folder = h("input", { type: "text", "aria-label": "New folder", placeholder: "C:\\Users\\me\\repos\\data-blades", spellcheck: "false" });
+  const marketplace = h("input", { type: "text", "aria-label": "Marketplace name", placeholder: "data-blades", spellcheck: "false" });
+  const pack = h("input", { type: "text", "aria-label": "First pack's name", placeholder: "sales", spellcheck: "false" });
+  const owner = h("input", { type: "text", "aria-label": "Owner", placeholder: "The sales team" });
+  const description = h("input", { type: "text", "aria-label": "Description", placeholder: "What the team keeps here" });
+  append(
+    body,
+    h("p", { class: "hint" }, "Makes a new folder with the marketplace's manifest, one pack (blades/ and tangs/) and a README with the commands, and adds it as a blade folder so you can save into it now. Push it to GitHub to share it. In a terminal: sag pack new <folder>."),
+    field("New folder (full path)", folder),
+    field("Marketplace name (letters, digits, . _ -)", marketplace),
+    field("First pack's name (lowercase, digits, -)", pack),
+    field("Owner", owner),
+    field("Description", description),
+  );
+  foot.append(
+    button("Cancel", close, { class: "ghost" }),
+    button("Create", () => {
+      void api<{ files: string[] }>("/packs/new", "POST", {
+        folder: folder.value.trim(),
+        marketplace: marketplace.value.trim(),
+        pack: pack.value.trim(),
+        owner: owner.value.trim(),
+        description: description.value.trim(),
+        add_folder: true,
+      }).then(
+        (answer) => {
+          close();
+          toast(`Created ${answer.files.length} files and added the folder as a blade folder.`);
+          onDone();
+        },
+        (error: Error) => toast(error.message, "error"),
+      );
+    }, { class: "primary", icon: "plus" }),
+  );
+  folder.focus();
+}

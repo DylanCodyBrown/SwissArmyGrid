@@ -32,8 +32,10 @@ export interface BladeSummary {
   tags: string[];
   /** A favourite on this computer: listed first. */
   pinned: boolean;
-  /** "folder": its own .blade.py file in a blade folder (`path`); "saved": kept by the app. */
-  source: "saved" | "folder";
+  /** "folder": its own .blade.py file in a blade folder (`path`); "saved": kept by the app; "pack":
+   * from an installed Claude Code plugin (a marketplace), read-only. */
+  source: "saved" | "folder" | "pack";
+  pack?: string | null; // the pack's label (sales@team-blades 1a2b3c), for a pack blade
   path: string | null;
 }
 
@@ -765,10 +767,19 @@ export async function editBlade(
   }
 
   let savedName = name;
+  // A pack's blade is read-only here: saving makes a copy of your own (named "<name> copy" unless
+  // renamed first); the pack itself changes in its repository.
+  let fromPack = Boolean(detail?.pack);
   async function save(then: "close" | "refresh" | "test"): Promise<void> {
     say("Saving...");
     try {
-      const saved = await api<BladeSummary>(savedName ? path(savedName) : "/blades", savedName ? "PUT" : "POST", body());
+      const sent = body();
+      if (fromPack && String(sent.name).toLowerCase() === (name ?? "").toLowerCase()) {
+        sent.name = draft.name = nameInput.value = `${name} copy`;
+      }
+      const target = fromPack ? null : savedName;
+      const saved = await api<BladeSummary>(target ? path(target) : "/blades", target ? "PUT" : "POST", sent);
+      fromPack = false;
       savedName = saved.name;
       typedSecrets.clear();
       say(`Saved ${saved.name}.`, "ok");
@@ -818,7 +829,15 @@ export async function editBlade(
   append(
     sections,
     h("label", {}, h("span", {}, "Name"), nameInput),
-    detail?.path ? h("p", { class: "hint" }, "Kept in its own file: ", h("code", {}, detail.path), ". Saving here writes that file.") : null,
+    detail?.pack
+      ? h(
+          "p",
+          { class: "warning-text" },
+          `From the pack ${detail.pack}, installed from your team's marketplace. It is read-only here: Save a copy makes one of your own; the pack itself changes in its repository (a clone added as a blade folder, then a pull request).`,
+        )
+      : detail?.path
+        ? h("p", { class: "hint" }, "Kept in its own file: ", h("code", {}, detail.path), ". Saving here writes that file.")
+        : null,
     h("label", {}, h("span", {}, "Description"), descriptionInput),
     h("label", {}, h("span", {}, "Tags (commas between; search finds a blade by any of them)"), tagsInput),
     name ? null : whereLabel,
@@ -829,9 +848,17 @@ export async function editBlade(
     h(
       "div",
       { class: "row-actions" },
-      button("Save", () => void save("close"), { class: "primary", icon: "save" }),
-      button("Save and refresh the catalog", () => void save("refresh"), { icon: "play" }),
-      button("Save and test", () => void save("test"), { icon: "check" }),
+      ...(detail?.pack
+        ? [
+            button("Save a copy", () => void save("close"), { class: "primary", icon: "copy", title: "Make a blade of your own from this one" }),
+            button("Test", () => void runBlade(detail.name, "test").then((a) => a && say("It works.", "ok")), { icon: "check", title: "Run the pack's blade as it is" }),
+            detail.catalog ? button("Refresh the catalog", () => void runBlade(detail.name, "refresh").then((a) => a && say("Refreshed.", "ok")), { icon: "play" }) : null,
+          ]
+        : [
+            button("Save", () => void save("close"), { class: "primary", icon: "save" }),
+            button("Save and refresh the catalog", () => void save("refresh"), { icon: "play" }),
+            button("Save and test", () => void save("test"), { icon: "check" }),
+          ]),
       button("Cancel", onClosed, { class: "ghost" }),
       name ? button("Export", () => void exportBlades(savedName ?? name), { icon: "export", class: "ghost", title: "Download it as a .blade.py file anyone can import" }) : null,
       name && !detail?.path ? button("Remove", () => void remove(), { class: "danger", icon: "trash" }) : null,

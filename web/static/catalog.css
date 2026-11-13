@@ -577,3 +577,25 @@ textarea.code-box {
 dialog .dialog-body > h2:first-child {
   display: none;
 }
+
+/* packs: a pack blade's badge, the Packs window's command lines and pick lists */
+.blade-pack {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.command-line {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+}
+
+.check-list {
+  display: grid;
+  max-height: 30vh;
+  gap: 2px;
+  overflow: auto;
+}

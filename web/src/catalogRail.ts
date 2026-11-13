@@ -11,7 +11,7 @@
  */
 import { api, query } from "./api";
 import { type BladeSummary, bladeLine, kindLabel, runBlade } from "./bladeEditor";
-import { chooseBladeFiles, editBladeFolders, exportBlades, importBlades } from "./bladeLibrary";
+import { chooseBladeFiles, editBladeFolders, exportBlades, importBlades, openPacks } from "./bladeLibrary";
 import { button, clear, formatCount, h, recall, remember, toast } from "./dom";
 
 // ===== shapes the server sends (server/routes_catalog.py) =====
@@ -284,6 +284,7 @@ export function mountRail(host: RailHost): Rail {
           blade.tags?.length ? h("span", { class: "blade-item-tags" }, blade.tags.join(" · ")) : null,
         ),
         blade.source === "folder" ? h("span", { class: "blade-file", title: `In a blade folder: ${blade.path ?? ""}` }, "file") : null,
+        blade.source === "pack" ? h("span", { class: "blade-file blade-pack", title: `From the pack ${blade.pack ?? ""} (read-only)` }, "pack") : null,
         blade.has_catalog
           ? button("Refresh catalog", () => void refresh(blade.name), { icon: "play", iconOnly: true, class: "ghost", title: `Refresh ${blade.name}'s catalog` })
           : null,
@@ -304,6 +305,7 @@ export function mountRail(host: RailHost): Rail {
         button("Import blades", () => chooseBladeFiles(() => void loadBlades()), { icon: "import", iconOnly: true, class: "ghost", title: "Import .blade.py files or a zip (you review them first)" }),
         button("Export every blade", () => void exportBlades(), { icon: "export", iconOnly: true, class: "ghost", title: "Download every blade as a zip of .blade.py files" }),
         button("Blade folders", () => void editBladeFolders(() => void loadBlades()), { icon: "folder", iconOnly: true, class: "ghost", title: "Folders searched for .blade.py files" }),
+        button("Packs", () => void openPacks(() => void loadBlades()), { icon: "group", iconOnly: true, class: "ghost", title: "Packs: blades and tangs from your team's Claude Code marketplace" }),
         button("New blade", () => void newBlade(), { icon: "plus", class: "ghost" }),
       ),
       blades.length ? h("div", {}, bladeSearch, bladeTags, bladeList) : h("p", { class: "empty" }, "No blades yet. Any code that loads from outside Python can be one. Import a .blade.py file, or add a blade folder."),
