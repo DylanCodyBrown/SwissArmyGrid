@@ -1,6 +1,7 @@
-"""The fit test and outliers on a grid's current view (domain/analysis.py has the math and the query
-text). Both read the rows the user is looking at, after the grid's steps, and change nothing: an
-outlier result carries the step that would show its rows, for the page (or the agent) to add.
+"""The Analyze menu's analyses on a grid's current view: the fit test, outliers, odds and find
+predictors (domain/analysis.py has the math and the query text). Each reads the rows the user is looking
+at, after the grid's steps, and changes nothing: an outlier result carries the steps that would show or
+exclude its rows, for the page (or the agent) to add.
 """
 
 from __future__ import annotations
@@ -8,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from swissarmygrid.domain import analysis as A
+from swissarmygrid.domain import stats
 from swissarmygrid.domain.datasets import Column, DatasetInfo
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.steps import type_family
@@ -15,6 +17,7 @@ from swissarmygrid.services.ports import AGENT, BACKGROUND, SqlSession
 from swissarmygrid.services.workspace import Workspace
 
 MAX_STEP_VALUES = 1_000  # flagged values (or groups) written into a Show these rows step
+FEW_VALUES = 12  # a number column with this many different values or fewer is categories as it is
 
 
 def _column(columns: tuple[Column, ...], name: Any, number: bool = False) -> Column:
@@ -177,6 +180,7 @@ class Analysis:
             ],
             "outliers": [{"group": g, "value": x, "score": score} for g, x, score in top],
             "step": A.amount_step(column, by, fences) if fences else None,
+            "exclude_step": A.amount_step(column, by, fences, keep=False) if fences else None,
         }
         if len(flagged) > MAX_STEP_VALUES:
             result["step_note"] = f"The step shows the first {MAX_STEP_VALUES} groups with outliers."
@@ -201,4 +205,219 @@ class Analysis:
             "judged": int(distinct) >= A.MIN_GROUP,
             "outliers": [{"value": v, "count": int(n), "score": score} for v, n, score in top],
             "step": A.frequency_step(column, values) if values else None,
+            "exclude_step": A.frequency_step(column, values, keep=False) if values else None,
         }
+
+    # ===== odds =====
+
+    async def odds(self, grid: Grid, info: DatasetInfo, body: dict[str, Any], who: str) -> dict[str, Any]:
+        """{"column", "buckets": n (a number column in n equal-sized ranges), "outcome": {"column",
+        "values": [...]} or {"column", "op", "value"}}: each value's share and odds, and with an
+        outcome, each value's odds ratio for it."""
+        ws = self.ws
+        buckets = _buckets(body.get("buckets"))
+
+        def compute(cur: SqlSession) -> dict[str, Any]:
+            view = ws.compiled(cur, grid, info).columns
+            column = _column(view, body.get("column"))
+            outcome_sql: str | None = None
+            outcome_words: str | None = None
+            if body.get("outcome"):
+                outcome = body["outcome"]
+                target = _column(view, outcome.get("column") if isinstance(outcome, dict) else None)
+                outcome_sql, outcome_words = A.outcome_condition(outcome, _is_number(target))
+            with ws.views.reading(cur, info, grid.steps, grid.settings) as rows:
+                relation = f"({rows}) AS src"
+                distinct = _sizes(cur, relation, [column])[column.name][1]
+                value_sql, bucketed = _categories(cur, relation, column, buckets, distinct)
+                found = cur.execute(A.odds_query(relation, value_sql, outcome_sql)).fetchall()
+                if len(found) > A.MAX_CATEGORIES:
+                    raise A.AnalysisError(
+                        f"{column.name} has more than {A.MAX_CATEGORIES} different values: "
+                        "bucket it, or pick another column."
+                    )
+                result = A.odds(
+                    [(str(v), int(n), None if y is None else int(y)) for v, n, y in found], outcome_words
+                )
+                blanks = cur.execute(A.blanks_query(relation, value_sql)).fetchone()
+            return {
+                "column": column.name,
+                "bucketed": bucketed,
+                "blanks": int(blanks[0]) if blanks else 0,
+                **result,
+            }
+
+        result = await ws.grid_query(grid, None, AGENT if who == "agent" else BACKGROUND, compute)
+        ws.audit.write(who, "odds", info.name, column=body.get("column"))
+        return result
+
+    # ===== find predictors =====
+
+    async def predictors(
+        self, grid: Grid, info: DatasetInfo, body: dict[str, Any], who: str
+    ) -> dict[str, Any]:
+        """{"target", "candidates": [...] (default: every other column), "buckets": n (default 4)}:
+        each candidate tested together with the target (both bucketed when they are numbers), ranked
+        by Cramér's V, with the straight-line correlation for number pairs and the candidates that say
+        much the same as a stronger one."""
+        ws = self.ws
+        buckets = _buckets(body.get("buckets"))
+        wanted = body.get("candidates")
+        if wanted is not None and (
+            not isinstance(wanted, list) or not all(isinstance(c, str) for c in wanted)
+        ):
+            raise A.AnalysisError("Candidates are a list of column names.")
+
+        def compute(cur: SqlSession) -> dict[str, Any]:
+            view = ws.compiled(cur, grid, info).columns
+            target = _column(view, body.get("target"))
+            pool = (
+                [_column(view, name) for name in wanted]
+                if wanted
+                else [c for c in view if c.name != target.name]
+            )
+            pool = [c for c in pool if c.name != target.name]
+            if not pool:
+                raise A.AnalysisError("No other columns to test.")
+            with ws.views.reading(cur, info, grid.steps, grid.settings) as rows:
+                relation = f"({rows}) AS src"
+                sizes = _sizes(cur, relation, [target, *pool])
+                target_sql, target_bucketed = _categories(
+                    cur, relation, target, buckets, sizes[target.name][1]
+                )
+                if sizes[target.name][1] > A.MAX_CATEGORIES and not target_bucketed:
+                    raise A.AnalysisError(
+                        f"{target.name} has too many different values to predict; "
+                        "pick a number or a category."
+                    )
+                ranked: list[dict[str, Any]] = []
+                skipped: list[dict[str, str]] = []
+                exprs: dict[str, str] = {}
+                for column in pool:
+                    reason = _skip_reason(column, *sizes[column.name])
+                    if reason:
+                        skipped.append({"column": column.name, "reason": reason})
+                        continue
+                    expr, bucketed = _categories(cur, relation, column, buckets, sizes[column.name][1])
+                    cells = cur.execute(A.together_cells_query(relation, target_sql, expr)).fetchall()
+                    try:
+                        tested = A.together([(str(a), str(b), int(n)) for a, b, n in cells])
+                    except A.AnalysisError as error:
+                        skipped.append({"column": column.name, "reason": str(error)})
+                        continue
+                    item: dict[str, Any] = {
+                        "column": column.name,
+                        "kind": "number" if _is_number(column) else "category",
+                        "bucketed": bucketed,
+                        "v": tested["effect_size"],
+                        "strength": A.strength(tested["effect_size"]),
+                        "p": tested["p"],
+                        "df": tested["df"],
+                        "rows": tested["n"],
+                        "correlation": None,
+                    }
+                    if _is_number(target) and _is_number(column):
+                        r, n = cur.execute(
+                            A.correlation_query(relation, target.name, column.name)
+                        ).fetchone() or (
+                            None,
+                            0,
+                        )
+                        if r is not None:
+                            item.update(
+                                correlation=float(r), correlation_p=stats.correlation_p(float(r), int(n))
+                            )
+                    item["note"] = A.shape_note(item["v"], item["correlation"])
+                    exprs[column.name] = expr
+                    ranked.append(item)
+                ranked.sort(key=lambda c: -c["v"])
+                redundant = _redundant(cur, relation, ranked, exprs)
+            return {
+                "target": target.name,
+                "target_bucketed": target_bucketed,
+                "candidates": ranked,
+                "skipped": skipped,
+                "redundant": redundant,
+            }
+
+        result = await ws.grid_query(grid, None, AGENT if who == "agent" else BACKGROUND, compute)
+        ws.audit.write(who, "predictors", info.name, target=body.get("target"))
+        return result
+
+
+# ===== helpers for odds and predictors =====
+
+
+def _is_number(column: Column) -> bool:
+    return type_family(column.type) == "number"
+
+
+def _buckets(value: Any) -> int | None:
+    if value in (None, "", 0):
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError) as error:
+        raise A.AnalysisError("Buckets is a whole number, such as 4.") from error
+    if not 2 <= n <= A.MAX_BUCKETS:
+        raise A.AnalysisError(f"Between 2 and {A.MAX_BUCKETS} buckets.")
+    return n
+
+
+def _sizes(cur: SqlSession, relation: str, columns: list[Column]) -> dict[str, tuple[int, int]]:
+    """(rows with a value, different values) for each column, in one pass."""
+    row = cur.execute(A.sizes_query(relation, [c.name for c in columns])).fetchone() or ()
+    return {c.name: (int(row[2 * i]), int(row[2 * i + 1])) for i, c in enumerate(columns)}
+
+
+def _categories(
+    cur: SqlSession, relation: str, column: Column, buckets: int | None, distinct: int
+) -> tuple[str, bool]:
+    """The column as categories (SQL text, and whether it was bucketed): a number column is cut into
+    equal-sized ranges when buckets are asked for or it has more than FEW_VALUES different values
+    (4 ranges unless told); anything else is its values as text."""
+    if _is_number(column) and (buckets or distinct > FEW_VALUES):
+        edges = cur.execute(A.edges_query(relation, column.name, buckets or 4)).fetchone()
+        return A.bucket_expression(column.name, list(edges[0] or []) if edges else []), True
+    return A.as_text(column.name), False
+
+
+def _skip_reason(column: Column, filled: int, distinct: int) -> str | None:
+    family = type_family(column.type)
+    if filled == 0:
+        return "blank throughout"
+    if distinct <= 1:
+        return "one value only"
+    if family in ("date", "timestamp"):
+        return "a date: use Time series"
+    if family not in ("number", "text", "boolean"):
+        return f"a {column.type.lower()} column cannot be grouped"
+    if family == "text" and distinct == filled and filled > 20:
+        return "every row different: an identifier, not a predictor"
+    if family == "number" and distinct == filled and filled > 20 and "INT" in column.type.upper():
+        return "every row a different whole number: probably an identifier"
+    if family == "text" and distinct > A.MAX_CATEGORIES:
+        return f"more than {A.MAX_CATEGORIES} different values: group them first (Categorize)"
+    return None
+
+
+def _redundant(
+    cur: SqlSession, relation: str, ranked: list[dict[str, Any]], exprs: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Pairs among the strongest candidates that are themselves strongly related (Cramér's V of 0.7 or
+    more): give the regression the stronger one."""
+    top = [c for c in ranked if c["v"] >= 0.1][: A.MAX_REDUNDANCY_CHECKS]
+    pairs: list[dict[str, Any]] = []
+    for i, first in enumerate(top):
+        for second in top[i + 1 :]:
+            cells = cur.execute(
+                A.together_cells_query(relation, exprs[first["column"]], exprs[second["column"]])
+            ).fetchall()
+            try:
+                v = A.together([(str(a), str(b), int(n)) for a, b, n in cells])["effect_size"]
+            except A.AnalysisError:
+                continue
+            if v >= A.STRONG_REDUNDANCY:
+                pairs.append({"keep": first["column"], "drop": second["column"], "v": v})
+                second.setdefault("same_as", first["column"])
+    return pairs

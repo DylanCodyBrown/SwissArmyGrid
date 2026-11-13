@@ -3,6 +3,7 @@ beside amounts someone typed in, planted outliers per vendor, and a misspelled r
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -236,3 +237,112 @@ def test_outliers_by_frequency_find_the_misspelling(client: TestClient, grid: st
     assert "IN ('Nrth')" in found["step"]["params"]["sql"]
     bad = client.post(f"/grids/{grid}/outliers", json={"column": "region"}, headers=AUTH)
     assert bad.status_code == 400 and "not a number column" in bad.text
+
+
+# ===== odds and find predictors =====
+
+
+def test_odds_by_hand_a_two_by_two_table() -> None:
+    result = A.odds([("A", 100, 20), ("B", 100, 10)], "late")
+    a = next(v for v in result["values"] if v["value"] == "A")
+    # (20 x 90) / (80 x 10) = 2.25; Woolf: exp(ln 2.25 +- 1.96 sqrt(1/20 + 1/80 + 1/10 + 1/90))
+    assert a["odds_ratio"] == pytest.approx(2.25) and a["rate"] == 0.2 and a["rest_rate"] == 0.1
+    assert a["low"] == pytest.approx(0.9943, abs=1e-4) and a["high"] == pytest.approx(5.0916, abs=1e-4)
+    assert not a["clear"]  # the range includes 1: not clearly different
+    assert result["values"][0]["value"] == "A" and result["rate"] == 0.15
+    plain = A.odds([("North", 300, None), ("West", 100, None)])
+    west = plain["values"][1]
+    assert west["share"] == 0.25 and west["one_in"] == 4 and west["odds_against"] == 3
+    empty = A.odds([("A", 50, 0), ("B", 50, 10)], "late")["values"]
+    assert all(math.isfinite(v["odds_ratio"]) for v in empty)  # half a count added to an empty cell
+
+
+def test_buckets_read_as_people_write_ranges() -> None:
+    expr = A.bucket_expression("amount", [25.0, 60.0, 60.0, 1250.5])
+    assert "'1: up to 25'" in expr and "'2: 25 to 60'" in expr and "'3: 60 to 1,250'" in expr
+    assert "'4: over 1,250'" in expr and expr.count("WHEN") == 4  # the repeated cut is used once
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT i::DOUBLE AS amount FROM range(1, 101) t(i)")
+    [(edges,)] = con.execute(A.edges_query("t", "amount", 4)).fetchall()
+    labels = con.execute(A.odds_query("t", A.bucket_expression("amount", edges), None)).fetchall()
+    assert [n for _, n, _ in labels] == [25, 25, 25, 25]
+
+
+def test_exclude_steps_keep_the_blank_rows() -> None:
+    sql = A.amount_step("amount", None, [(None, 1.0, 9.0)], keep=False)["params"]["sql"]
+    con = duckdb.connect()
+    con.execute("CREATE TABLE grid AS SELECT * FROM (VALUES (5.0), (50.0), (NULL)) t(amount)")
+    assert sorted(con.execute(sql).fetchall(), key=str) == [(5.0,), (None,)]
+    assert keeps_order(sql, "t")
+
+
+def orders() -> pa.Table:
+    """Made-up orders: West is late far more often, large orders a little more; amount is price times
+    units plus noise; office is region under another name (redundant on purpose)."""
+    rng = np.random.default_rng(3)
+    n = 8000
+    region = rng.choice(["North", "South", "East", "West"], n, p=[0.4, 0.3, 0.2, 0.1])
+    size = rng.choice(["small", "large"], n)
+    units = rng.integers(1, 50, n)
+    price = np.round(rng.uniform(5, 100, n), 2)
+    late_p = np.where(region == "West", 0.4, 0.1) + np.where(size == "large", 0.1, 0)
+    offices = {"North": "N1", "South": "S1", "East": "E1", "West": "W1"}
+    return pa.table(
+        {
+            "order_id": np.arange(n),
+            "region": region,
+            "office": np.array([offices[r] for r in region]),
+            "size": size,
+            "units": units,
+            "price": price,
+            "late": np.where(rng.random(n) < late_p, "late", "on time"),
+            "amount": np.round(price * units + rng.normal(0, 50, n), 2),
+        }
+    )
+
+
+@pytest.fixture
+def orders_grid(client: TestClient) -> str:
+    return grid_id(push(client, "orders", orders()))
+
+
+def test_the_odds_of_being_late_by_region_and_by_amount_range(client: TestClient, orders_grid: str) -> None:
+    def odds(**body: Any) -> Any:
+        response = client.post(f"/grids/{orders_grid}/odds", json=body, headers=AUTH)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    plain = odds(column="region")
+    assert [v["value"] for v in plain["values"]] == ["North", "South", "East", "West"]
+    assert plain["values"][3]["one_in"] == pytest.approx(10, rel=0.05)
+    late = odds(column="region", outcome={"column": "late", "values": ["late"]})
+    west = late["values"][0]
+    assert west["value"] == "West" and west["clear"] and 4 < west["odds_ratio"] < 6 and west["low"] > 3
+    assert late["together"]["p"] < 0.0001
+    ranges = odds(column="amount", buckets=4, outcome={"column": "amount", "op": "gt", "value": 2000})
+    assert ranges["bucketed"] and [v["rows"] for v in ranges["values"]] == [2000] * 4
+    assert ranges["outcome"] == "amount > 2,000"
+    bad = client.post(
+        f"/grids/{orders_grid}/odds",
+        json={"column": "region", "outcome": {"column": "late", "op": "gt", "value": 1}},
+        headers=AUTH,
+    )
+    assert bad.status_code == 400 and "number column" in bad.text
+
+
+def test_find_predictors_ranks_flags_redundancy_and_skips_identifiers(
+    client: TestClient, orders_grid: str
+) -> None:
+    amount = client.post(f"/grids/{orders_grid}/predictors", json={"target": "amount"}, headers=AUTH).json()
+    assert amount["target_bucketed"]
+    ranked = [c["column"] for c in amount["candidates"]]
+    assert ranked[:2] == ["units", "price"] and amount["candidates"][0]["correlation"] > 0.6
+    assert {c["strength"] for c in amount["candidates"][2:]} == {"none"}
+    assert amount["skipped"] == [
+        {"column": "order_id", "reason": "every row a different whole number: probably an identifier"}
+    ]
+    late = client.post(f"/grids/{orders_grid}/predictors", json={"target": "late"}, headers=AGENT).json()
+    by = {c["column"]: c for c in late["candidates"]}
+    assert by["region"]["strength"] == "moderate" and by["size"]["strength"] == "weak"
+    assert late["redundant"] == [{"keep": "region", "drop": "office", "v": pytest.approx(1.0)}]
+    assert by["office"]["same_as"] == "region"

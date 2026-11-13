@@ -24,6 +24,10 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from swissarmygrid.domain.stats import chi_square_p, effect_words
+
+__all__ = ["chi_square_p", "effect_words"]  # also here: the fit test's own words
+
 EXPECTED_KINDS: tuple[str, ...] = ("even", "benford", "benford2", "grid", "shares", "together")
 METHODS: tuple[str, ...] = ("robust", "iqr", "zscore")
 LOOKS: tuple[str, ...] = ("amount", "frequency")
@@ -47,47 +51,7 @@ class AnalysisError(ValueError):
     """An analysis that cannot be run as asked. The message says why, and what to do instead."""
 
 
-# ===== the chi-square distribution =====
-
-
-def chi_square_p(statistic: float, df: int) -> float:
-    """P(X >= statistic) for chi-square with `df` degrees of freedom: the regularized upper incomplete
-    gamma function Q(df/2, statistic/2), by its series below a + 1 and its continued fraction above
-    (Numerical Recipes 6.2). Accurate to about 1e-12, which is far more than a p-value needs."""
-    if df <= 0:
-        raise ValueError("Degrees of freedom must be at least 1.")
-    if statistic <= 0:
-        return 1.0
-    a, x = df / 2.0, statistic / 2.0
-    log_front = a * math.log(x) - x - math.lgamma(a)
-    if x < a + 1.0:
-        term = total = 1.0 / a
-        n = a
-        for _ in range(10_000):
-            n += 1.0
-            term *= x / n
-            total += term
-            if abs(term) < abs(total) * 1e-15:
-                break
-        return max(0.0, 1.0 - total * math.exp(log_front))
-    tiny = 1e-300
-    b = x + 1.0 - a
-    c = 1.0 / tiny
-    d = 1.0 / b
-    h = d
-    for i in range(1, 10_000):
-        an = -i * (i - a)
-        b += 2.0
-        d = an * d + b
-        d = tiny if abs(d) < tiny else d
-        c = b + an / c
-        c = tiny if abs(c) < tiny else c
-        d = 1.0 / d
-        step = d * c
-        h *= step
-        if abs(step - 1.0) < 1e-15:
-            break
-    return min(1.0, math.exp(log_front) * h)
+# ===== Benford's law =====
 
 
 def benford_shares(digits: int = 1) -> dict[str, float]:
@@ -95,17 +59,6 @@ def benford_shares(digits: int = 1) -> dict[str, float]:
     log10(1 + 1/d)."""
     low, high = (1, 9) if digits == 1 else (10, 99)
     return {str(d): math.log10(1.0 + 1.0 / d) for d in range(low, high + 1)}
-
-
-def effect_words(size: float) -> str:
-    """Cohen's thresholds for w (and, read the same way, Cramér's V)."""
-    if size < 0.1:
-        return "negligible"
-    if size < 0.3:
-        return "small"
-    if size < 0.5:
-        return "medium"
-    return "large"
 
 
 def p_text(p: float) -> str:
@@ -431,18 +384,29 @@ def number_literal(value: float) -> str:
     return repr(float(value))
 
 
-def frequency_step(column: str, values: list[str]) -> dict[str, Any]:
-    """Show these rows: the rows holding the flagged values (compared as text, as they were counted)."""
+def _step(where: str, keep: bool) -> dict[str, Any]:
+    """Keep the rows matching `where`, or (keep=False) every other row: blank values included, since
+    `NOT` of an unknown is unknown and would drop them too."""
+    sql = (
+        f"SELECT * FROM grid\nWHERE {where}"
+        if keep
+        else f"SELECT * FROM grid\nWHERE NOT coalesce({where}, FALSE)"
+    )
+    return {"kind": "sql", "params": {"sql": sql}}
+
+
+def frequency_step(column: str, values: list[str], keep: bool = True) -> dict[str, Any]:
+    """Show (or exclude) these rows: the rows holding the flagged values (compared as text, as they
+    were counted)."""
     if not values:
         raise AnalysisError("No outliers to show.")
     items = ", ".join(literal(v) for v in values)
-    return {
-        "kind": "sql",
-        "params": {"sql": f"SELECT * FROM grid\nWHERE CAST({quote(column)} AS VARCHAR) IN ({items})"},
-    }
+    return _step(f"CAST({quote(column)} AS VARCHAR) IN ({items})", keep)
 
 
-def amount_step(column: str, by: str | None, fences: list[tuple[str | None, float, float]]) -> dict[str, Any]:
+def amount_step(
+    column: str, by: str | None, fences: list[tuple[str | None, float, float]], keep: bool = True
+) -> dict[str, Any]:
     """Show these rows: a SQL step keeping the rows outside the fences found now, written as plain
     numbers so the step keeps the grid's order and says exactly what it keeps. One clause per group
     that has outliers."""
@@ -464,5 +428,220 @@ def amount_step(column: str, by: str | None, fences: list[tuple[str | None, floa
             else f"({g} = {literal(value)} AND {outside(lo, hi)})"
             for value, lo, hi in fences
         ]
-        where = "\n   OR ".join(clauses)
-    return {"kind": "sql", "params": {"sql": f"SELECT * FROM grid\nWHERE {where}"}}
+        where = "(" + "\n   OR ".join(clauses) + ")"
+    return _step(where, keep)
+
+
+# ===== buckets: a number column as categories =====
+
+MAX_BUCKETS = 20
+
+
+def edges_query(relation: str, column: str, buckets: int) -> str:
+    """The cut points that split a number column into `buckets` groups of about equal size."""
+    if not 2 <= buckets <= MAX_BUCKETS:
+        raise AnalysisError(f"Between 2 and {MAX_BUCKETS} buckets.")
+    cuts = ", ".join(repr(i / buckets) for i in range(1, buckets))
+    x = f"CAST({quote(column)} AS DOUBLE)"
+    return f"SELECT quantile_disc({x}, [{cuts}]) FROM {relation} WHERE {x} IS NOT NULL AND isfinite({x})"
+
+
+def short_number(value: float) -> str:
+    """A cut point as people write it: 1,250 or 0.35 or 12.5, never 1.2500000001."""
+    if value == int(value) and abs(value) < 1e15:
+        return f"{int(value):,}"
+    return f"{value:,.4g}" if abs(value) < 1e5 else f"{value:,.0f}"
+
+
+def bucket_expression(column: str, edges: list[float]) -> str:
+    """CASE over the cut points: "1: up to 25", "2: 25 to 60", "3: over 60". The number first keeps
+    the buckets in order wherever they are sorted as text. Blank stays blank."""
+    cuts = sorted({float(e) for e in edges if e is not None and math.isfinite(float(e))})
+    c = f"CAST({quote(column)} AS DOUBLE)"
+    if not cuts:
+        return f"CASE WHEN {c} IS NULL THEN NULL ELSE '1: all' END"
+    parts = [f"WHEN {c} IS NULL THEN NULL"]
+    low: float | None = None
+    for i, cut in enumerate(cuts, start=1):
+        label = (
+            f"{i}: up to {short_number(cut)}"
+            if low is None
+            else f"{i}: {short_number(low)} to {short_number(cut)}"
+        )
+        parts.append(f"WHEN {c} <= {number_literal(cut)} THEN {literal(label)}")
+        low = cut
+    parts.append(f"ELSE {literal(f'{len(cuts) + 1}: over {short_number(cuts[-1])}')}")
+    return "CASE " + " ".join(parts) + " END"
+
+
+def as_text(column: str) -> str:
+    return f"CAST({quote(column)} AS VARCHAR)"
+
+
+def together_cells_query(relation: str, first: str, second: str) -> str:
+    """(first, second, count) over two SQL expressions, blanks on either side left out."""
+    return (
+        f"SELECT {first}, {second}, count(*) FROM {relation} "
+        f"WHERE ({first}) IS NOT NULL AND ({second}) IS NOT NULL GROUP BY 1, 2 LIMIT {MAX_TOGETHER_CELLS + 1}"
+    )
+
+
+def blanks_query(relation: str, value_sql: str) -> str:
+    return f"SELECT count(*) FILTER (WHERE ({value_sql}) IS NULL) FROM {relation}"
+
+
+def sizes_query(relation: str, columns: list[str]) -> str:
+    """For each column: rows with a value, and different values. One pass."""
+    parts = ", ".join(f"count({quote(c)}), count(DISTINCT {quote(c)})" for c in columns)
+    return f"SELECT {parts} FROM {relation}"
+
+
+def correlation_query(relation: str, first: str, second: str) -> str:
+    """Pearson's correlation of two number columns, and how many rows have both."""
+    a, b = f"CAST({quote(first)} AS DOUBLE)", f"CAST({quote(second)} AS DOUBLE)"
+    return f"SELECT corr({a}, {b}), count(*) FROM {relation} WHERE {a} IS NOT NULL AND {b} IS NOT NULL"
+
+
+# ===== outcomes: what counts as "yes" =====
+
+OUTCOME_OPS: dict[str, str] = {"gt": ">", "ge": ">=", "lt": "<", "le": "<=", "eq": "=", "ne": "<>"}
+
+
+def outcome_condition(outcome: Any, number: bool) -> tuple[str, str]:
+    """(SQL condition, the outcome in words) from {"column", "values": [...]} or, for a number
+    column, {"column", "op": gt | ge | lt | le | eq | ne, "value": n}."""
+    if not isinstance(outcome, dict) or not isinstance(outcome.get("column"), str):
+        raise AnalysisError(
+            'An outcome is {"column": name, "values": [...]}, or a number column with "op" and "value".'
+        )
+    column = outcome["column"]
+    if outcome.get("op") is not None:
+        op = OUTCOME_OPS.get(str(outcome["op"]))
+        if op is None or not number:
+            raise AnalysisError(
+                "A condition (op and value) needs a number column; otherwise list the values."
+            )
+        try:
+            value = float(outcome.get("value"))  # type: ignore[arg-type]
+        except (TypeError, ValueError) as error:
+            raise AnalysisError("The outcome's value is a number.") from error
+        return (
+            f"CAST({quote(column)} AS DOUBLE) {op} {number_literal(value)}",
+            f"{column} {op} {short_number(value)}",
+        )
+    values = outcome.get("values")
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list) or not values:
+        raise AnalysisError("Name the outcome's values, such as late.")
+    items = ", ".join(literal(str(v)) for v in values)
+    return f"{as_text(column)} IN ({items})", f"{column} is {' or '.join(map(str, values))}"
+
+
+def odds_query(relation: str, value_sql: str, outcome_sql: str | None) -> str:
+    """(value, rows, rows with the outcome) per value; blanks left out. Most rows first."""
+    yes = f"count(*) FILTER (WHERE coalesce({outcome_sql}, FALSE))" if outcome_sql else "NULL"
+    return (
+        f"SELECT {value_sql} AS value, count(*), {yes} FROM {relation} WHERE ({value_sql}) IS NOT NULL "
+        f"GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT {MAX_CATEGORIES + 1}"
+    )
+
+
+# ===== odds =====
+
+SMALL = 30  # fewer rows than this: the rate and the odds are rough
+Z95 = 1.959963984540054
+
+
+def odds(rows: list[tuple[str, int, int | None]], outcome: str | None = None) -> dict[str, Any]:
+    """How often each value shows up (its share, 1 in N, the odds of it on any one row), and with an
+    outcome, how often the outcome comes with each value against every other value: the odds ratio
+    with Woolf's 95% range (half a count added to each cell when one is empty, Haldane's way)."""
+    total = sum(n for _, n, _ in rows)
+    if not total:
+        raise AnalysisError("No values to count: the column is blank.")
+    out: list[dict[str, Any]] = []
+    yes_total = sum(int(y or 0) for _, _, y in rows) if outcome else 0
+    for value, n, yes in rows:
+        share = n / total
+        item: dict[str, Any] = {
+            "value": value,
+            "rows": n,
+            "share": share,
+            "one_in": total / n,
+            "odds_against": (total - n) / n,
+        }
+        if outcome:
+            a = int(yes or 0)
+            b, c = n - a, yes_total - a
+            d = (total - n) - c
+            cells = (a, b, c, d)
+            if 0 in cells:
+                a_, b_, c_, d_ = (x + 0.5 for x in cells)
+            else:
+                a_, b_, c_, d_ = (float(x) for x in cells)
+            ratio = (a_ * d_) / (b_ * c_)
+            spread = Z95 * math.sqrt(1 / a_ + 1 / b_ + 1 / c_ + 1 / d_)
+            low, high = ratio * math.exp(-spread), ratio * math.exp(spread)
+            rest = total - n
+            item.update(
+                outcome_rows=a,
+                rate=a / n,
+                rest_rate=(c / rest) if rest else None,
+                odds_ratio=ratio,
+                low=low,
+                high=high,
+                clear=low > 1 or high < 1,
+                small=n < SMALL,
+            )
+        out.append(item)
+    result: dict[str, Any] = {"rows": total, "values": out, "outcome": outcome}
+    if outcome:
+        out.sort(key=lambda v: (-v["odds_ratio"], -v["rows"]))
+        result["outcome_rows"] = yes_total
+        result["rate"] = yes_total / total
+        table = [(v["value"], "yes", v["outcome_rows"]) for v in out] + [
+            (v["value"], "no", v["rows"] - v["outcome_rows"]) for v in out
+        ]
+        try:
+            result["together"] = together(table)
+        except AnalysisError as error:
+            result["together"] = {"verdict": str(error)}
+    return result
+
+
+def odds_words(item: dict[str, Any], outcome: str) -> str:
+    """One value's odds in a sentence: "West: late 41% of the time, against 9% elsewhere: 7.0 times
+    the odds (5.8 to 8.4)"."""
+    rest = item.get("rest_rate")
+    elsewhere = f", against {rest:.0%} elsewhere" if rest is not None else ""
+    return (
+        f"{item['value']}: {outcome} {item['rate']:.0%} of the time{elsewhere}: "
+        f"{item['odds_ratio']:.2g} times the odds ({item['low']:.2g} to {item['high']:.2g})"
+    )
+
+
+# ===== find predictors =====
+
+STRONG_REDUNDANCY = 0.7  # two candidates this related say much the same thing
+MAX_REDUNDANCY_CHECKS = 8  # the strongest candidates are checked against each other
+
+
+def strength(v: float) -> str:
+    """Cramér's V in words, for a predictor: how much knowing it tells about the target."""
+    if v < 0.1:
+        return "none"
+    if v < 0.2:
+        return "weak"
+    if v < 0.3:
+        return "moderate"
+    return "strong"
+
+
+def shape_note(v: float, r: float | None) -> str | None:
+    """When the bucketed test and the straight-line correlation disagree, say so."""
+    if r is None:
+        return None
+    if v >= 0.2 and abs(r) < 0.1:
+        return "related, but not in a straight line: bucket it for a regression"
+    return None
