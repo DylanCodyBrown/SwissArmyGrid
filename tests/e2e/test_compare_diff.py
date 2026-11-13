@@ -18,14 +18,14 @@ def test_diff_mode_shows_only_what_changed(browser: Browser, server: dict[str, A
     before = pd.DataFrame(
         {
             "sku": ["A1", "A2", "A3", "A4"],
-            "region": ["North", "South", "East", "West"],
+            "region": ["North", "North", "East", "East"],
             "price": [10.0, 20.0, 30.0, 40.0],
         }
     )
     after = pd.DataFrame(
         {
             "sku": ["A1", "A2", "A3", "A5"],
-            "region": ["North", "South", "Central", "West"],
+            "region": ["North", "North", "Central", "East"],
             "price": [10.0, 20.01, 30.0, 50.0],
         }
     )

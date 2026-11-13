@@ -240,7 +240,7 @@ function diffNote(cmp: CompareInfo, left: string, right: string): HTMLElement {
 function openDiffOptions(cmp: CompareInfo): void {
   const { body, foot, close } = openDialog("How values compare");
   const o = cmp.diff;
-  const tolerance = h("input", { type: "number", min: "0", step: "any", value: String(o.tolerance), size: 8, "aria-label": "Numbers equal within" });
+  const tolerance = h("input", { type: "number", min: "0", step: "any", value: String(o.tolerance), size: 8, "aria-label": "Numbers are equal within" });
   const percent = h("select", { "aria-label": "Tolerance as" }, h("option", { value: "", selected: !o.percent }, "(an amount)"), h("option", { value: "1", selected: o.percent }, "% of the left value"));
   const trim = h("input", { type: "checkbox", checked: o.trim, "aria-label": "Ignore spaces at either end" });
   const ignoreCase = h("input", { type: "checkbox", checked: o.ignore_case, "aria-label": "Ignore letter case" });
