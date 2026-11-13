@@ -1048,6 +1048,10 @@ _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 _MAX_CODE_CHARS: int = 200_000
 
 
+class VaultUnavailableError(RuntimeError):
+    """This computer has no operating system vault to keep a blade's secrets in."""
+
+
 class BladeError(ValueError):
     """The blade cannot be saved or used as asked. The message says why in plain words."""
 

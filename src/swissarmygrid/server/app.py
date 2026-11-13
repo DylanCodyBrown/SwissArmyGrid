@@ -1,17 +1,18 @@
 """The web app: asks the composition root (bootstrap.py) for the services and mounts every route
 behind the guard.
 
-Route modules, one per area, like ASP.NET controllers:
-  routes_datasets.py   push, list, close, load a file, paste; health and shutdown
-  routes_grids.py      rows, steps, profile, SQL, export, code, recipes for one grid
-  routes_agent.py      the MCP door: the agent's reads and export approvals (plan section 12)
-  routes_cards.py      side-panel charts and notes (plan section 11)
-  routes_catalog.py    catalogs (a source's names and types) and blades (saved code that loads)
-  routes_notebook.py   the notebook tab: marimo served at /marimo, imports added to the open notebook
-  routes_keyfinder.py  the Key Finder: likely join columns between grids
-  routes_compare.py    two grids aligned row for row on key columns
-  routes_processes.py  Python sessions offering tables: the Open list (processes.py)
-  routes_snapshots.py  a PNG of the page the user sees, drawn by the page, for an agent
+Route modules, one per area, like ASP.NET controllers. Each is given its service (services/*.py)
+and does nothing but read the request, call the use case and shape the answer:
+  routes_datasets.py       push, list, close, load a file, paste, the "+" tab; health and shutdown
+  routes_grids.py          rows, steps, profile, SQL, export, code, recipes for one grid
+  routes_agent.py          the MCP door: the agent's reads, approvals, the current table
+  routes_cards.py          side-panel charts and notes (plan section 11)
+  routes_catalog.py        catalogs (a source's names and types)
+  routes_blades.py         blades (saved code that loads): the user's alone
+  routes_notebook.py       the notebook tab: marimo served at /marimo, cells added to the open notebook
+  routes_relationships.py  the relationship model, the Key Finder, comparing two grids
+  routes_processes.py      Python sessions offering tables: the Open list
+  routes_snapshots.py      a PNG of the page the user sees, drawn by the page, for an agent
 plus here: the WebSocket for live updates, the grid page shell and its static files.
 
 All DuckDB work runs on the priority worker pool (adapters/database.py), never on the event loop.
@@ -34,15 +35,14 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from swissarmygrid.bootstrap import bootstrap
 from swissarmygrid.server import (
     routes_agent,
+    routes_blades,
     routes_cards,
     routes_catalog,
-    routes_compare,
     routes_datasets,
     routes_grids,
-    routes_keyfinder,
-    routes_models,
     routes_notebook,
     routes_processes,
+    routes_relationships,
     routes_snapshots,
 )
 from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, LocalOnlyGuard
@@ -62,8 +62,6 @@ def create_app(
     """Build the app for a server listening on 127.0.0.1:`port` that accepts `token`."""
     ctx = bootstrap(port, token, settings, on_shutdown, audit_log)
     settings, workers = ctx.settings, ctx.workers
-
-    relationships = routes_models.Relationships()  # the current keys and joins (a shared model)
 
     async def live(websocket: WebSocket) -> None:
         # Echo our subprotocol only when the client offered it (browsers do; others may not).
@@ -117,16 +115,15 @@ def create_app(
     app = Starlette(
         routes=[
             *routes_datasets.routes(ctx.datasets),
-            *routes_grids.routes(ctx.grid_service, ctx.profiles, ctx.sql, ctx.exports, ctx.codes),
+            *routes_grids.routes(ctx.grids, ctx.profiles, ctx.sql, ctx.exports, ctx.codes),
             *routes_agent.routes(ctx.agent),
-            *routes_models.routes(ctx, relationships),
-            *routes_cards.routes(ctx),
-            *routes_catalog.routes(ctx),
-            *routes_notebook.routes(ctx),
-            *routes_keyfinder.routes(ctx),
-            *routes_compare.routes(ctx),
+            *routes_cards.routes(ctx.cards),
+            *routes_catalog.routes(ctx.catalogs),
+            *routes_blades.routes(ctx.blades),
+            *routes_notebook.routes(ctx.notebook_cells, ctx.notebook, ctx.notebook_cookie, settings.web_root),
+            *routes_relationships.routes(ctx.models, ctx.keys, ctx.compares),
             *routes_processes.routes(ctx.sessions),
-            *routes_snapshots.routes(ctx),
+            *routes_snapshots.routes(ctx.snapshots),
             WebSocketRoute("/ws", live),
             Route("/g/{grid_id}", grid_page),
             Route("/workspace", workspace_page),

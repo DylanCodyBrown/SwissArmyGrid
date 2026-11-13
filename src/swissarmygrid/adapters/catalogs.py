@@ -36,6 +36,24 @@ class CatalogStore:
         self._catalogs: dict[str, CatalogInfo] = {}
         self._lock = threading.Lock()
 
+    def cursor(self) -> duckdb.DuckDBPyConnection:
+        """A new session with the locked database, for one piece of work (close it after)."""
+        return self.connection.cursor()
+
+    @staticmethod
+    def text_table(columns: list[str], rows: list[list[Any]]) -> pa.Table:
+        """A catalog's rows as text columns: a driver may give a position as a number on one row and
+        as text on another, and the catalog reads every value as text anyway."""
+        names = [str(c) for c in columns]
+        values: list[list[str | None]] = [[] for _ in names]
+        for row in rows:
+            for i in range(len(names)):
+                value = row[i] if i < len(row) else None
+                values[i].append(None if value is None else str(value))
+        return pa.table(
+            {name: pa.array(column, pa.string()) for name, column in zip(names, values, strict=True)}
+        )
+
     # ===== load and remove =====
 
     def load(

@@ -1,16 +1,34 @@
-"""Charts and the side panel's cards (plan section 11): run a chart's one aggregate query.
+"""Charts and the side panel's cards (plan section 11): charts, notes, small result tables and
+diagrams, kept per grid and drawn on its current view.
 
 The specification itself (what a chart may say, its query text, Vega-Lite) is the domain's
-(domain/charts.py); here it is run on the grid's view through the `SqlSession` port.
+(domain/charts.py); here a chart's one aggregate query is run on the grid's view through the
+`SqlSession` port, and the cards are kept: added, changed, removed, clicked (cross-filtering).
+
+A card records its source (dataset, version, steps) and redraws whenever its grid's view changes,
+because charts are computed on request from the grid's current steps. Agent-made cards are tagged
+so the page can mark them.
 """
 
 from __future__ import annotations
 
+import secrets
+import time
+from datetime import date, timedelta
 from typing import Any
 
-from swissarmygrid.domain.charts import _grouped
-from swissarmygrid.domain.datasets import quote
-from swissarmygrid.services.ports import SqlSession
+from swissarmygrid.domain.charts import _grouped, altair_code, validate, vega_lite
+from swissarmygrid.domain.datasets import DatasetInfo, quote
+from swissarmygrid.domain.grids import Grid
+from swissarmygrid.domain.sql_guard import guard
+from swissarmygrid.domain.steps import Step, type_family
+from swissarmygrid.services.ports import BACKGROUND, SqlSession
+from swissarmygrid.services.workspace import NotFound, Workspace
+
+_TABLE_CARD_ROWS: int = 100
+# A diagram is Mermaid text (an ERD from GET /relationships/erd, or any flowchart), drawn by the page.
+_KINDS: tuple[str, ...] = ("chart", "note", "table", "diagram")
+Card = dict[str, Any]
 
 
 def aggregate(cursor: SqlSession, view_sql: str, spec: dict[str, Any], max_points: int) -> dict[str, Any]:
@@ -79,3 +97,248 @@ def aggregate(cursor: SqlSession, view_sql: str, spec: dict[str, Any], max_point
     result = cursor.execute(sql)
     names = [d[0] for d in result.description or []]
     return {"values": [dict(zip(names, r, strict=True)) for r in result.fetchall()], "note": note}
+
+
+# ===== the cards =====
+
+
+def check_card(body: Any) -> Card:
+    """A card as sent, checked: its kind, its title, and the one field its kind carries."""
+    if not isinstance(body, dict):
+        raise ValueError("Send a card object.")
+    kind = body.get("kind")
+    if kind not in _KINDS:
+        raise ValueError(f"kind must be one of {', '.join(_KINDS)}.")
+    title = body.get("title", "")
+    if not isinstance(title, str) or len(title) > 200:
+        raise ValueError("title must be text, at most 200 characters.")
+    out: Card = {"kind": kind, "title": title}
+    if kind == "note":
+        text = body.get("body", "")
+        if not isinstance(text, str) or len(text) > 20_000:
+            raise ValueError("A note's body is markdown text, at most 20,000 characters.")
+        out["body"] = text
+    elif kind == "diagram":
+        text = body.get("body", "")
+        if not isinstance(text, str) or not text.strip() or len(text) > 50_000:
+            raise ValueError("A diagram's body is Mermaid text, at most 50,000 characters.")
+        out["body"] = text
+    elif kind == "table":
+        sql = body.get("sql")
+        if not isinstance(sql, str):
+            raise ValueError("A table card needs sql.")
+        out["sql"] = sql
+    else:
+        out["spec"] = body.get("spec")
+    return out
+
+
+class Cards:
+    def __init__(self, ws: Workspace) -> None:
+        self.ws = ws
+        self._cards: dict[str, Card] = {}
+
+    def get(self, card_id: str) -> Card:
+        card = self._cards.get(card_id)
+        if card is None:
+            raise NotFound("No such card.")
+        return card
+
+    def chart(self, card_id: str) -> tuple[Card, Grid, DatasetInfo]:
+        """A chart card with its grid and dataset."""
+        card = self._cards.get(card_id)
+        if card is None or card["kind"] != "chart":
+            raise NotFound("No such chart.")
+        grid, info = self.ws.grid_and_info(card["grid"])
+        return card, grid, info
+
+    def _render(self, card: Card, cur: SqlSession) -> Card:
+        ws = self.ws
+        grid, info = ws.grid_and_info(card["grid"])
+        compiled = ws.compiled(cur, grid, info)
+        shown = dict(card) | {
+            "source": {"dataset": info.name, "version": info.version, "steps": len(grid.steps)}
+        }
+        try:
+            if card["kind"] == "chart":
+                spec = validate(card["spec"], compiled.columns)
+                data = aggregate(cur, compiled.sql(), spec, ws.settings.max_chart_points)
+                shown["vega_lite"] = vega_lite(spec, data, compiled.columns)
+                shown["note"] = data["note"]
+                shown["points"] = len(data["values"])
+            elif card["kind"] == "table":
+                guarded = guard(
+                    card["sql"], {i.name for i in ws.store.all()}, compiled.sql, grammar=ws.grammar
+                )
+                if guarded.kind != "select":
+                    raise ValueError("A table card runs a SELECT.")
+                result = cur.execute(guarded.sql)
+                shown["columns"] = [d[0] for d in result.description or []]
+                fetched = result.fetchmany(_TABLE_CARD_ROWS + 1)
+                shown["rows"] = [list(r) for r in fetched[:_TABLE_CARD_ROWS]]
+                shown["capped"] = len(fetched) > _TABLE_CARD_ROWS
+        except (ValueError, ws.engine_error) as error:  # ChartError is a ValueError
+            shown["error"] = str(error)
+        return shown
+
+    async def for_grid(self, grid: Grid) -> dict[str, Any]:
+        """Every card for the grid, charts computed on its view."""
+        mine = [c for c in self._cards.values() if c["grid"] == grid.id]
+        mine.sort(key=lambda c: (not c["pinned"], c["created"]))
+
+        def compute(cur: SqlSession) -> list[Card]:
+            return [self._render(c, cur) for c in mine]
+
+        return {"cards": await self.ws.grid_query(grid, None, BACKGROUND, compute)}
+
+    async def everything(self) -> dict[str, Any]:
+        """The Analysis Sandbox: one list for every table. Each card is still drawn on its own
+        grid's view; a card whose grid was closed drops out."""
+        shown: list[Card] = []
+        for grid_id in dict.fromkeys(c["grid"] for c in self._cards.values()):
+            grid = self.ws.grids.get(grid_id)
+            if grid is None:
+                continue
+            mine = [c for c in self._cards.values() if c["grid"] == grid_id]
+
+            def compute(cur: SqlSession, mine: list[Card] = mine) -> list[Card]:
+                return [self._render(c, cur) for c in mine]
+
+            shown += await self.ws.grid_query(grid, None, BACKGROUND, compute)
+        shown.sort(key=lambda c: (not c["pinned"], c["created"]))
+        return {"cards": shown}
+
+    async def _check_chart(self, grid: Grid, info: DatasetInfo, spec: Any) -> None:
+        def check(cur: SqlSession) -> None:
+            validate(spec, self.ws.compiled(cur, grid, info).columns)
+
+        await self.ws.grid_query(grid, None, BACKGROUND, check)
+
+    async def add(self, grid: Grid, info: DatasetInfo, body: Any, who: str) -> dict[str, Any]:
+        ws = self.ws
+        card = check_card(body)
+        if card["kind"] == "chart":
+            await self._check_chart(grid, info, card["spec"])
+        card |= {
+            "id": secrets.token_hex(4),
+            "grid": grid.id,
+            "dataset": info.name,
+            "pinned": False,
+            "created_by": who,
+            "created": time.time(),
+        }
+        self._cards[card["id"]] = card
+        await ws.live.broadcast({"type": "cards_updated", "grid": grid.id})
+        ws.audit.write(who, "add_card", info.name, kind=card["kind"])
+        return {"card": card["id"]}
+
+    async def update(self, card: Card, body: Any, who: str) -> dict[str, Any]:
+        """Change title, spec, body, sql or pinned."""
+        ws = self.ws
+        if not isinstance(body, dict):
+            raise ValueError("Send the fields to change.")
+        grid, info = ws.grid_and_info(card["grid"])
+        merged = check_card({**card, **{k: v for k, v in body.items() if k != "pinned"}})
+        if merged["kind"] == "chart":
+            await self._check_chart(grid, info, merged["spec"])
+        card.update(merged)
+        if "pinned" in body:
+            card["pinned"] = bool(body["pinned"])
+        await ws.live.broadcast({"type": "cards_updated", "grid": card["grid"]})
+        ws.audit.write(who, "update_card", card["dataset"])
+        return {"card": card["id"]}
+
+    async def remove(self, card_id: str, who: str) -> dict[str, Any] | None:
+        """Remove a card. None when there is no such card."""
+        card = self._cards.pop(card_id, None)
+        if card is None:
+            return None
+        await self.ws.live.broadcast({"type": "cards_updated", "grid": card["grid"]})
+        self.ws.audit.write(who, "remove_card", card["dataset"])
+        return {"removed": card["id"]}
+
+    async def select(self, card: Card, grid: Grid, info: DatasetInfo, body: Any, who: str) -> dict[str, Any]:
+        """Cross-filtering: clicking a bar adds `x = value` (or the time bucket's range); a heatmap
+        cell adds its row's value too ({"value": x, "y": y}). The new steps must compile on the
+        grid's view, or none is added (a value its column cannot hold used to break the grid)."""
+        ws = self.ws
+        if not isinstance(body, dict):
+            raise ValueError('Send {"value": ...}.')
+        spec = card["spec"]
+        if spec["mark"] == "histogram":
+            raise ValueError("Select a histogram range from the column profile instead.")
+
+        def added(cur: SqlSession) -> list[Step]:
+            columns = ws.compiled(cur, grid, info).columns
+            validate(spec, columns)  # its columns may have left the view since
+            families = {c.name: type_family(c.type) for c in columns}
+            x = spec["x"]
+            clicked: list[tuple[str, Any, str | None]] = [(x["field"], body.get("value"), x.get("time_unit"))]
+            if spec["mark"] == "heatmap" and "y" in body:
+                clicked.append((spec["y"]["field"], body["y"], None))
+            picked = [_click_filter(f, families[f], v, unit) for f, v, unit in clicked]
+            steps = [Step(kind="filter", params=p | {"from_chart": card["id"]}) for p in picked]
+            trial = ws.views.compile(cur, info, [*grid.steps, *steps], grid.settings)
+            if trial.error is not None:
+                raise ValueError(str(trial.error))
+            return steps
+
+        grid.steps = [*grid.steps, *await ws.grid_query(grid, None, BACKGROUND, added)]
+        await ws.live.broadcast({"type": "grid_updated", "grid": grid.id, "by": who, "gen": grid.gen})
+        return {"steps": len(grid.steps)}
+
+    async def code(self, card: Card, grid: Grid, info: DatasetInfo) -> dict[str, Any]:
+        """Altair code for a chart card."""
+        ws = self.ws
+
+        def make(cur: SqlSession) -> str:
+            columns = ws.compiled(cur, grid, info).columns
+            spec = validate(card["spec"], columns)
+            return altair_code(spec, columns, info.name, ws.settings.max_chart_points)
+
+        return {"code": await ws.grid_query(grid, None, BACKGROUND, make)}
+
+
+def _click_filter(field: str, family: str, value: Any, time_unit: str | None) -> dict[str, Any]:
+    """The filter for one clicked value: a blank, a whole time bucket, or the value itself."""
+    if value is None:
+        return {"column": field, "op": "blank"}
+    if time_unit is None:
+        return {"column": field, "op": "eq", "value": _as_family(value, family)}
+    if not isinstance(value, str):
+        raise ValueError(f"A {time_unit} of {field} is picked by its first day, as YYYY-MM-DD.")
+    start = value[:10]
+    end = _bucket_end(start, time_unit)
+    if family == "timestamp":
+        end += "T23:59:59.999999"  # the whole last day, not just its midnight
+    return {"column": field, "op": "date_between", "low": start, "high": end}
+
+
+def _as_family(value: Any, family: str) -> Any:
+    """A value an agent gave as text (`sag sandbox_select --value 3`) as its column's type; any
+    other value as it came (the filter step says what is wrong with it)."""
+    if not isinstance(value, str):
+        return value
+    if family == "boolean" and value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    if family == "number":
+        try:
+            number = float(value)
+        except ValueError:
+            return value
+        return int(value) if value.strip().lstrip("+-").isdigit() else number
+    return value
+
+
+def _bucket_end(start: str, unit: str) -> str:
+    """The last day of the time bucket starting at `start` (inclusive range for date_between)."""
+    day = date.fromisoformat(start)
+    if unit == "day":
+        end = day
+    elif unit == "week":
+        end = day + timedelta(days=6)
+    else:
+        months = {"month": 1, "quarter": 3, "year": 12}[unit]
+        year, month = divmod(day.month - 1 + months, 12)
+        end = date(day.year + year, month + 1, 1) - timedelta(days=1)
+    return end.isoformat()

@@ -32,13 +32,17 @@ from pathlib import Path
 from typing import Any
 
 from swissarmygrid.domain import blades as rules
-from swissarmygrid.domain.blades import Blade, BladeError, file_name, is_blade, read_blade, write_blade
+from swissarmygrid.domain.blades import (
+    Blade,
+    BladeError,
+    VaultUnavailableError,
+    file_name,
+    is_blade,
+    read_blade,
+    write_blade,
+)
 
 KEYRING_SERVICE: str = "SwissArmyGrid"
-
-
-class VaultUnavailableError(RuntimeError):
-    """This computer has no operating system vault that keyring can use."""
 
 
 def parse_blade(data: Any, previous: Blade | None = None) -> Blade:

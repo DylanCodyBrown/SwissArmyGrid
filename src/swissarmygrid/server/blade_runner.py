@@ -16,7 +16,9 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import sys
+from pathlib import Path
 from typing import Any
 
 from swissarmygrid.adapters.blades import BladeStore
@@ -88,6 +90,39 @@ async def run(job: dict[str, Any], timeout: float) -> dict[str, Any]:
     if "error" in answer:
         raise RefreshError(str(answer["error"]), answer.get("missing_module"))
     return answer
+
+
+# ===== installing packages =====
+
+_INSTALL_TIMEOUT_SECONDS: float = 600.0
+
+
+async def install_packages(packages: list[str]) -> tuple[int | None, str]:
+    """Install packages into SwissArmyGrid's own Python, where Refresh runs: with uv when it is here,
+    else pip. Returns the exit code (None when it ran over ten minutes and was stopped) and the output."""
+    uv = shutil.which("uv") or next(
+        (
+            str(p)
+            for p in (Path.home() / ".local" / "bin" / "uv", Path.home() / ".cargo" / "bin" / "uv")
+            if p.is_file()
+        ),
+        None,
+    )
+    command = (
+        [uv, "pip", "install", "--python", sys.executable, *packages]
+        if uv
+        else [sys.executable, "-m", "pip", "install", *packages]
+    )
+    process = await asyncio.create_subprocess_exec(
+        *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+    )
+    try:
+        out, _ = await asyncio.wait_for(process.communicate(), _INSTALL_TIMEOUT_SECONDS)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        return None, ""
+    return process.returncode, out.decode("utf-8", "replace")
 
 
 # ===== the child process =====
