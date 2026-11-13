@@ -216,3 +216,51 @@ def test_a_saved_dashboard_reopens_as_drawn_and_relinks_when_its_table_is_back(c
     assert live["Top"]["rows"] == [["East"]]
     assert client.delete("/dashboards/weekly", headers=AUTH).json() == {"deleted": "weekly"}
     assert client.get("/dashboards/weekly", headers=AUTH).status_code == 404
+
+
+def test_a_figure_with_sql_is_filled_on_its_grid_and_follows_its_steps(client: TestClient) -> None:
+    sales = pa.table({"region": ["North", "North", "South", "East"], "amount": [1.0, 2.0, 5.0, 4.0]})
+    gid = grid_id(push(client, "sales", sales))
+    sql = "SELECT region, sum(amount) AS total FROM sales GROUP BY region ORDER BY region"
+    plotly = {
+        "data": [{"type": "bar", "x": "region", "y": "total", "marker": {"color": "theme:accent"}}],
+        "layout": {},
+    }
+    echarts = {
+        "xAxis": {"type": "category"},
+        "yAxis": {},
+        "series": [{"type": "bar", "encode": {"x": "region", "y": "total"}}],
+    }
+    for kind, figure in (("plotly", plotly), ("echarts", echarts)):
+        added = client.post(
+            f"/grids/{gid}/cards",
+            json={"kind": kind, "title": kind, "body": json.dumps(figure), "sql": sql},
+            headers=AGENT,
+        )
+        assert added.status_code == 200, added.text
+    shown = {c["title"]: c for c in cards(client)}
+    bars = json.loads(shown["plotly"]["body"])["data"][0]
+    assert (
+        bars["x"] == ["East", "North", "South"]
+        and bars["y"] == [4.0, 3.0, 5.0]
+        and bars["marker"]["color"] == "theme:accent"
+    )
+    assert json.loads(shown["echarts"]["body"])["dataset"]["source"][0] == ["region", "total"]
+    step = {"kind": "filter", "params": {"column": "region", "op": "ne", "value": "East"}}
+    assert (
+        client.post(f"/grids/{gid}/step-ops", json={"op": "add", "step": step}, headers=AUTH).status_code
+        == 200
+    )
+    after = {c["title"]: c for c in cards(client)}
+    assert json.loads(after["plotly"]["body"])["data"][0]["x"] == ["North", "South"]
+    wrong = {"data": [{"type": "bar", "x": "nowhere", "y": "total"}]}
+    client.post(
+        f"/grids/{gid}/cards",
+        json={"kind": "plotly", "title": "wrong", "body": json.dumps(wrong), "sql": sql},
+        headers=AUTH,
+    )
+    assert "names 'nowhere', not a column" in {c["title"]: c for c in cards(client)}["wrong"]["error"]
+    free = client.post(
+        "/cards", json={"kind": "plotly", "title": "", "body": json.dumps(plotly), "sql": sql}, headers=AUTH
+    )
+    assert free.status_code == 400

@@ -539,8 +539,9 @@ def test_every_command_is_one_lean_typed_tool(live: Live, clients: str) -> None:
     )
     # 24,000 until the Analyze menu (2026-11): its odds, fit test, outliers, predictors, regression,
     # what-if, data shape, time series and forecast tools are each one short schema; then the Sandbox's
-    # formats and saved dashboards, and sandbox_add's own rows, file and key. 26,000 leaves room.
-    assert size < 26_000, f"the tool list is {size} characters"
+    # formats and saved dashboards, sandbox_add's own rows, file and key, and Compare's tie-out.
+    # 26,500 leaves room for Compare's diff.
+    assert size < 26_500, f"the tool list is {size} characters"
     # Typed: the schema carries the command's real arguments, required ones marked.
     schema = tools["steps_add"].input_schema
     assert set(schema["properties"]) == {"grid", "kind", "params", "index"}

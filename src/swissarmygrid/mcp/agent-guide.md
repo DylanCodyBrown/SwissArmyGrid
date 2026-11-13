@@ -126,6 +126,9 @@ stacking copies. `size` is `{"w": 2-12, "h": 3-30}` on a 12-column board of 40px
 `sandbox_update` edits, resizes, moves or pins one, `sandbox_select` is a click on a chart's mark (it
 adds the filter step), `sandbox_code` returns the Altair Python, `sandbox_list` and `sandbox_all` list
 them. Prefer a `chart` on the grid to a figure you fill yourself: the data stays on the server.
+A `plotly` or `echarts` card with `grid` and `sql` (a SELECT `FROM grid`, or from the table's name: the
+grid as shown) is filled by the server and follows the grid's steps: in Plotly a trace field naming a
+column (`"x": "region"`) gets its values; ECharts gets the result as `dataset.source`.
 `sandbox_dashboards` lists the user's saved dashboards and, with `name`, their versions and cards;
 saving, opening and deleting one are the user's (Dashboards… in the Sandbox).
 
@@ -198,6 +201,12 @@ key mark in the grid headers.
 - `compare_grids` gives matched, left-only and right-only counts for two grids on key columns without
   changing the user's view. `compare_create`, `compare_change`, `compare_set_focus` and
   `compare_remove` drive the page's side-by-side compare.
+- `compare_tie_out` answers "do these two tables add up the same?" on a compare: without `group` or
+  `measures` it lists the shared columns and a suggestion; with them, one row per group (rows and each
+  measure's total, left and right, the difference) marked ties or off within `tolerance` (absolute, or
+  percent of the left total), off groups first, largest first, and a grand total. Each side is read
+  after its own steps. Say which groups are off and by how much; a total that ties can hide groups
+  that cancel out.
 
 ## Catalogs: the user's source databases
 

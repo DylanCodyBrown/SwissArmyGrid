@@ -22,6 +22,9 @@ and Altair it is drawn with. Running the query is the service layer's (services/
 
 from __future__ import annotations
 
+import math
+from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any
 
 from swissarmygrid.domain.codegen import python_string, variable_name
@@ -378,3 +381,76 @@ def altair_code(spec: dict[str, Any], columns: tuple[Column, ...], dataset: str,
         "    )",
     ]
     return "\n".join(lines) + "\n"
+
+
+# ===== data-bound figures =====
+# A Plotly or ECharts card on a grid may carry a SELECT over the grid's view. The server runs it and puts
+# the result in the figure, so the data never passes through whoever wrote the figure (an agent, say):
+# ECharts takes it as `dataset.source` (its header row first), and a Plotly trace field that names a
+# column ("x": "region") gets that column's values.
+
+PLOTLY_COLUMN_FIELDS: tuple[str, ...] = (
+    "x",
+    "y",
+    "z",
+    "text",
+    "labels",
+    "values",
+    "ids",
+    "parents",
+    "customdata",
+    "open",
+    "high",
+    "low",
+    "close",
+    "base",
+    "lat",
+    "lon",
+    "r",
+    "theta",
+)
+
+
+def _json_cell(value: Any) -> Any:
+    if value is None or isinstance(value, bool | int | str):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, date | datetime | time):
+        return value.isoformat()
+    return str(value)
+
+
+def fill_figure(
+    kind: str, figure: dict[str, Any], columns: list[str], rows: list[tuple[Any, ...]]
+) -> dict[str, Any]:
+    """The figure with the query's result in it. Raises ChartError when a Plotly trace names no column."""
+    cells = [[_json_cell(v) for v in row] for row in rows]
+    if kind == "echarts":
+        return {**figure, "dataset": {"source": [columns, *cells]}}
+    by_name = {name: [row[i] for row in cells] for i, name in enumerate(columns)}
+    traces = figure.get("data")
+    if not isinstance(traces, list):
+        raise ChartError('A Plotly figure is {"data": [traces], "layout": {...}}.')
+    filled = []
+    for trace in traces:
+        if not isinstance(trace, dict):
+            raise ChartError("Each Plotly trace is an object.")
+        out = dict(trace)
+        for field in PLOTLY_COLUMN_FIELDS:
+            if isinstance(trace.get(field), str):
+                if trace[field] not in by_name:
+                    raise ChartError(
+                        f"Trace field {field} names {trace[field]!r}, not a column of the query."
+                    )
+                out[field] = by_name[trace[field]]
+        marker = trace.get("marker")
+        if isinstance(marker, dict):
+            out["marker"] = {
+                k: by_name[v] if k in ("color", "size") and isinstance(v, str) and v in by_name else v
+                for k, v in marker.items()
+            }
+        filled.append(out)
+    return {**figure, "data": filled}

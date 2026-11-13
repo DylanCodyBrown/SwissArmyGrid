@@ -811,7 +811,7 @@ _CARD_FIELDS = (
         "y: {field?, aggregate: count|sum|mean|min|max}, color?: {field}, title?}.",
         "json",
     ),
-    opt("sql", "A table card's SELECT (it runs over `grid`): a query result kept in the sandbox."),
+    opt("sql", "A SELECT over `grid`: a table card's rows, or what fills a plotly or echarts body."),
     opt("size", '{"w": 2-12 columns, "h": 3-30 rows of 40px}.', "json"),
 )
 
@@ -838,16 +838,20 @@ _FORMATS: dict[str, Any] = {
         "plotly": {
             "body": '{"data": [{"type": "bar", "x": ["a"], "y": [1]}], "layout": {}}',
             "note": 'No map traces. Colours may be "theme:accent" to follow the theme.',
+            "bound": 'With grid and sql, a trace field naming a column ("x": "region") gets its values.',
         },
         "echarts": {
             "body": '{"xAxis": {"data": ["a"]}, "yAxis": {}, "series": [{"type": "bar", "data": [1]}]}',
             "note": "No images, links or graphic layer; tooltips as text.",
+            "bound": "With grid and sql, the query's result is its dataset.source (encode by column name).",
         },
         "image": {"body": "data:image/png;base64,...", "or": "file: a PNG, JPEG, GIF, WebP or SVG you saved"},
         "vegalite": {"note": "From the user's own Python (Altair) only; the agent draws with chart."},
     },
-    "data": "Read tables with the table tools (columns, profiles, agent_query); a chart card computes on "
-    "the grid itself, so big data never passes through you. Use key to replace a card you made before.",
+    "data": "Read tables with the table tools (columns, profiles, agent_query). A chart card, or a plotly "
+    "or echarts card with sql (FROM grid, or its table's name: the grid as shown), computes on the grid "
+    "itself (first 5,000 rows), follows its steps, and big "
+    "data never passes through you. Use key to replace a card you made before.",
 }
 
 
@@ -862,7 +866,7 @@ def card_formats(a: dict[str, Any]) -> Any:
     opt("grid", "Grid id: needed for chart and for table sql."),
     opt("kind", "chart, note, table, diagram, graphviz, plotly, echarts or image."),
     *_CARD_FIELDS,
-    opt("file", "A file on this computer: a picture, .md, .mmd or .dot (kind from its name)."),
+    opt("file", "A picture, .md, .mmd or .dot file on this computer."),
     opt("columns", "A table card's own column names.", "json"),
     opt("rows", "A table card's own rows: lists, one value per column.", "json"),
     opt("key", "Names the card: adding the same key again replaces it in place."),
@@ -876,9 +880,11 @@ def add_card(a: dict[str, Any]) -> Any:
     if a.get("file"):
         from swissarmygrid.client.sandbox_client import card_for
 
-        body = card_for(Path(a["file"]).expanduser(), a.get("kind")) | {
-            k: v for k, v in body.items() if k != "kind"
-        }
+        try:
+            made = card_for(Path(a["file"]).expanduser(), a.get("kind"))
+        except (OSError, ValueError, TypeError) as error:
+            raise CommandError(f"Can't read {a['file']!r} as a card: {error}") from None
+        body = made | {k: v for k, v in body.items() if k != "kind"}
     if "kind" not in body:
         raise CommandError("Name the kind, or give a file.")
     body.setdefault("title", "")
@@ -908,7 +914,7 @@ def update_card(a: dict[str, Any]) -> Any:
 
 @command(
     "sandbox_dashboards",
-    "Saved dashboards; with name, its versions (when, and its cards). Saving and opening are the user's.",
+    "Saved dashboards; with name, its versions and cards. Saving and opening are the user's.",
     opt("name", "A dashboard's name."),
 )
 def dashboards(a: dict[str, Any]) -> Any:
@@ -1220,6 +1226,23 @@ def compare_read(a: dict[str, Any]) -> Any:
 def compare_change(a: dict[str, Any]) -> Any:
     body = {k: a[k] for k in ("keys", "mode", "anti_side") if a.get(k) is not None}
     return api.call("PATCH", f"/compares/{_q(a['compare'])}", body)
+
+
+@command(
+    "compare_tie_out",
+    "Do both grids add up the same per group? Without group or measures: the choices.",
+    req("compare", "Compare id."),
+    opt("group", "Shared columns to group by.", "json"),
+    opt("measures", "Shared number columns to total.", "json"),
+    opt("tolerance", "Still ties within this (0).", "json"),
+    opt("tolerance_kind", "absolute or percent."),
+)
+def compare_tie_out(a: dict[str, Any]) -> Any:
+    path = f"/compares/{_q(a['compare'])}/tie-out"
+    if a.get("group") is None and a.get("measures") is None:
+        return api.call("GET", path)
+    body = {k: a[k] for k in ("group", "measures", "tolerance", "tolerance_kind") if a.get(k) is not None}
+    return api.call("POST", path, body)
 
 
 @command("compare_remove", "Stop a compare (Stop compare).", req("compare", "Compare id."))

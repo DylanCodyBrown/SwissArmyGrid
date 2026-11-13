@@ -192,8 +192,11 @@ first, the server part once the Cosmic Python refactor has landed.
   relinks to a grid on its table whenever one is open, by the table's name. The agent lists and reads
   (`sandbox_dashboards`); saving (it writes to disk), opening (it replaces the screen) and deleting are
   the user's. Still open: automatic save if wanted, a read-only look back ("Viewing 10 November"),
-  comparing two versions (cards added, removed, changed), data-bound Plotly and ECharts figures, and
-  one dashboard per workspace once workspaces exist.
+  comparing two versions (cards added, removed, changed), and one dashboard per workspace once
+  workspaces exist.
+- **Done (2026-11-13): data-bound figures.** A Plotly or ECharts card on a grid may carry a SELECT; the
+  server runs it on the grid's view (its table's name reads the view, as in a SQL step; first 5,000
+  rows) and fills the figure: Plotly trace fields that name a column, ECharts' `dataset.source`.
 - **Next (server, after the refactor), the owner's follow-up:** "a sag command to push anything to the
   sandbox ... the script can push anything that is visual"; "the MCPs should be fully aware of what
   tools are available to build graphs and charts"; "an agent can push rendered markdown ... resizable

@@ -69,6 +69,7 @@ src/swissarmygrid/
                          what-if predictions, the model as SQL (predicted and miss columns)
     timeseries.py        periods, the seasonal index, anomalies against neighbours, steps in the level,
                          memory, growth; the forecast (trend, steps, season, predictors, held-back check)
+    tieout.py            the tie-out report: shared columns, the two GROUP BYs joined, ties or off
     packs.py             a pack (a Claude Code plugin with blades/ and tangs/): names, the new marketplace's
                          files, Claude Code's install record read loosely, which plugins are switched off
 
@@ -93,6 +94,7 @@ src/swissarmygrid/
     blades.py            save, inspect, fill, refresh, test, install, favourites, folders, export, import
     notebook.py          cells SwissArmyGrid adds to the open marimo notebook
     relationships.py     the Key Finder, compares, the current model and its library
+    tieout.py            the tie-out report on a compare's two grids
     processes.py         Python sessions offering tables: the registry and the Open list
     snapshots.py         a PNG of the page, drawn by the page (app_snapshot); nothing is kept
     packs.py             list packs, make a marketplace, add saved blades and tangs to an editable pack
@@ -117,7 +119,7 @@ src/swissarmygrid/
     app.py               asks bootstrap for the services, mounts the routes behind the guard
     http.py              reading requests, shaping answers, each error as its status
     routes_*.py          one per feature: read the request, call the use case, shape the answer
-                         (datasets, grids, analysis, regression, timeseries, agent, cards, catalog, blades, notebook, relationships,
+                         (datasets, grids, analysis, regression, timeseries, tieout, agent, cards, catalog, blades, notebook, relationships,
                          processes, snapshots, packs). /catalogs is for everyone; /blades and /packs refuse
                          the agent, whose own door is /agent/blades in routes_agent.py
     security.py          the guard: 127.0.0.1, the token, Host and Origin
@@ -133,7 +135,7 @@ src/swissarmygrid/
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (109 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (110 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);

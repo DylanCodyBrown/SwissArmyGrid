@@ -529,6 +529,10 @@ class Compares:
         positioned, columns = self.ws.views.positioned_sql(cur, info, grid.steps, grid.settings)
         return Side(grid, info, positioned, columns)
 
+    def sides(self, cur: SqlSession, cmp: Compare) -> tuple[Side, Side]:
+        """The compare's two grids as they show now (each after its own steps)."""
+        return self._side(cur, cmp.left), self._side(cur, cmp.right)
+
     @staticmethod
     def _signature(left: Side, right: Side, spec: CompareSpec) -> str:
         def one(s: Side) -> Any:

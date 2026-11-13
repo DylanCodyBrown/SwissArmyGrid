@@ -26,7 +26,7 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from swissarmygrid.domain.charts import _grouped, altair_code, validate, vega_lite
+from swissarmygrid.domain.charts import _grouped, altair_code, fill_figure, validate, vega_lite
 from swissarmygrid.domain.datasets import DatasetInfo, quote
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import guard
@@ -176,6 +176,10 @@ def check_card(body: Any) -> Card:
         if kind == "image" and not text.startswith("data:image/"):
             raise ValueError("An image card's body is a data:image/... URL.")
         out["body"] = text
+        if kind in ("plotly", "echarts") and body.get("sql") is not None:
+            if not isinstance(body["sql"], str) or not body["sql"].strip():
+                raise ValueError("A figure's sql is a SELECT over its grid; the result fills the figure.")
+            out["sql"] = body["sql"]
     elif kind == "table":
         sql = body.get("sql")
         if isinstance(sql, str):
@@ -278,6 +282,8 @@ def _frozen(card: Card) -> Card:
     """What a chart or query card showed, to keep in a saved dashboard."""
     if card["kind"] == "chart" and "vega_lite" in card:
         return {"vega_lite": card["vega_lite"], "points": card.get("points"), "note": card.get("note")}
+    if "sql" in card and card["kind"] in ("plotly", "echarts"):
+        return {"body": card["body"]}  # as drawn: the query's result inside
     if "sql" in card and "columns" in card:
         return {"columns": card["columns"], "rows": card["rows"], "capped": card.get("capped", False)}
     return dict(card.get("frozen") or {})
@@ -324,6 +330,21 @@ class Cards:
                 shown["vega_lite"] = vega_lite(spec, data, compiled.columns)
                 shown["note"] = data["note"]
                 shown["points"] = len(data["values"])
+            elif card["kind"] in ("plotly", "echarts") and "sql" in card:
+                # The grid's own table name reads the grid as it looks (its steps), like `grid` does.
+                names = {i.name for i in ws.store.all()}
+                guarded = guard(card["sql"], names, compiled.sql, grid_alias=info.name, grammar=ws.grammar)
+                if guarded.kind != "select":
+                    raise ValueError("A figure's sql is a SELECT.")
+                result = cur.execute(guarded.sql)
+                columns = [d[0] for d in result.description or []]
+                limit = ws.settings.max_chart_points
+                fetched = result.fetchmany(limit + 1)
+                figure = fill_figure(card["kind"], json.loads(card["body"]), columns, fetched[:limit])
+                shown["body"] = json.dumps(figure)
+                shown["points"] = min(len(fetched), limit)
+                if len(fetched) > limit:
+                    shown["note"] = f"Showing the first {limit:,} rows of the query."
             elif card["kind"] == "table":
                 guarded = guard(
                     card["sql"], {i.name for i in ws.store.all()}, compiled.sql, grammar=ws.grammar
@@ -369,8 +390,11 @@ class Cards:
         return {"cards": shown}
 
     def _relink(self, card: Card) -> None:
-        """A chart or query card whose grid is gone (or was saved) draws on an open grid on its table."""
-        if not _on_a_grid(card) or (card["grid"] is not None and self.ws.grids.get(card["grid"])):
+        """A chart or query card opened from a saved dashboard draws on an open grid on its table (now or
+        once one opens). Any other card whose grid closes leaves the Sandbox, as it always has."""
+        if "frozen" not in card or not _on_a_grid(card):
+            return
+        if card["grid"] is not None and self.ws.grids.get(card["grid"]):
             return
         grid = self.ws.grids.first_for(card["dataset"]) if card.get("dataset") else None
         if grid is not None and self.ws.store.get(grid.dataset) is not None:

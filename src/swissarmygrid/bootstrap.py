@@ -53,6 +53,7 @@ from swissarmygrid.services.regression import Regression
 from swissarmygrid.services.relationships import Compares, Finder, KeyFinder, Models
 from swissarmygrid.services.snapshots import Snapshots
 from swissarmygrid.services.sql import SqlBox
+from swissarmygrid.services.tieout import TieOut
 from swissarmygrid.services.timeseries import TimeSeries
 from swissarmygrid.services.workspace import Addresses, Workspace
 from swissarmygrid.settings import Settings
@@ -86,6 +87,7 @@ class Services:
     packs: Packs
     keys: KeyFinder
     compares: Compares
+    tie_out: TieOut
     snapshots: Snapshots
     live: LiveUpdates
     workers: PriorityWorkers
@@ -165,6 +167,7 @@ def bootstrap(
     )
     # Tangs come from the person's own folder and the shared folders, which are the blade folders:
     # one team folder carries blades and tangs alike.
+    compares = Compares(ws)
     models = Models(
         ws,
         ModelFiles(
@@ -205,7 +208,8 @@ def bootstrap(
         finder=Finder(ws, models),
         packs=Packs(ws, pack_files, blade_store, models.library_files),
         keys=KeyFinder(ws),
-        compares=Compares(ws),
+        compares=compares,
+        tie_out=TieOut(compares),
         snapshots=Snapshots(ws),
         live=live,
         workers=workers,
