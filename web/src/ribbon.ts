@@ -25,6 +25,7 @@
  */
 import { button, clear, h, isDateType, isNumericType, isTextType, toast } from "./dom";
 import { changeCompare, currentCompare, onCompareChange, stopCompare } from "./compare";
+import { openFitTest, openOutliers } from "./analysisDialog";
 import { openCompareDialog } from "./compareDialog";
 import { openExport } from "./exportDialog";
 import { openKeyFinderWindow } from "./keyFinder";
@@ -158,6 +159,8 @@ function render(): void {
       tool("Categorize…", "tag", () => editStep("categorize", undefined, { column: one }), { disabled: needOne, title: "Add a column of labels from rules" }),
       tool("Group by…", "group", () => editStep("group_by", undefined, { keys: cols }), { disabled: noColumn }),
       tool("Profile", "profile", () => one && onProfile(one), { disabled: needOne, title: "Profile this column: a one-time popup" }),
+      tool("Fit test…", "fit", () => void openFitTest(cols), { disabled: noColumn, title: "Chi-square: do the selected columns' values spread as expected (even, Benford's first digits, another grid)? Two columns: are they related?" }),
+      tool("Outliers…", "outliers", () => one && void openOutliers(one), { disabled: needOne, title: "Find values far from the rest, or seen too often or too rarely" }),
     ),
     group(
       "Cell",

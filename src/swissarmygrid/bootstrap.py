@@ -37,6 +37,7 @@ from swissarmygrid.server import blade_runner
 from swissarmygrid.server.blade_templates import TEMPLATES
 from swissarmygrid.server.notebook import DEFAULT_NOTEBOOK, NotebookControl, NotebookServer
 from swissarmygrid.services.agent import AgentService, Approvals, ExportTickets
+from swissarmygrid.services.analysis import Analysis
 from swissarmygrid.services.blades import BladeService
 from swissarmygrid.services.catalogs import CatalogService
 from swissarmygrid.services.charts import Cards
@@ -66,6 +67,7 @@ class Services:
     datasets: DatasetService
     grids: GridService
     profiles: Profiles
+    analysis: Analysis
     sql: SqlBox
     exports: Exports
     codes: CodeService
@@ -173,6 +175,7 @@ def bootstrap(
         datasets=datasets,
         grids=GridService(ws, recipes, processes),
         profiles=Profiles(ws),
+        analysis=Analysis(ws),
         sql=SqlBox(ws, datasets, table_reader),
         exports=Exports(ws, export_writer, tickets, now=lambda: datetime.now(UTC)),
         codes=CodeService(ws, verifier),

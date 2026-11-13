@@ -35,6 +35,8 @@ export const STOPS: readonly Stop[] = [
   { icon: "steps", word: "Steps", line: "Every click is a step. Undo any one.", target: ".steps-strip" },
   { icon: "sql", word: "Copy as SQL", line: "Your steps as one DuckDB query, checked before you copy.", target: '.steps-strip [aria-label="Copy as SQL"]' },
   { icon: "profile", word: "Profile", line: "A column at a glance: blanks, top values, spread.", target: '.ribbon [aria-label="Profile"]' },
+  { icon: "fit", word: "Fit test", line: "Do a column's values spread as expected? Chi-square says.", target: '.ribbon [aria-label="Fit test…"]' },
+  { icon: "outliers", word: "Outliers", line: "Values far from the rest, or seen too often or too rarely.", target: '.ribbon [aria-label="Outliers…"]' },
   { icon: "columns", word: "Compare", line: "Drag a tab onto another: two tables, row by row.", target: ".tabs-row" },
   { icon: "zoom", word: "Key Finder", line: "Finds the columns two tables share.", target: '.ribbon [aria-label="Key Finder"]' },
   { icon: "crown", word: "Tang", line: "Saved joins between tables. Run one to test it.", where: "Relationships", target: '.ribbon [aria-label="Relationships"]' },

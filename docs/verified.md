@@ -248,3 +248,13 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   card sits in the middle when the control is off screen; the arrow keys and Escape work; five game
   rounds end on the score knife. Full suite: 1,563 passed (one older test listed the Application
   row's buttons exactly and now lists the four row buttons).
+- (2026-11-13) The fit test and outliers (domain/analysis.py, services/analysis.py,
+  routes_analysis.py, analysisDialog.ts). The chi-square p-value matches the textbook critical values
+  (3.841 with 1 degree of freedom is 0.05, 11.07 with 5 is 0.05, 15.51 with 8 is 0.05) to 1e-9, and an
+  even degree of freedom's closed form (100 with 10: 5.45e-17). DuckDB's `mad()` is the median absolute
+  deviation (unscaled) and `printf('%.14e', x)` gives the first significant digit correctly rounded
+  (9.9999999999999999 is 1.0e+01). On made-up invoices: log-uniform amounts fit Benford (p 0.68, close
+  conformity) and evenly typed ones do not (p < 0.0001, nonconformity, w 0.62); region against late
+  is related (Cramér's V 0.88); the three planted unit costs are the only outliers within vendor V2,
+  and Show these rows keeps exactly rows 30, 1030 and 2030 in the grid's order; frequency finds the one
+  misspelled region. In Chrome for Testing 153, light and dark.

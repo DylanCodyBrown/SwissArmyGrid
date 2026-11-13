@@ -1388,6 +1388,58 @@ def column_profile(a: dict[str, Any]) -> Any:
 
 
 @command(
+    "column_fit_test",
+    "Chi-square goodness of fit on one or more columns of the grid's view: does each column's spread of "
+    "values match the expected one? expected: even (default), benford / benford2 (first one or two digits "
+    "of amounts; made-up numbers rarely follow them), grid (another grid's column: reference), shares "
+    "(your own), together (two columns: are they related?). Gives p, an effect size in words, and the "
+    "values furthest from expected.",
+    req("grid", "Grid id."),
+    req("columns", "Column names (a list; one name works too).", "list"),
+    opt("expected", "even | benford | benford2 | grid | shares | together."),
+    opt(
+        "reference",
+        'With expected=grid: {"grid": id, "column": name} (column defaults to the same name).',
+        "json",
+    ),
+    opt("shares", 'With expected=shares: {"value": share, ...} (normalized for you).', "json"),
+    values=True,
+)
+def column_fit_test(a: dict[str, Any]) -> Any:
+    columns = a["columns"]
+    body = {
+        "columns": [columns] if isinstance(columns, str) else columns,
+        "expected": a.get("expected") or "even",
+        **{k: a[k] for k in ("reference", "shares") if a.get(k) is not None},
+    }
+    return api.call("POST", f"/grids/{_q(a['grid'])}/fit-test", body)
+
+
+@command(
+    "column_outliers",
+    "Outliers in one column of the grid's view. look=amount (numbers far from the rest: method robust "
+    "(median, the default), iqr (quartile fences) or zscore; `by` judges each group of another column "
+    "separately) or look=frequency (values seen far more often or more rarely than values usually are: "
+    "typos, copied amounts). show=true also adds the step that keeps just those rows.",
+    req("grid", "Grid id."),
+    req("column", "Column name."),
+    opt("look", "amount (default) or frequency."),
+    opt("method", "robust (default), iqr or zscore (amount)."),
+    opt("threshold", "How far out counts as an outlier (robust 3.5, iqr 1.5, zscore 3).", "any"),
+    opt("by", "Judge each group of this column separately (amount)."),
+    opt("show", "Also add the step that shows the outliers' rows.", "bool"),
+    values=True,
+)
+def column_outliers(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("column", "look", "method", "threshold", "by") if a.get(k) not in (None, "")}
+    found = api.call("POST", f"/grids/{_q(a['grid'])}/outliers", body)
+    if a.get("show") and found.get("step"):
+        step = found["step"]
+        found["shown"] = _insert_step(a["grid"], step["kind"], step["params"])
+    return found
+
+
+@command(
     "row_limit",
     "Keep only the first n rows (a limit step).",
     req("grid", "Grid id."),

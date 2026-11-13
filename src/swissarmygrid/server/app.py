@@ -5,6 +5,7 @@ Route modules, one per area, like ASP.NET controllers. Each is given its service
 and does nothing but read the request, call the use case and shape the answer:
   routes_datasets.py       push, list, close, load a file, paste, the "+" tab; health and shutdown
   routes_grids.py          rows, steps, profile, SQL, export, code, recipes for one grid
+  routes_analysis.py       the fit test and outliers on one grid's view
   routes_agent.py          the MCP door: the agent's reads, approvals, the current table
   routes_cards.py          side-panel charts and notes (plan section 11)
   routes_catalog.py        catalogs (a source's names and types)
@@ -35,6 +36,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from swissarmygrid.bootstrap import bootstrap
 from swissarmygrid.server import (
     routes_agent,
+    routes_analysis,
     routes_blades,
     routes_cards,
     routes_catalog,
@@ -117,6 +119,7 @@ def create_app(
         routes=[
             *routes_datasets.routes(ctx.datasets),
             *routes_grids.routes(ctx.grids, ctx.profiles, ctx.sql, ctx.exports, ctx.codes),
+            *routes_analysis.routes(ctx.grids, ctx.analysis),
             *routes_agent.routes(ctx.agent),
             *routes_cards.routes(ctx.cards),
             *routes_catalog.routes(ctx.catalogs),

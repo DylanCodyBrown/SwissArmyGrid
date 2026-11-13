@@ -3432,3 +3432,121 @@ body.popout .app-row {
     animation: none;
   }
 }
+
+/* ===== The fit test and outliers (analysisDialog.ts) ===== */
+.analysis-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.analysis-field {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.analysis-field[hidden] {
+  display: none;
+}
+
+.analysis-results {
+  display: grid;
+  gap: 14px;
+}
+
+.analysis-card {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.analysis-verdict {
+  margin: 4px 0 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--ok);
+  border-radius: 4px;
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.analysis-verdict.off {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.warning-text {
+  color: var(--warn);
+}
+
+.fit-bars {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.fit-row {
+  display: grid;
+  grid-template-columns: minmax(60px, 1.2fr) minmax(80px, 3fr) 64px 72px 60px;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fit-row.head {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.fit-row.far {
+  background: var(--accent-soft);
+}
+
+.fit-row .num {
+  text-align: right;
+}
+
+.fit-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fit-track {
+  position: relative;
+  height: 12px;
+}
+
+.fit-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--selected);
+  border-right: 2px solid var(--border-strong);
+}
+
+.fit-row.far .fit-bar {
+  border-right-color: var(--accent);
+}
+
+.fit-tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--fg);
+}
+
+.analysis-results th.num,
+.analysis-results td.num {
+  text-align: right;
+}
+
+.analysis-field input[type="number"] {
+  width: 6em;
+}

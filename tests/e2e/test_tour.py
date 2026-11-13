@@ -11,7 +11,7 @@ from playwright.sync_api import Browser, expect
 from swissarmygrid.client import push_client
 from tests.e2e.test_ui import browser, open_grid, server  # noqa: F401
 
-STOPS = 15  # tour.ts STOPS: the welcome card and fourteen words
+STOPS = 17  # tour.ts STOPS: the welcome card and sixteen words
 
 
 def test_the_tour_lights_up_each_word_and_ends_with_a_game(browser: Browser, server: dict[str, Any]) -> None:

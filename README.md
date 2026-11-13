@@ -52,6 +52,12 @@ What a grid page does:
 - **Packs:** blades and tangs a team keeps in a GitHub repository that is also a Claude Code plugin
   marketplace. Install a pack with `/plugin install` and its blades and tangs show up, marked with the
   pack; `/plugin marketplace update` brings the team's latest.
+- **Fit test and outliers:** select columns and ask whether their values spread as expected (chi-square
+  against even shares, Benford's law on the first one or two digits, another grid's spread, or two
+  columns together), with the verdict in words and an effect size; or find the outliers in a column, by
+  amount (robust median fences, Tukey's quartiles or z-scores, within each vendor or month if you like)
+  or by frequency (a typo seen once, an amount copied forty times). **Show these rows** adds a step
+  that keeps just them.
 - **Key Finder:** pick another grid (or every other grid) and get the likely join columns:
   each column pair that shares values, with the percent of each side's distinct values found in
   the other, whether each side is unique (so which one looks like the key), and a score. Columns

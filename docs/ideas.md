@@ -447,3 +447,33 @@ the page from one grid per page to several, so it gets its own plan before any c
 - Four implementations per operation (engine + DuckDB, pandas and plain-Python generators) is a
   lot of work for M4 and M6. Consider shipping the DuckDB generator first and adding pandas only
   when someone needs it.
+
+## The fit test and outliers (2026-11-13, the owner's request; built)
+
+"A chi-square goodness of fit I can quickly use on a set of columns, and a quick outlier deviation
+analysis where I can find the liars within a column, by frequency or amount."
+
+- **Where:** the Column row (Fit test on the selected columns, Outliers on one), and the agent tools
+  `column_fit_test` and `column_outliers`. Domain math and query text in domain/analysis.py; no new
+  dependency (the chi-square p-value is the regularized incomplete gamma, tested against textbook
+  critical values).
+- **Fit test:** even, Benford first digit and first two digits (with Nigrini's mean absolute
+  deviation ranges), another grid's column, the caller's shares, and two columns together
+  (independence, Cramér's V). Every result gives an effect size in words beside p, because with
+  many rows any difference is significant. More than 200 values: refused, with "bucket it first".
+- **Outliers by amount:** robust (median and median absolute deviation, Iglewicz and Hoaglin's 3.5;
+  falls back to the mean absolute deviation when over half the values are equal), Tukey's quartile
+  fences (1.5), or z-scores (3); optionally within each group of another column (groups under 5
+  values are not judged).
+- **Outliers by frequency:** a value is flagged only when its count is unusual on two scales, and
+  its score is the weaker: against the other values' counts on a log scale (natural popularity
+  differs by a few times), and against counting noise (Anscombe's square-root transform, where chance
+  is one unit wide). Neither alone worked: the log scale alone flagged 990 among values seen 1,000
+  times; noise alone missed a typo seen twice among values seen 500 to 2,000 times. Checked on four
+  made-up shapes in tests/test_analysis.py.
+- **Show these rows** is a SQL step with the fences written as numbers (frozen when found), not a
+  live subquery: a plain `SELECT * FROM grid WHERE ...` keeps the grid's row order, while a subquery
+  would make the guard sort by every column. Pushing new data does not move the fences; run Outliers
+  again for new ones.
+- **Open:** a Sandbox card for a fit test's bars; a "Flag as a column" choice (a categorize step)
+  beside Show these rows; outliers by date (gaps, a burst on one day).

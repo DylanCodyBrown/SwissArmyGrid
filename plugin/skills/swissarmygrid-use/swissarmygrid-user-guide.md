@@ -64,7 +64,7 @@ Scrolling sideways is free: the view stops wherever you leave it, even in the mi
 
 The Table row holds the tools for the whole view: matching, Filter, Sort, Choose columns, Rename, Group by, Distinct rows, Keep first rows, Clean text, Auto width, Profile, Key Finder, Relationships, Export and the zoom control.
 
-The Column row acts on the selected column. It has Sort A to Z and Z to A, Filter, Rename, Auto width, Remove, Keep only, Clean text, Bucket, Categorize, Group by and Profile. The Cell row keeps or excludes rows with the selected cell's value, shows the full value and copies.
+The Column row acts on the selected column. It has Sort A to Z and Z to A, Filter, Rename, Auto width, Remove, Keep only, Clean text, Bucket, Categorize, Group by, Profile, Fit test and Outliers. The Cell row keeps or excludes rows with the selected cell's value, shows the full value and copies.
 
 ### Filter steps
 
@@ -103,6 +103,26 @@ Click a column header, then Profile in the Column row, to open a popup for that 
 Profile in the Table row profiles every column at once, with the type, blank counts, distinct counts and the minimum value of each. Export profile (CSV) saves that table.
 
 ![The whole-view profile: one row per column with its type, blanks, distinct count and minimum.](images/08-table-profile.png)
+
+### Fit test
+
+Select one or more columns, then **Fit test** in the Column row. It asks: could the difference between what a column holds and what you expect be chance? (Pearson's chi-square goodness of fit.) Pick what you expect:
+
+- **Even:** every value as likely (regions, weekdays, shifts).
+- **First digit** or **first two digits (Benford's law):** in natural amounts (invoices, expenses, populations) about 30% start with 1 and under 5% with 9. Numbers someone made up rarely do. The result also gives Nigrini's conformity rating, from close conformity to nonconformity.
+- **Another grid's spread:** this month's values against last month's, or a sample against the whole.
+- **Together** (two columns): are they related? Region and late delivery, say.
+
+Each column gets a verdict in words, the chi-square number, the p-value and an effect size. With many rows even a tiny difference is "certain", so read the effect (negligible, small, medium, large) to see whether it matters. The bars show each value's count, the tick the expected count, and values far off are shaded. A column with more than 200 different values needs bucketing first (or the Benford test, for amounts).
+
+### Outliers
+
+Select one column, then **Outliers** in the Column row:
+
+- **Amount** (number columns): values far from the rest. **Robust** (the default) measures distance from the median, so a few wild values cannot drag the average along and hide themselves. **Quartile fences** is Tukey's box-plot rule; **mean and standard deviation** is the classic z-score. **How far out** sets the line (3.5, 1.5 and 3 by default). **Within each** judges every vendor, store or month on its own, so a normal amount for one is not hidden by another.
+- **Frequency** (any column): values seen far more often or far more rarely than values usually are. A rare one is often a misspelling (Nrth among thousands of Norths); a common one, a copy or a default (the same amount forty times). Ordinary chance (990 against 1,000) is not flagged.
+
+**Show these rows** adds a step that keeps just the outliers, with the fences written in it as numbers, so the grid shows them in their usual order. Undo it like any step. An outlier is a question, not proof: look at the rows before you decide.
 
 ### Auto width
 
