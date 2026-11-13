@@ -106,8 +106,9 @@ select = ["E", "F", "W", "I", "UP", "B", "S", "RUF"]
 "src/swissarmygrid/domain/charts.py" = ["S608"]
 "src/swissarmygrid/services/charts.py" = ["S608"]
 "src/swissarmygrid/domain/codegen.py" = ["S608", "E501"]
-"src/swissarmygrid/server/routes_grids.py" = ["S608"]
-"src/swissarmygrid/server/routes_agent.py" = ["S608"]
+"src/swissarmygrid/services/grids.py" = ["S608"]
+"src/swissarmygrid/services/agent.py" = ["S608"]
+"src/swissarmygrid/services/export.py" = ["S608"]
 # Developer scripts: they run fixed local tools (git, npm, uv, VS Code) with our own arguments,
 # set up sys.path before importing, and hold long command lines.
 "tools/**" = ["S603", "S607", "S110", "E402", "E501"]

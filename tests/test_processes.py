@@ -12,8 +12,8 @@ import pyarrow as pa
 import pytest
 from starlette.testclient import TestClient
 
-from swissarmygrid.server.processes import ProcessRegistry
 from swissarmygrid.server.routes_processes import QuietHeartbeats
+from swissarmygrid.services.processes import ProcessRegistry
 from tests.conftest import AGENT, AUTH, grid_id, push
 
 SESSION = {"X-Process": "s1"}

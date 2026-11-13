@@ -183,7 +183,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
             return error_response(error)
 
     async def rows(request: Request) -> Response:
-        from swissarmygrid.server.routes_grids import _truncate  # the grid page's own cell cut
+        from swissarmygrid.services.grids import truncate as _truncate  # the grid page's own cell cut
 
         try:
             cmp = get(request)

@@ -31,7 +31,7 @@ from swissarmygrid.domain.export import ExportError
 from swissarmygrid.domain.grids import GridLimitError, StaleRequestError
 from swissarmygrid.domain.sql_guard import SqlRefused
 from swissarmygrid.domain.steps import StepError
-from swissarmygrid.services.workspace import Conflict, Refused, TimedOut
+from swissarmygrid.services.workspace import Conflict, NotFound, Refused, TimedOut
 
 T = TypeVar("T")
 
@@ -100,13 +100,11 @@ def json_response(content: Any, status_code: int = 200, max_bytes: int | None = 
 def error_response(error: Exception) -> Response:
     """Map the engine's error types to HTTP status codes with plain-language messages."""
     status = 500
-    if isinstance(error, Refused):
-        status = 403
-    elif isinstance(error, TimedOut):
-        status = 408
-    elif isinstance(error, Conflict):
-        status = 409
-    elif isinstance(error, DatasetTooLargeError | BodyTooLargeError):
+    # What a use case ended in besides its answer (services/workspace.py).
+    for outcome, code in ((Refused, 403), (NotFound, 404), (TimedOut, 408), (Conflict, 409)):
+        if isinstance(error, outcome):
+            return Response(str(error), status_code=code)
+    if isinstance(error, DatasetTooLargeError | BodyTooLargeError):
         status = 413
     elif isinstance(error, DatasetLimitError | GridLimitError | StaleRequestError):
         status = 409

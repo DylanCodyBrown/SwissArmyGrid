@@ -25,6 +25,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -613,3 +614,34 @@ def parquet(reader: pa.RecordBatchReader, options: ExportOptions, provenance: Pr
         for batch in reader:
             writer.write_batch(batch.replace_schema_metadata(schema.metadata))
     return output.getvalue()
+
+
+# ===== the service layer's `ExportWriter` port =====
+
+
+def write(
+    cursor: duckdb.DuckDBPyConnection,
+    sql: str,
+    columns: tuple[Column, ...],
+    options: ExportOptions,
+    provenance: Provenance | None,
+    row_count: int,
+) -> bytes:
+    """The rows of `sql` as the bytes of one file in the format the options name."""
+    reader = batches(cursor, sql)
+    if options.format == "xlsx":
+        return excel(reader, columns, options, provenance, row_count)
+    if options.format == "parquet":
+        return parquet(reader, options, provenance)
+    return b"".join(delimited(reader, columns, options))
+
+
+def save(folder: Path, file_name: str, data: bytes, overwrite: bool) -> tuple[str, bool]:
+    """Write an export into the export folder. Returns the file's path and whether it was written:
+    an existing file is left alone unless `overwrite`."""
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / file_name
+    if target.exists() and not overwrite:
+        return str(target), False
+    target.write_bytes(data)
+    return str(target), True

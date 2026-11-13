@@ -191,6 +191,21 @@ def remove_info_file(path: Path, token: str | None = None) -> None:
     path.unlink(missing_ok=True)
 
 
+def is_own_file(path: str, state_dir: Path, export_dir: Path) -> bool:
+    """True for a file of SwissArmyGrid's own: the connection file, or anything in the state folder
+    except the export folder inside it (an export loaded back is a table). An unusable path is not
+    one: the loader says why."""
+    try:
+        target = Path(path).expanduser().resolve()
+        connection = info_file_path().expanduser().resolve()
+        state = state_dir.expanduser().resolve()
+        exports = export_dir.expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    inside_state = target.is_relative_to(state) and not target.is_relative_to(exports)
+    return target == connection or inside_state
+
+
 # ===== the model library =====
 # A folder of model files (domain/relationships.py has the shape). Three places, read in this order,
 # a later file with the same name winning:

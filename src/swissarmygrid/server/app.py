@@ -37,7 +37,6 @@ from swissarmygrid.server import (
     routes_cards,
     routes_catalog,
     routes_compare,
-    routes_context,
     routes_datasets,
     routes_grids,
     routes_keyfinder,
@@ -64,7 +63,6 @@ def create_app(
     ctx = bootstrap(port, token, settings, on_shutdown, audit_log)
     settings, workers = ctx.settings, ctx.workers
 
-    tickets = routes_agent.ExportTickets()  # the agent exports the user approved, not yet written
     relationships = routes_models.Relationships()  # the current keys and joins (a shared model)
 
     async def live(websocket: WebSocket) -> None:
@@ -106,8 +104,7 @@ def create_app(
         # seconds and tells the pages, so a dead session never lingers in the Open dialog.
         while True:
             await asyncio.sleep(PRUNE_EVERY_SECONDS)
-            if ctx.processes.prune():
-                await ctx.live.broadcast({"type": "processes_changed"})
+            await ctx.sessions.drop_silent()
 
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
@@ -119,17 +116,16 @@ def create_app(
 
     app = Starlette(
         routes=[
-            *routes_datasets.routes(ctx),
-            *routes_grids.routes(ctx, tickets),
-            *routes_agent.routes(ctx, tickets),
-            *routes_context.routes(ctx),
+            *routes_datasets.routes(ctx.datasets),
+            *routes_grids.routes(ctx.grid_service, ctx.profiles, ctx.sql, ctx.exports, ctx.codes),
+            *routes_agent.routes(ctx.agent),
             *routes_models.routes(ctx, relationships),
             *routes_cards.routes(ctx),
             *routes_catalog.routes(ctx),
             *routes_notebook.routes(ctx),
             *routes_keyfinder.routes(ctx),
             *routes_compare.routes(ctx),
-            *routes_processes.routes(ctx),
+            *routes_processes.routes(ctx.sessions),
             *routes_snapshots.routes(ctx),
             WebSocketRoute("/ws", live),
             Route("/g/{grid_id}", grid_page),

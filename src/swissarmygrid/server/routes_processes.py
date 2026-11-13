@@ -1,4 +1,4 @@
-"""Routes for Python sessions that offer tables (see processes.py).
+"""Routes for Python sessions that offer tables (services/processes.py).
 
   POST /processes/{id}/sync              the session's report: label, pid, tables; replies what it follows
   GET  /processes/{id}/requests?wait=N   the session's listener: long-poll for requests to load a table
@@ -18,10 +18,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.bootstrap import Services as Context
 from swissarmygrid.server.http import actor, error_response, json_response, read_json
+from swissarmygrid.services.processes import Sessions
 
-MAX_WAIT_SECONDS: float = 30.0
 _QUIET_PREFIX = "/processes/"
 
 
@@ -38,62 +37,26 @@ class QuietHeartbeats(logging.Filter):
         return not (path.split("?", 1)[0].endswith(("/sync", "/requests")))
 
 
-def _clean_errors(raw: Any) -> list[tuple[str, str]]:
-    """At most five (table name, message) pairs from a sync's `errors`, each message cut short."""
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        raise ValueError("errors must be a list of {name, message}.")
-    pairs: list[tuple[str, str]] = []
-    for entry in raw[:5]:
-        if (
-            isinstance(entry, dict)
-            and isinstance(entry.get("name"), str)
-            and isinstance(entry.get("message"), str)
-        ):
-            pairs.append((entry["name"][:64], entry["message"][:300]))
-    return pairs
-
-
-def routes(ctx: Context) -> list[BaseRoute]:
-    registry = ctx.processes
-
-    def store_has(name: str) -> bool:
-        return ctx.store.get(name) is not None
-
+def routes(sessions: Sessions) -> list[BaseRoute]:
     async def sync(request: Request) -> Response:
         try:
-            process_id = request.path_params["process"]
             body: Any = await read_json(request)
-            if not isinstance(body, dict):
-                raise ValueError("Send an object with label, pid and tables.")
-            changed = registry.sync(process_id, body.get("label"), body.get("pid"), body.get("tables", []))
-            errors = _clean_errors(body.get("errors"))
+            return json_response(await sessions.sync(request.path_params["process"], body))
         except Exception as error:
             return error_response(error)
-        if changed:
-            await ctx.live.broadcast({"type": "processes_changed"})
-        # Why a table the user clicked would not open (too large, say): the page shows it as a toast.
-        label = next((s["label"] for s in registry.snapshot(store_has) if s["id"] == process_id), "")
-        for name, message in errors:
-            await ctx.live.broadcast(
-                {"type": "process_error", "label": label, "name": name, "message": message}
-            )
-        return json_response({"following": registry.following(process_id, store_has)})
 
     async def requests(request: Request) -> Response:
         try:
             wait = float(request.query_params.get("wait", "0") or 0)
         except ValueError:
             return Response("wait must be a number of seconds.", status_code=400)
-        process_id = request.path_params["process"]
-        if not registry.knows(process_id):
+        taken = await sessions.requests(request.path_params["process"], wait)
+        if taken is None:
             return Response("No such session; send a sync first.", status_code=404)
-        taken = await registry.wait_requests(process_id, max(0.0, min(wait, MAX_WAIT_SECONDS)))
         return json_response({"requests": taken})
 
     async def listing(request: Request) -> Response:
-        return json_response({"processes": registry.snapshot(store_has)})
+        return json_response({"processes": sessions.listing()})
 
     async def open_table(request: Request) -> Response:
         if actor(request) == "agent":
@@ -105,7 +68,7 @@ def routes(ctx: Context) -> list[BaseRoute]:
                 raise ValueError('Send {"name": "<table name>"}.')
         except Exception as error:
             return error_response(error)
-        if not registry.request_load(request.path_params["process"], name):
+        if not sessions.open_table(request.path_params["process"], name):
             return Response("That Python session or table is no longer there.", status_code=404)
         return json_response({"queued": True}, status_code=202)
 

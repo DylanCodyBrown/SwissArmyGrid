@@ -1,7 +1,7 @@
 """Python sessions that offer tables to the grid: the data behind the Open list.
 
 A session is one running Python (a notebook kernel, a script, a REPL) whose client has the watcher
-on (client/watch.py). It reports the names and sizes of the tables among its variables, never their
+on (client/watcher.py). It reports the names and sizes of the tables among its variables, never their
 rows. The page lists them; a click queues a request, the session's listener picks it up and pushes
 that one table. Rows therefore leave a Python process only when someone chooses to open a table.
 
@@ -23,6 +23,7 @@ from time import monotonic
 from typing import Any
 
 from swissarmygrid.domain.datasets import NAME_PATTERN
+from swissarmygrid.services.ports import Datasets, Notifier
 
 MAX_TABLES: int = 500
 MAX_LABEL_CHARS: int = 120
@@ -219,3 +220,73 @@ class ProcessRegistry:
     def knows(self, process_id: str) -> bool:
         self.prune()
         return process_id in self._sessions
+
+
+# ===== the use cases =====
+
+MAX_WAIT_SECONDS: float = 30.0
+
+
+def _clean_errors(raw: Any) -> list[tuple[str, str]]:
+    """At most five (table name, message) pairs from a sync's `errors`, each message cut short."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("errors must be a list of {name, message}.")
+    pairs: list[tuple[str, str]] = []
+    for entry in raw[:5]:
+        if (
+            isinstance(entry, dict)
+            and isinstance(entry.get("name"), str)
+            and isinstance(entry.get("message"), str)
+        ):
+            pairs.append((entry["name"][:64], entry["message"][:300]))
+    return pairs
+
+
+class Sessions:
+    """What the page and a session's watcher do with the registry: report, listen, list, ask to open."""
+
+    def __init__(self, registry: ProcessRegistry, store: Datasets, live: Notifier) -> None:
+        self.registry = registry
+        self._store = store
+        self._live = live
+
+    def _open(self, name: str) -> bool:
+        return self._store.get(name) is not None
+
+    async def sync(self, process_id: str, body: Any) -> dict[str, Any]:
+        """A session's report: label, pid, tables. Replies with the datasets it keeps current."""
+        if not isinstance(body, dict):
+            raise ValueError("Send an object with label, pid and tables.")
+        changed = self.registry.sync(process_id, body.get("label"), body.get("pid"), body.get("tables", []))
+        errors = _clean_errors(body.get("errors"))
+        if changed:
+            await self._live.broadcast({"type": "processes_changed"})
+        # Why a table the user clicked would not open (too large, say): the page shows it as a toast.
+        label = next((s["label"] for s in self.registry.snapshot(self._open) if s["id"] == process_id), "")
+        for name, message in errors:
+            await self._live.broadcast(
+                {"type": "process_error", "label": label, "name": name, "message": message}
+            )
+        return {"following": self.registry.following(process_id, self._open)}
+
+    async def requests(self, process_id: str, wait: float) -> list[dict[str, str]] | None:
+        """The session's listener: its pending requests, waiting up to `wait` seconds (30 at most).
+        None when the session is unknown."""
+        if not self.registry.knows(process_id):
+            return None
+        return await self.registry.wait_requests(process_id, max(0.0, min(wait, MAX_WAIT_SECONDS)))
+
+    def listing(self) -> list[dict[str, Any]]:
+        return self.registry.snapshot(self._open)
+
+    def open_table(self, process_id: str, name: str) -> bool:
+        """Ask a session to push one of its tables. False when the session or table is gone."""
+        return self.registry.request_load(process_id, name)
+
+    async def drop_silent(self) -> None:
+        """A notebook that closes or crashes just stops reporting; tell the pages when one went, so a
+        dead session never lingers in the Open dialog."""
+        if self.registry.prune():
+            await self._live.broadcast({"type": "processes_changed"})

@@ -29,6 +29,10 @@ class Refused(Exception):
     """Not for this caller: the agent asked for something that is the user's, or the user said no."""
 
 
+class NotFound(Exception):
+    """What was named is not there (any more)."""
+
+
 class Conflict(Exception):
     """The request cannot be done as things stand now (a name taken, nothing open to answer)."""
 

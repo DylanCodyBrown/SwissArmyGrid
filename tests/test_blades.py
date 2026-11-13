@@ -171,7 +171,7 @@ def test_packages_map_imports_to_pip_names_and_skip_the_standard_library() -> No
 
 @pytest.mark.parametrize("template", TEMPLATES, ids=lambda t: t.id)
 def test_every_template_reads_as_python_and_names_its_variable(template: object) -> None:
-    from swissarmygrid.server.blade_templates import Template
+    from swissarmygrid.domain.blades import Template
 
     assert isinstance(template, Template)
     found = blade_code.read_code(template.code, template.label)

@@ -12,42 +12,7 @@ to install them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
-
-
-@dataclass(frozen=True)
-class Template:
-    id: str
-    label: str
-    group: str  # "Databases", "Files", "Vaults", "Other"
-    kind: str  # "sql", "other" or "vault"
-    code: str
-    variable: str
-    dialect: str = "other"
-    catalog_language: str | None = None  # "sql" or "python"
-    catalog_command: str | None = None
-    vault_mapping: tuple[tuple[str, str], ...] = ()  # (environment variable, secret name) examples
-    note: str = ""
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "label": self.label,
-            "group": self.group,
-            "kind": self.kind,
-            "dialect": self.dialect,
-            "code": self.code,
-            "variable": self.variable,
-            "catalog": (
-                {"language": self.catalog_language, "command": self.catalog_command}
-                if self.catalog_language and self.catalog_command
-                else None
-            ),
-            "vault_mapping": [{"env": e, "secret": s} for e, s in self.vault_mapping],
-            "note": self.note,
-        }
-
+from swissarmygrid.domain.blades import Template
 
 # ===== catalog queries =====
 

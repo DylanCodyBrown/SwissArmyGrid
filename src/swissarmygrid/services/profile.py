@@ -15,11 +15,16 @@ view, held by the view cache); nothing here knows DuckDB's Python library.
 
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
+from collections.abc import Callable
 from typing import Any
 
-from swissarmygrid.domain.datasets import Column, quote
+from swissarmygrid.domain.datasets import Column, DatasetInfo, quote
+from swissarmygrid.domain.grids import Grid, view_key
 from swissarmygrid.domain.steps import _TRIM_SQL, type_family
-from swissarmygrid.services.ports import SqlSession
+from swissarmygrid.services.ports import AGENT, BACKGROUND, SqlSession
+from swissarmygrid.services.workspace import Workspace
 
 TOP_VALUES: int = 20
 
@@ -198,3 +203,70 @@ def header_stats(cursor: SqlSession, view_sql: str, columns: tuple[Column, ...])
             "blank_percent": round(100.0 * blanks / rows, 1) if rows else 0.0,
         }
     return out
+
+
+# ===== the use cases =====
+
+
+class Profiles:
+    """Profiles of a grid's view, kept by view key: the same view asked twice is computed once."""
+
+    def __init__(self, ws: Workspace) -> None:
+        self.ws = ws
+        self._cache: OrderedDict[str, Any] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def _cached(self, key: str, compute: Callable[[], Any]) -> Any:
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
+        value = compute()
+        with self._lock:
+            self._cache[key] = value
+            while len(self._cache) > 512:
+                self._cache.popitem(last=False)
+        return value
+
+    async def profile(
+        self, grid: Grid, info: DatasetInfo, column_name: str | None, upto: int | None, who: str
+    ) -> Any:
+        """One column's profile, or the whole table's when no column is named."""
+        ws = self.ws
+        key = view_key(info, grid.steps, grid.settings, upto) + f":{column_name}"
+
+        def compute(cur: SqlSession) -> Any:
+            compiled = ws.compiled(cur, grid, info)
+            columns = compiled.columns_at(upto)
+            match = next((c for c in columns if c.name == column_name), None)
+            if column_name is not None and match is None:
+                raise LookupError(f"No column {column_name!r} in this view.")
+
+            def run() -> Any:
+                # The view cache, not every step again (adapters/views.reading).
+                with ws.views.reading(cur, info, grid.steps, grid.settings, upto) as rows:
+                    if match is None:
+                        return profile_table(cur, rows, columns)
+                    return profile_column(cur, rows, match)
+
+            return self._cached(key, run)
+
+        result = await ws.grid_query(grid, None, AGENT if who == "agent" else BACKGROUND, compute)
+        ws.audit.write(who, "profile", info.name, column=column_name)
+        return result
+
+    async def header_stats(self, grid: Grid, info: DatasetInfo, gen: int | None, client: str) -> Any:
+        """The small statistics under each column header."""
+        ws = self.ws
+        key = view_key(info, grid.steps, grid.settings, None) + ":header"
+
+        def compute(cur: SqlSession) -> Any:
+            compiled = ws.compiled(cur, grid, info)
+
+            def run() -> Any:
+                with ws.views.reading(cur, info, grid.steps, grid.settings) as rows:
+                    return header_stats(cur, rows, compiled.columns)
+
+            return self._cached(key, run)
+
+        return await ws.grid_query(grid, gen, BACKGROUND, compute, client)

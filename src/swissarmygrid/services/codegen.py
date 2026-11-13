@@ -21,9 +21,11 @@ from swissarmygrid.domain.codegen import (
     view_query,
 )
 from swissarmygrid.domain.datasets import DatasetInfo
+from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import SqlGrammar
 from swissarmygrid.domain.steps import Step, StepError, ViewSettings
-from swissarmygrid.services.ports import CodeVerifier, SqlSession, Views
+from swissarmygrid.services.ports import BACKGROUND, CodeVerifier, SqlSession, Views
+from swissarmygrid.services.workspace import Workspace
 
 
 def generate_code(
@@ -71,3 +73,30 @@ def generate_code(
         "rows_checked": len(expected.rows),
         "reason": None,
     }
+
+
+class CodeService:
+    """Copy as code for a grid: the use case the door calls."""
+
+    def __init__(self, ws: Workspace, verifier: CodeVerifier) -> None:
+        self.ws = ws
+        self._verifier = verifier
+
+    async def code(self, grid: Grid, info: DatasetInfo, target: str | None, who: str) -> dict[str, Any]:
+        ws = self.ws
+
+        def make(cur: SqlSession) -> dict[str, Any]:
+            return generate_code(
+                cur,
+                ws.views,
+                info,
+                grid.steps,
+                grid.settings,
+                target,
+                verifier=self._verifier,
+                grammar=ws.grammar,
+            )
+
+        result = await ws.grid_query(grid, None, BACKGROUND, make)
+        ws.audit.write(who, "code", info.name, target=result["target"], verified=result["verified"])
+        return result

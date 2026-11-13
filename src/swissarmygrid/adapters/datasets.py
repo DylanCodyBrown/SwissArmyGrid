@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import threading
 import uuid
@@ -544,3 +545,16 @@ def parse_pasted(text: str, max_bytes: int) -> pa.Table:
     except pa.ArrowInvalid as error:
         raise DatasetError(f"Could not read the pasted text as a table: {error}") from error
     return check_table(table.rename_columns(_header_names(list(table.column_names))))
+
+
+# ===== small things the service layer asks for =====
+
+
+def query_table(cursor: duckdb.DuckDBPyConnection, sql: str) -> pa.Table:
+    """A query's whole result as a table (the "+" tab and the SQL box's CREATE TABLE)."""
+    return cursor.sql(sql).to_arrow_table()
+
+
+def file_name(path_text: str) -> str:
+    """The file's own name, without its folders, for the audit log."""
+    return os.path.basename(path_text)
