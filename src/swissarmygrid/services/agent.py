@@ -25,6 +25,7 @@ import asyncio
 import secrets
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -159,6 +160,23 @@ class AgentService:
         self._packages = packages
         # The grid tab in front, as the workspace page last reported it.
         self._active: str | None = None
+        # What describe and profile found, by load (a dataset's name and serial) and column: an
+        # agent asks about the same table again and again, and only a new push changes the answer.
+        self._profiled: OrderedDict[tuple[str, int, str | None], Any] = OrderedDict()
+
+    async def _profile_once(
+        self, info: DatasetInfo, column: str | None, compute: Callable[[SqlSession], Any]
+    ) -> Any:
+        key = (info.name, info.serial, column)
+        if key in self._profiled:
+            self._profiled.move_to_end(key)
+            return self._profiled[key]
+        ws = self.ws
+        found = await ws.workers.run(AGENT, lambda: compute(ws.store.cursor()))
+        self._profiled[key] = found
+        while len(self._profiled) > 256:
+            self._profiled.popitem(last=False)
+        return found
 
     # ===== the user's answers =====
 
@@ -187,7 +205,7 @@ class AgentService:
             sql = f"SELECT {names} FROM {info.table}"
             return profile_table(cur, sql, info.columns)
 
-        profiled = await ws.workers.run(AGENT, lambda: compute(ws.store.cursor()))
+        profiled = await self._profile_once(info, None, compute)
         ws.audit.write("agent", "describe", info.name)
         return {
             "dataset": info.name,
@@ -205,7 +223,7 @@ class AgentService:
         if column is None:
             raise LookupError(f"No column {column_name!r}.")
         sql = f"SELECT * FROM {info.table}"
-        result = await ws.workers.run(AGENT, lambda: profile_column(ws.store.cursor(), sql, column))
+        result = await self._profile_once(info, column.name, lambda cur: profile_column(cur, sql, column))
         ws.audit.write("agent", "profile", info.name, column=column.name)
         return result
 

@@ -45,6 +45,26 @@ def test_the_agent_sees_everything_without_asking(client: TestClient) -> None:
     assert client.get("/agent/approvals", headers=AUTH).json()["pending"] == []
 
 
+def test_what_the_agent_was_told_of_a_table_follows_a_new_push(client: TestClient) -> None:
+    """describe and profile are kept by load: asked again they answer the same, and a push of the
+    name (or the name closed and opened again) is described afresh."""
+    push(client, "clients", CLIENTS)
+    first = client.get("/agent/describe/clients", headers=AGENT).json()
+    assert client.get("/agent/describe/clients", headers=AGENT).json() == first
+    column = {"column": "balance"}
+    assert client.get("/agent/profile/clients", params=column, headers=AGENT).json()["max"] == 250.5
+    push(client, "clients", pa.table({"client": ["Zed Ltd"], "balance": [7.0]}))
+    again = client.get("/agent/describe/clients", headers=AGENT).json()
+    assert (again["rows"], again["version"]) == (1, 2)
+    assert next(c for c in again["columns"] if c["column"] == "client")["min"] == "Zed Ltd"
+    assert client.get("/agent/profile/clients", params=column, headers=AGENT).json()["max"] == 7.0
+    assert client.delete("/datasets/clients", headers=AUTH).status_code == 200
+    push(client, "clients", pa.table({"client": ["Ypsilon"], "balance": [9.0]}))
+    assert client.get("/agent/profile/clients", params=column, headers=AGENT).json()["max"] == 9.0
+    audited = client.get("/audit", headers=AUTH).text
+    assert audited.count('"describe"') == 3
+
+
 def test_the_page_value_routes_answer_the_agent(client: TestClient) -> None:
     gid = grid_id(push(client, "clients", CLIENTS))
     rows = client.get(f"/grids/{gid}/rows", headers=AGENT)
