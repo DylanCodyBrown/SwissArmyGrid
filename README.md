@@ -56,14 +56,14 @@ What a grid page does:
   charts open large with wheel zoom, and clicking a bar filters the grid). The cards fill the width of the screen.
 - **Agent door (MCP):** the agent sees what the page shows; its exports wait for the user's
   Allow. Settings lists its activity and has a copyable prompt that installs the MCP in any agent.
-- **Blades and the catalog** (its own tab, from the key button by Settings): a **blade** is any
+- **Blades and the catalog** (its own tab, from **Blades and catalog** in the Application row): a **blade** is any
   Python that reaches outside Python to load something (a database connection, a CSV or workbook,
   an API, a vault). Save it once, then `conn = sag.blade("Warehouse")` in any Python. Starters for
   21 databases, 5 file patterns and 8 vaults; the save screen shows the packages a blade needs and
   installs missing ones. A blade can fill the **catalog**: every schema, table and column of its
   source with its type, as a searchable tree, readable by the agent so it can write SQL in the
   source's own dialect.
-- **The notebook** (its own tab, from the code button by Settings): marimo, started by SwissArmyGrid
+- **The notebook** (its own tab, from **Notebook** in the Application row): marimo, started by SwissArmyGrid
   the first time you open it, with the blades and the catalog on its left. Drag a blade onto a cell
   for its `sag.blade(...)` line, a table for a SQL cell over that blade's connection, a column for its
   quoted name; any import a drop needs is added at the top of the notebook. Highlight code in a cell
@@ -179,7 +179,7 @@ Open the printed URL, including the `#token=` part. In VS Code: Ctrl+Shift+P, th
 ## Blades and the catalog
 
 A blade is saved Python that reaches outside Python to load something. Write it once on the blades
-page (the key button beside Settings, or `/catalog`), then use it anywhere:
+page (**Blades and catalog** in the Application row, or `/catalog`), then use it anywhere:
 
 ```python
 import swissarmygrid as sag
@@ -265,7 +265,7 @@ type the value), and cannot change, remove or run a blade.
 
 ## The notebook
 
-The code button beside Settings (or `/notebook`) opens a marimo notebook in a tab of its own, so it can
+**Notebook** in the Application row (or `/notebook`) opens a marimo notebook in a tab of its own, so it can
 sit on another screen. SwissArmyGrid starts marimo the first time the tab opens, in the server's own
 Python, and serves it through its own address and token. The notebook file is
 `~/.swissarmygrid/notebooks/workspace.py`; its first cell imports `marimo as mo` and

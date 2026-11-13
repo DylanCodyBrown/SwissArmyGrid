@@ -26,8 +26,9 @@ sag.push(orders, name="orders", new_grid=True)
 
 The page has these parts:
 
-- **Tab bar.** The cog at the far left opens Settings. The Agent tab comes next and cannot be closed. Each open grid has its own tab after it, and the + after the last tab starts a new table from a query (see below).
+- **Tab bar.** The Agent tab comes first and cannot be closed. Each open grid has its own tab after it, and the + after the last tab starts a new table from a query (see below).
 - **Title.** The dataset name and its version. A new push to the same dataset raises the version. Beside it, the **steps strip**: how many steps the grid has, with Undo (the last step), Clear, Edit steps, Copy as SQL, Copy as Python and To notebook.
+- **Application row.** Above the ribbon, on every tab: **Settings**, **Blades and catalog** and **Notebook**.
 - **Ribbon.** Three rows, each named for what its buttons act on. **Table** works on the whole view. **Column** works on the selected column or columns. **Cell** works on the selected cells. Buttons that have nothing to act on are greyed out, and the caption under each row name says what it is looking at.
 - **Grid.** The rows, with the column headers above them.
 - **The grid has the whole page.** The steps themselves (Table Transformations) open in a tab of their own from Edit steps, and SQL is written in the notebook.
@@ -35,7 +36,7 @@ The page has these parts:
 
 ### Settings
 
-Open Settings with the cog. It holds the settings for this browser (the theme, and whether column headers show their profile), the setup prompt for connecting an agent and the agent activity list described below.
+Open **Settings** from the Application row. It holds the settings for this browser (the theme, and whether column headers show their profile), the setup prompt for connecting an agent and the agent activity list described below.
 
 ![The Settings window: the header profile switch, the theme, the setup prompt with its copy button and the agent activity list.](images/02-preferences.png)
 
@@ -208,7 +209,7 @@ Settings lists the agent's activity: what it asked for, newest first. It never i
 
 ## Blades and the catalog
 
-The key button beside Settings opens the blades page in a tab of its own, so it can sit on another screen.
+**Blades and catalog** in the Application row opens the blades page in a tab of its own, so it can sit on another screen.
 
 - **A blade** is any Python that reaches outside Python to load something: a database connection, a CSV file, an Excel workbook, an API, a vault. Press **New blade**, pick a starter (21 databases, 5 file patterns, 8 vaults) or paste your own code, and save it. Then in any Python: `conn = sag.blade("Warehouse")`.
 - **Passwords** go in the code as `secret("password")`. Type the value on the save screen: it is kept in Windows Credential Manager (or macOS Keychain), never in the blade.
@@ -227,7 +228,7 @@ The key button beside Settings opens the blades page in a tab of its own, so it 
 
 ## The notebook
 
-The code button beside Settings opens the notebook (marimo) in a tab of its own, with your blades and the catalog on the left. It starts the first time you open it.
+**Notebook** in the Application row opens the notebook (marimo) in a tab of its own, with your blades and the catalog on the left. It starts the first time you open it.
 
 - **Drag a blade** onto a cell to get its `sag.blade(...)` line. An empty cell takes it; otherwise it goes in a new cell just after.
 - **Drag a table** from the catalog to get a SQL cell over that blade's connection, ready to run. **Drag a column** for its name.

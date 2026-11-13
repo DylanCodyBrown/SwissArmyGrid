@@ -18,8 +18,8 @@ import { button, h, openDialog, toast } from "./dom";
 import { THEME_LABELS, headerProfiles, setHeaderProfiles, setTheme, themeChoice, type ThemeChoice } from "./theme";
 
 export function settingsButton(): HTMLButtonElement {
-  // A cog at the far left of the tab bar: always there, whichever tab is open.
-  const btn = button("Settings", () => openSettings(), { icon: "cog", iconOnly: true, class: "ghost prefs-btn", title: "Settings: theme, agent setup and activity" });
+  // First in the Application row: always there, whichever tab is open.
+  const btn = button("Settings", () => openSettings(), { icon: "cog", class: "ribbon-btn", title: "Settings: theme, agent setup and activity" });
   btn.setAttribute("aria-haspopup", "dialog");
   return btn;
 }

@@ -2698,12 +2698,33 @@ body.agent-view .titlebar {
   }
 }
 
-/* Preferences: a settings icon at the far left of the tab bar, before the Agent tab. */
-.tabbar-start {
+/* The Application row: styled as the ribbon's top row, but its own element so it stays on every tab
+   (the ribbon itself hides on the Agent, ERD and query tabs) and on the empty page. */
+.app-row {
   display: flex;
-  align-items: center;
-  align-self: center;
-  padding-bottom: 4px;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.app-row + .ribbon {
+  border-top: 0;
+}
+
+.app-row .ribbon-btn {
+  padding: 3px 7px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.app-row .ribbon-btn:hover {
+  border-color: var(--border);
+  background: var(--raised);
+}
+
+body.popout .app-row {
+  display: none; /* the steps window has its own job */
 }
 
 /* Grid zoom at the end of the ribbon's Table row. */

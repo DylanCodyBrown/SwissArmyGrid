@@ -10,13 +10,14 @@
     <link rel="stylesheet" href="/static/grid.css" />
   </head>
   <body>
-    <!-- ===== TAB BAR: Preferences, then the Agent tab and one tab per open grid (panes.ts) ===== -->
+    <!-- ===== TAB BAR: the Agent tab and one tab per open grid (panes.ts) ===== -->
     <nav class="tabbar" aria-label="Open grids">
-      <div class="tabbar-start"></div>
       <div class="tabs-row" role="tablist" aria-label="Open grids"></div>
     </nav>
     <!-- ===== TITLE ===== -->
     <header class="titlebar"><h1 id="grid-title">&nbsp;</h1></header>
+    <!-- ===== APPLICATION: Settings, Blades and catalog, Notebook (every tab, the empty page too) ===== -->
+    <div class="app-row" role="group" aria-label="Application"></div>
     <!-- ===== RIBBON: Table / Column / Cell transformations ===== -->
     <div class="ribbon" role="group" aria-label="Transformations"></div>
     <!-- ===== WORKSPACE: grid | splitter | analysis panel | steps (the steps panel is on the right, collapsible) ===== -->
