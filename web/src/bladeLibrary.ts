@@ -232,7 +232,7 @@ export async function editBladeFolders(onDone: () => void): Promise<void> {
           "li",
           {},
           h("code", {}, folder.path),
-          h("span", { class: "hint" }, folder.exists ? `  ${folder.blades ?? 0} blades` : "  not found"),
+          h("span", { class: "hint" }, folder.exists ? `  ${folder.blades ?? 0} blade${folder.blades === 1 ? "" : "s"}` : "  not found"),
           folder.from_env
             ? h("span", { class: "hint" }, "  (from SWISSARMYGRID_BLADE_FOLDERS)")
             : button("Remove", () => {
@@ -322,10 +322,16 @@ export async function openPacks(onDone: () => void): Promise<void> {
       h(
         "div",
         { class: "tang-text" },
-        h("strong", {}, p.name),
-        p.marketplace ? h("span", { class: "hint" }, ` @ ${p.marketplace}`) : null,
-        h("span", { class: "badge" }, p.editable ? "editable clone" : p.enabled ? `version ${p.version}` : "switched off in Claude Code"),
-        h("div", { class: "hint" }, `${p.blades} blades · ${p.tangs} tangs · `, h("code", {}, p.root)),
+        // The name, its marketplace and its state on one line (the badge, in the column's grid, had
+        // stretched to a full-width outline).
+        h(
+          "div",
+          { class: "pack-title" },
+          h("strong", {}, p.name),
+          p.marketplace ? h("span", { class: "hint" }, `@ ${p.marketplace}`) : null,
+          h("span", { class: "badge" }, p.editable ? "editable clone" : p.enabled ? `version ${p.version}` : "switched off in Claude Code"),
+        ),
+        h("div", { class: "hint" }, `${p.blades} blade${p.blades === 1 ? "" : "s"} · ${p.tangs} tang${p.tangs === 1 ? "" : "s"} · `, h("code", {}, p.root)),
       ),
       action,
     );

@@ -11,6 +11,7 @@ group; text trimmed), and a blank group meets a blank group. A group on one side
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -99,11 +100,27 @@ def read_request(body: Any, pairs: list[Pair]) -> Request:
     return Request(groups, measures, float(tolerance), kind == "percent")
 
 
-def suggest(pairs: list[Pair], few_values: set[str]) -> dict[str, list[str]]:
+# A number column named like an identifier (customer_id, invoice_no, zip_code, CustomerID, InvoiceNo): its
+# sum means nothing, so it is not suggested as a total (it can still be ticked).
+_SNAKE_IDENTIFIER = re.compile(r"(?:^|[_\s])(?:id|key|no|num|number|code)$", re.IGNORECASE)
+_CAMEL_IDENTIFIER = re.compile(r"[a-z](?:Id|ID|No|Key)$")
+
+
+def identifier(name: str) -> bool:
+    """A column named like an identifier rather than an amount."""
+    return bool(_SNAKE_IDENTIFIER.search(name) or _CAMEL_IDENTIFIER.search(name))
+
+
+def suggest(pairs: list[Pair], few_values: set[str], keys: set[str]) -> dict[str, list[str]]:
     """What the window starts with: shared text columns with few values (`few_values`, measured by the
-    service) to group by, and every shared number column to total."""
+    service) to group by, and every shared number column to total but the compare's keys (`keys`, the
+    left side's names) and columns named like identifiers."""
     text = [p.name for p in pairs if type_family(p.left.type) == "text" and p.name in few_values]
-    return {"group": text[:1], "measures": [p.name for p in pairs if numeric(p)]}
+    lowered = {k.lower() for k in keys}
+    totals = [
+        p.name for p in pairs if numeric(p) and p.name.lower() not in lowered and not identifier(p.name)
+    ]
+    return {"group": text[:1], "measures": totals}
 
 
 def distinct_query(view: str, column: Column) -> str:

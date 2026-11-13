@@ -200,6 +200,25 @@ export function openDialog(title: string, wide = false): DialogParts {
   return { dialog, body, foot, close };
 }
 
+// ===== analysis forms: results that no longer match the choices =====
+
+/** When a choice in `form` changes after a run, the results there dim under a line saying they are for
+ *  the earlier choices (kept, to compare with the next run); the next run's results clear it. A change
+ *  inside the results (a what-if box) is not a choice. */
+export function markStaleOnChange(form: HTMLElement, results: HTMLElement): void {
+  const mark = (event: Event): void => {
+    if (results.contains(event.target as Node) || !results.childElementCount || results.querySelector(":scope > .stale-note")) return;
+    results.classList.add("stale");
+    results.prepend(h("p", { class: "hint stale-note", role: "status" }, "These results are for the earlier choices: run again to update them."));
+  };
+  form.addEventListener("change", mark);
+  form.addEventListener("input", mark);
+  // A new run replaces the results (and the note with them): no longer stale.
+  new MutationObserver(() => {
+    if (!results.querySelector(":scope > .stale-note")) results.classList.remove("stale");
+  }).observe(results, { childList: true });
+}
+
 // ===== safe storage (per-viewer conveniences only; may be unavailable) =====
 
 export function remember(key: string, value: string): void {

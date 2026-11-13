@@ -12,7 +12,7 @@
 import { forecastCards, forecastFigure, timeSeriesCards, timeSeriesFigure, type ForecastResult, type TimeSeriesResult } from "./analysisCards";
 import { datasetName, registerAnalysis, resultButtons, tableName } from "./analyzeMenu";
 import { api, grid } from "./api";
-import { button, clear, h, isDateType, isNumericType, openDialog, toast } from "./dom";
+import { button, clear, h, isDateType, isNumericType, markStaleOnChange, openDialog, toast } from "./dom";
 import { selection, viewColumns } from "./gridView";
 import { state } from "./state";
 import { effectiveTheme } from "./theme";
@@ -108,6 +108,7 @@ export async function openTimeSeries(given: Record<string, unknown> = {}): Promi
     }
   };
   body.append(h("div", {}, form.element, h("div", { class: "analysis-controls" }, field("One line per", split), button("Read", () => void run(), { icon: "play", class: "primary" }))), results);
+  markStaleOnChange(body, results);
   foot.append(actions, button("Close", close));
   await run();
 }
@@ -169,6 +170,7 @@ export async function openForecast(given: Record<string, unknown> = {}): Promise
     }
   };
   body.append(form.element, h("div", { class: "analysis-controls" }, field("Periods ahead", horizon), button("Forecast", () => void run(), { icon: "play", class: "primary" })), pool, results);
+  markStaleOnChange(body, results);
   foot.append(actions, button("Close", close));
   await run();
 }

@@ -112,12 +112,18 @@ export async function drawPlotly(host: HTMLElement, text: string, dark: boolean)
     legend: merged({ orientation: "h", x: 0, xanchor: "left", y: 1.01, yanchor: "bottom", bgcolor: "rgba(0,0,0,0)", font: { color: ink, size: 12 }, itemsizing: "constant" }, (layout.legend as Record<string, unknown> | undefined) ?? {}),
     font: merged({ color: ink, family: '"Segoe UI", system-ui, sans-serif', size: 12 }, (layout.font as Record<string, unknown> | undefined) ?? {}),
     ...axes,
+    // The title on the left and the tool bar transparent, in the theme's colours: on the right (where
+    // the tool bar shows on hover) a centred title sat under a grey band.
+    ...(layout.title ? { title: merged({ x: 0, xanchor: "left", xref: "paper", font: { color: ink, size: 14 } }, typeof layout.title === "string" ? { text: layout.title } : (layout.title as Record<string, unknown>)) } : {}),
+    modebar: merged({ bgcolor: "rgba(0,0,0,0)", color: muted, activecolor: ink }, (layout.modebar as Record<string, unknown> | undefined) ?? {}),
     autosize: true,
     width: undefined,
     height: undefined,
   };
   await Plotly.newPlot(host, data as never, styled as never, {
     displaylogo: false,
+    // A card has its own picture and menu: keep zoom, pan and reset; drop the lasso, box select and camera.
+    modeBarButtonsToRemove: ["lasso2d", "select2d", "toImage", "autoScale2d"],
     responsive: false, // the card's own resize observer calls resize()
     showLink: false,
     showSendToCloud: false,

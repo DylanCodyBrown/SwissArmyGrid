@@ -83,7 +83,8 @@ function when(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-export function openRelationships(): void {
+/** The Relationships window; `startFinding` runs the finder at once (the empty ERD tab's button). */
+export function openRelationships(startFinding = false): void {
   const { body, foot, close } = openDialog("Relationships and tangs", true);
   const tangsHost = h("section", { class: "rel-section", "aria-labelledby": "rel-tangs" });
   const findHost = h("section", { class: "rel-section", "aria-labelledby": "rel-find" });
@@ -400,7 +401,10 @@ export function openRelationships(): void {
   }
 
   void loadLibrary();
-  renderFindStart();
+  if (startFinding) {
+    void find();
+    findHost.scrollIntoView({ block: "start" });
+  } else renderFindStart();
   void renderCurrent();
 }
 

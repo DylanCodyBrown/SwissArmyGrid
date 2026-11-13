@@ -5,7 +5,7 @@
  * through svgSafe, so a URL or href in the DOT text is dropped rather than followed.
  */
 import { instance, type Viz } from "@viz-js/viz";
-import { contained, fitToCard } from "./svgSafe";
+import { contained, fitToCard, token } from "./svgSafe";
 
 let viz: Promise<Viz> | null = null;
 
@@ -13,7 +13,7 @@ let viz: Promise<Viz> | null = null;
 export async function drawGraphviz(host: HTMLElement, dot: string, dark: boolean): Promise<void> {
   viz ??= instance();
   const engine = await viz;
-  const ink = dark ? "#e8ecef" : "#1c2228";
+  const ink = token(host, "--fg", dark ? "#e8ecef" : "#1c2228"); // the theme's ink (the Sandbox's own)
   const result = engine.render(dot, {
     format: "svg",
     // The theme's ink for anything the graph does not colour itself; a transparent page.

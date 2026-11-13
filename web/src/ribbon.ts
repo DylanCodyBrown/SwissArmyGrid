@@ -42,7 +42,6 @@ import { gridZoom, onThemeChange, stepZoom } from "./theme";
 
 let host: HTMLElement;
 let onProfile: (column: string) => void = () => {};
-let inPopout = false;
 
 export function mountRibbon(element: HTMLElement, openColumnProfile: (column: string) => void, popout = false): void {
   host = element;
@@ -51,10 +50,37 @@ export function mountRibbon(element: HTMLElement, openColumnProfile: (column: st
   state.on("info", render);
   onCompareChange(render);
   onSplitChange(render);
-  onThemeChange(render); // a zoom step notifies too, so the Table row's percentage follows
-  inPopout = popout;
+  onThemeChange(render); // a theme or zoom step can change what the rows draw
   if (popout) host.classList.add("popout-ribbon");
   render();
+  // A window resize can make a row wrap (or room to spare): fold again, on width changes only.
+  let width = 0;
+  new ResizeObserver(() => {
+    if (host.clientWidth === width) return;
+    width = host.clientWidth;
+    fold();
+  }).observe(host);
+}
+
+/** Keep each row on one line: when its buttons would wrap, the words of its last buttons fold away,
+ *  from the end, until it fits (menu buttons last). Every button stays where it is, with its icon, tooltip and name. */
+function fold(): void {
+  for (const tools of host.querySelectorAll<HTMLElement>(".ribbon-tools")) {
+    const buttons = [...tools.querySelectorAll<HTMLElement>(":scope > .ribbon-btn")];
+    for (const b of buttons) b.classList.remove("folded");
+    const wraps = (): boolean => {
+      const items = [...tools.children] as HTMLElement[];
+      const first = items[0];
+      const last = items[items.length - 1];
+      return !!first && !!last && last.offsetTop > first.offsetTop + 4;
+    };
+    // From the end; a menu button (Analyze) keeps its word longest, as its icon alone says least.
+    const order = [...buttons.filter((b) => !b.hasAttribute("aria-haspopup")).reverse(), ...buttons.filter((b) => b.hasAttribute("aria-haspopup")).reverse()];
+    for (const b of order) {
+      if (!wraps()) break;
+      b.classList.add("folded");
+    }
+  }
 }
 
 /** The columns the Column tools act on: the selected ones, else the active cell's column. */
@@ -99,14 +125,18 @@ function tool(label: string, icon: string, action: () => void, options: { title?
   return b;
 }
 
-/** Grid zoom, on the Table row: - 100% +  (Ctrl+= / Ctrl+- / Ctrl+0 work anywhere). */
-function zoomControl(): HTMLElement {
+/** Grid zoom, on the Application row: - 100% +  (Ctrl+= / Ctrl+- / Ctrl+0 work anywhere). Built once;
+ *  its percentage follows every zoom step (a zoom step notifies the theme listeners). */
+export function zoomControl(): HTMLElement {
+  const percent = (): string => `${Math.round(gridZoom() * 100)}%`;
+  const out = h("output", { "aria-live": "polite", title: "Grid zoom (Ctrl+0 resets)" }, percent());
+  onThemeChange(() => { out.textContent = percent(); });
   return h(
     "span",
     { class: "zoom-control ribbon-zoom", role: "group", "aria-label": "Grid zoom" },
     h("span", { class: "zoom-label", "aria-hidden": "true" }, "Zoom"),
     button("Zoom out", () => stepZoom(-1), { icon: "minus", iconOnly: true, title: "Zoom out (Ctrl+-)" }),
-    h("output", { "aria-live": "polite", title: "Grid zoom (Ctrl+0 resets)" }, `${Math.round(gridZoom() * 100)}%`),
+    out,
     button("Zoom in", () => stepZoom(1), { icon: "plus", iconOnly: true, title: "Zoom in (Ctrl+=)" }),
   );
 }
@@ -145,7 +175,6 @@ function render(): void {
       tool("Key Finder", "zoom", () => openKeyFinderWindow(), { title: "Find the columns of other grids that share values with this one (likely join keys)" }),
       tool("Relationships", "crown", () => openRelationships(), { title: "Primary keys and joins: apply a shared model, import or export one, draw an ERD" }),
       tool("Export", "export", () => openExport(), { title: "Export to CSV, text, Excel or Parquet" }),
-      inPopout ? null : zoomControl(),
     ),
     group(
       "Column",
@@ -175,6 +204,7 @@ function render(): void {
     ),
     compareGroup(),
   );
+  fold();
 }
 
 /** The Compare row: only while two grids are side by side. */

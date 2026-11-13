@@ -236,6 +236,8 @@ export async function renderKeyFinder(body: HTMLElement): Promise<void> {
     results,
   );
   draw();
+  // Opened for the first time: find them straight away (an empty window only asked to press a button).
+  if (!last) void run();
 }
 
 /** [MOST DISTINCT]: the columns that tell this grid's rows apart, one row per column added and

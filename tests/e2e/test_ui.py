@@ -575,7 +575,8 @@ def test_chart_card_draws_zooms_and_cross_filters(browser: Browser, orders_url: 
     expect(page.locator("dialog .expanded-chart svg")).to_be_visible(timeout=15000)
     page.locator("dialog").get_by_role("button", name="Close", exact=True).last.click()
     page.locator(".card .chart svg path.mark-rect, .card .chart svg .mark-rect path").first.click()
-    expect(page.locator("#status")).to_contain_text("of 1,250", timeout=15000)
+    # On the Sandbox tab the status bar names the tab, then the grid the click filtered.
+    expect(page.locator("#status")).to_contain_text("orders: 1,250 of", timeout=15000)
 
 
 def test_chart_clicks_filter_by_date_by_heatmap_cell_and_never_by_a_whole_line(
@@ -717,6 +718,7 @@ def test_a_small_diagram_is_not_blown_up_to_the_cards_width(
     browser: Browser, orders_url: str, server: dict[str, Any]
 ) -> None:
     # A two-column ERD (155 px wide) was stretched to the card's 760 px: 50 px text, 1,360 px tall.
+    # It may grow to half again its own size (svgSafe.ts GROW: a flowchart drawn 100 px wide was unreadable).
     body = "erDiagram\n  ORDERS ||--o{ LINES : has\n  ORDERS {\n    int order_id PK\n  }"
     call(
         server,
@@ -730,7 +732,7 @@ def test_a_small_diagram_is_not_blown_up_to_the_cards_width(
     expect(svg).to_be_visible(timeout=20000)
     natural = float(svg.get_attribute("viewBox").split()[2])  # type: ignore[union-attr]
     box = svg.bounding_box()
-    assert box and box["width"] <= natural + 1
+    assert box and box["width"] <= natural * 1.5 + 1
 
 
 def test_note_markdown_is_rendered_safely(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:

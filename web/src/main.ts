@@ -39,7 +39,7 @@ import { settingsButton } from "./settingsWindow";
 import { tourButton } from "./tour";
 import { openCompareDialog } from "./compareDialog";
 import { activateGrid, activeContext, addGrid, contextOf, contextsOf, dropGrid, mountPanes, onSplitCreated, openGrids, resyncGrids } from "./panes";
-import { mountRibbon } from "./ribbon";
+import { mountRibbon, zoomControl } from "./ribbon";
 import { openColumnProfile } from "./profileView";
 import { mountOpenMenu } from "./openMenu";
 import { mountQueryTab } from "./queryTab";
@@ -194,8 +194,8 @@ async function start(): Promise<void> {
     h(
       "div",
       { class: "ribbon-group", role: "toolbar", "aria-label": "Application tools" },
-      h("div", { class: "ribbon-caption", title: "Settings, blades and the tour" }, h("strong", {}, "Application"), h("span", {}, "settings and help")),
-      h("div", { class: "ribbon-tools" }, settingsButton(), bladesButton(), tourButton()),
+      h("div", { class: "ribbon-caption", title: "Settings, blades, the tour and zoom" }, h("strong", {}, "Application"), h("span", {}, "settings and help")),
+      h("div", { class: "ribbon-tools" }, settingsButton(), bladesButton(), tourButton(), zoomControl()),
     ),
   );
   mountRibbon($(".ribbon"), openColumnProfile);

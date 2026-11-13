@@ -61,7 +61,19 @@ def test_the_choices_match_columns_ignoring_case_and_suggest_a_few_valued_text_c
 ) -> None:
     choices = client.get(f"/compares/{compare}/tie-out", headers=AUTH).json()
     assert [c["name"] for c in choices["columns"]] == ["order_id", "region", "amount", "units"]
-    assert choices["suggested"] == {"group": ["region"], "measures": ["order_id", "amount", "units"]}
+    # order_id is the compare's key: summing it means nothing, so it is not suggested (still tickable).
+    assert choices["suggested"] == {"group": ["region"], "measures": ["amount", "units"]}
+    assert next(c for c in choices["columns"] if c["name"] == "order_id")["measure"] is True
+
+
+def test_identifier_columns_are_not_suggested_as_totals() -> None:
+    from swissarmygrid.domain.datasets import Column
+    from swissarmygrid.domain.tieout import Pair, suggest
+
+    names = ("customer_id", "InvoiceNo", "CustomerID", "zip_code", "amount", "paid", "idle_days")
+    pairs = [Pair(Column(n, "BIGINT"), Column(n, "BIGINT")) for n in names]
+    assert suggest(pairs, set(), keys=set())["measures"] == ["amount", "paid", "idle_days"]
+    assert suggest(pairs, set(), keys={"amount"})["measures"] == ["paid", "idle_days"]
 
 
 def test_groups_that_are_off_come_first_and_the_tolerance_decides_what_ties(

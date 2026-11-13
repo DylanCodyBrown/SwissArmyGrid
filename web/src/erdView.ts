@@ -12,6 +12,7 @@
  *          [IMPORT]           file picker -> importModel()
  *          [SHARED MODELS]    Apply -> applyShared(name)
  *          [MANAGE]           -> relationshipsDialog.openRelationships()
+ *          [FIND]             -> openRelationships(true): the window, its finder already running
  */
 import { api } from "./api";
 import { button, clear, h, toast } from "./dom";
@@ -63,7 +64,8 @@ async function render(): Promise<void> {
         { class: "erd-empty" },
         h("h1", { class: "sandbox-title" }, "ERD"),
         h("strong", {}, "No relationships defined for the open tables."),
-        h("p", { class: "hint" }, "Import a relationship file or apply a shared model."),
+        h("p", { class: "hint" }, "Find them from the data (nothing changes until you accept), import a relationship file, or apply a shared model."),
+        button("Find relationships in the open tables", () => openRelationships(true), { icon: "zoom", class: "primary", title: "Work out how the open tables join from their values: you see each suggestion and its evidence first" }),
         actions,
         await sharedModels(open),
       ),

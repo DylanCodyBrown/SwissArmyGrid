@@ -11,27 +11,53 @@
  * changed from a diagram, and the drawing keeps no link or url() that leaves it.
  */
 import mermaid from "mermaid";
-import { contained, fitToCard } from "./svgSafe";
+import { contained, fitToCard, token } from "./svgSafe";
 
-let ready: "light" | "dark" | null = null;
+let ready = "";
 let count = 0;
 
 // Settings a diagram's own %%{init}%% may not change (Mermaid's defaults, and the style ones).
 const SECURE = ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppressErrorRendering", "maxEdges", "htmlLabels", "flowchart", "themeCSS", "themeVariables", "fontFamily", "theme", "darkMode", "er", "dompurifyConfig"];
-/** Draw Mermaid text into `host` as SVG; on a syntax error, show the error instead. */
+
+/** Draw Mermaid text into `host` as SVG; on a syntax error, show the error instead. Its colours are the
+ *  theme's: boxes on the raised surface, rows striped with the surfaces, the theme's ink on all of them
+ *  (Mermaid's own dark theme put grey words on grey rows). */
 export async function drawDiagram(host: HTMLElement, text: string, dark: boolean): Promise<void> {
-  const theme = dark ? "dark" : "light";
-  if (ready !== theme) {
+  const ink = token(host, "--fg", dark ? "#e8ecef" : "#1c2228");
+  const raised = token(host, "--raised", dark ? "#21272d" : "#ffffff");
+  const surface = token(host, "--surface", dark ? "#191d22" : "#eef1f4");
+  const surface2 = token(host, "--surface-2", dark ? "#21272d" : "#e1e6eb");
+  const line = token(host, "--border-strong", dark ? "#707b86" : "#7d8893");
+  const themeVariables = {
+    darkMode: dark,
+    background: raised,
+    primaryColor: surface2,
+    primaryTextColor: ink,
+    primaryBorderColor: line,
+    secondaryColor: surface,
+    tertiaryColor: raised,
+    mainBkg: surface2,
+    nodeBorder: line,
+    lineColor: line,
+    textColor: ink,
+    titleColor: ink,
+    edgeLabelBackground: raised,
+    attributeBackgroundColorOdd: raised,
+    attributeBackgroundColorEven: surface,
+  };
+  const key = JSON.stringify(themeVariables);
+  if (ready !== key) {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
       secure: SECURE,
       htmlLabels: false,
       flowchart: { htmlLabels: false },
-      theme: dark ? "dark" : "default",
+      theme: "base",
+      themeVariables,
       er: { useMaxWidth: false },
     });
-    ready = theme;
+    ready = key;
   }
   count += 1;
   const id = `sag-diagram-${count}`;

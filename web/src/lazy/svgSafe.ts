@@ -26,27 +26,44 @@ export function contained(svg: string): Node {
   return document.importNode(drawing.documentElement, true);
 }
 
-/** The theme's chart colours (grid.css --cat-1 .. --cat-8), for figures that set none of their own. */
+/** A theme token as a hex colour (Mermaid's theming reads no other form), resolved where the drawing
+ *  goes, so the Sandbox's own theme (or the app's) colours it. Unreadable: the fallback. */
+export function token(where: HTMLElement, name: string, fallback: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = `var(${name}, ${fallback})`;
+  probe.hidden = true;
+  where.append(probe);
+  const rgb = getComputedStyle(probe).color.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  probe.remove();
+  return rgb ? `#${rgb.slice(1, 4).map((v) => Number(v).toString(16).padStart(2, "0")).join("")}` : fallback;
+}
+
 /** The theme's eight series colours, read where the drawing goes (the Sandbox's own theme there). */
 export function themePalette(where: Element = document.documentElement): string[] {
   const style = getComputedStyle(where);
   return [1, 2, 3, 4, 5, 6, 7, 8].map((i) => style.getPropertyValue(`--cat-${i}`).trim()).filter(Boolean);
 }
 
-/** Let the drawing shrink with its card, keeping its shape, but never grow past its own size: a small
- * diagram blown up to a wide card had 50px text. */
+/** Let the drawing shrink with its card, keeping its shape, and grow to at most half again its own size:
+ * a small diagram blown up to a wide card had 50px text. A size in percent ("100%", Mermaid's) is not
+ * a size: read as 100 pixels, it drew a flowchart 100 pixels wide in a 900-pixel card. */
+const GROW = 1.5;
 export function fitToCard(svg: Element): void {
   const box = (svg.getAttribute("viewBox") ?? "").split(/[\s,]+/).map(Number);
-  const width = parseFloat(svg.getAttribute("width") ?? "") || box[2] || 0;
-  const height = parseFloat(svg.getAttribute("height") ?? "") || box[3] || 0;
+  const pixels = (name: string): number => {
+    const value = svg.getAttribute(name) ?? "";
+    return value.includes("%") ? 0 : parseFloat(value) || 0;
+  };
+  const width = pixels("width") || box[2] || 0;
+  const height = pixels("height") || box[3] || 0;
   if (!svg.getAttribute("viewBox") && width && height) svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.removeAttribute("width");
   svg.removeAttribute("height");
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
   svg.classList.add("fit-svg");
   if (width && height && svg instanceof SVGElement) {
-    svg.style.maxWidth = `${width}px`;
-    svg.style.maxHeight = `${height}px`;
+    svg.style.maxWidth = `${width * GROW}px`;
+    svg.style.maxHeight = `${height * GROW}px`;
   }
 }
 

@@ -11,7 +11,7 @@
  */
 import { api } from "./api";
 import { type CompareInfo } from "./compare";
-import { button, clear, h, openDialog, toast } from "./dom";
+import { button, clear, h, markStaleOnChange, openDialog, toast } from "./dom";
 import { type Context } from "./panes";
 import { saveBlob } from "./profileView";
 
@@ -205,6 +205,7 @@ export async function openTieOut(cmp: CompareInfo, pair: [Context, Context]): Pr
     h("div", { class: "analysis-controls" }, h("label", { class: "analysis-field" }, h("span", {}, "Ties within"), tolerance), kind, button("Tie out", () => void run(), { icon: "play", class: "primary" })),
     results,
   );
+  markStaleOnChange(body, results);
   foot.append(actions, button("Close", close));
   await run();
 }

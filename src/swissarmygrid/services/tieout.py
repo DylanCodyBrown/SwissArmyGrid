@@ -37,7 +37,7 @@ class TieOut:
                     {"name": p.name, "type": p.left.type, "group": T.groupable(p), "measure": T.numeric(p)}
                     for p in pairs
                 ],
-                "suggested": T.suggest(pairs, few),
+                "suggested": T.suggest(pairs, few, {k[0] for k in cmp.spec.keys}),
             }
 
         return dict(await self.compares._run(read))

@@ -10,6 +10,7 @@
 import { api, type Budget } from "./api";
 import { $, button, clear, formatCount, h, toast } from "./dom";
 import { displayedRange, shownTotal } from "./gridView";
+import { onAgentView } from "./panes";
 import { state } from "./state";
 
 let rows: HTMLElement;
@@ -25,11 +26,29 @@ export function mountBottomBar(host: HTMLElement): void {
   clear(host, rows, selection, h("span", { class: "grow" }), meter, button("Datasets", () => void openDatasets(), { class: "ghost", title: "Open datasets and their sizes" }), live, h("span", { class: "credit" }, "Created by Dylan Brown"));
   state.on("selection", render);
   state.on("info", render);
+  onAgentView(render);
 }
+
+// What the status bar says when an app tab is in front: the grid's row count belongs to the grid.
+const APP_TABS: Record<string, string> = {
+  agent: "Sandbox",
+  erd: "Relationship diagram of the open tables",
+  query: "New table from a query",
+};
 
 function render(): void {
   const info = state.info;
   if (!info) return;
+  const view = document.querySelector<HTMLElement>(".workspace")?.dataset.view ?? "grid";
+  if (view !== "grid" && !(view === "query" && state.sqlResult)) {
+    // The tab's name, then the grid behind it: a Sandbox chart's click filters that grid, and this says so.
+    const total = shownTotal() || 0;
+    const grid = total === info.row_count ? `${formatCount(total)} rows` : `${formatCount(total)} of ${formatCount(info.row_count)} rows`;
+    rows.textContent = `${APP_TABS[view] ?? ""} · ${info.dataset}: ${grid}`;
+    selection.textContent = "";
+    renderMeter(info.budget);
+    return;
+  }
   if (state.sqlResult) {
     const r = state.sqlResult;
     rows.textContent = `Query result: ${formatCount(r.rows)} row${r.rows === 1 ? "" : "s"} \u00b7 ${r.milliseconds} ms${r.capped ? " \u00b7 stopped at the row cap" : ""}`;

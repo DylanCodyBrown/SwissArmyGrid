@@ -77,6 +77,7 @@ html[data-theme="dark"] {
 
 /* High contrast themes aim for 7:1 text, thick always-visible focus, strong borders. */
 html[data-theme="hc-light"] {
+  --steel-sheen: var(--surface-2); /* flat: no gradient under high contrast */
   color-scheme: light;
   --bg: #ffffff;
   --surface: #ffffff;
@@ -109,6 +110,7 @@ html[data-theme="hc-light"] {
 }
 
 html[data-theme="hc-dark"] {
+  --steel-sheen: var(--surface-2); /* flat: no gradient under high contrast */
   color-scheme: dark;
   --bg: #000000;
   --surface: #000000;
@@ -853,7 +855,9 @@ body.popout .steps-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
-  white-space: pre;
+  /* Long lines wrap: scrolled sideways, they looked cut off (the copy buttons copy the exact text). */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .code-toolbar {
@@ -2051,6 +2055,11 @@ dialog .expanded-chart {
   }
 }
 
+/* A row that would wrap folds the words of its last buttons away (ribbon.ts fold()). */
+.ribbon .ribbon-btn.folded .btn-label {
+  display: none;
+}
+
 .ribbon-group {
   display: grid;
   grid-template-columns: 132px 1fr;
@@ -2097,7 +2106,7 @@ dialog .expanded-chart {
 }
 
 .ribbon .ribbon-btn {
-  padding: 3px 7px;
+  padding: 3px 5px;
   border-color: transparent;
   background: transparent;
 }
@@ -3042,8 +3051,8 @@ body.popout .app-row {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  margin-top: 6vh;
+  gap: 10px;
+  margin-top: 14vh;
   text-align: center;
 }
 
@@ -3225,6 +3234,13 @@ body.popout .app-row {
   flex: 1;
   gap: 3px;
   min-width: 0;
+}
+
+.pack-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
 }
 
 .tang-where {
@@ -4149,4 +4165,9 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
 .season-value {
   text-align: right;
   color: var(--fg);
+}
+
+/* Results from earlier choices (dom.ts markStaleOnChange): dimmed under a note, still readable. */
+.analysis-results.stale > :not(.stale-note) {
+  opacity: 0.5;
 }

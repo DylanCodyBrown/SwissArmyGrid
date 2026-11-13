@@ -13,7 +13,7 @@ import { regressionCards, type RegressionResult } from "./analysisCards";
 import { openOutliers } from "./analysisDialog";
 import { datasetName, registerAnalysis, resultButtons, showTheMath, tableName } from "./analyzeMenu";
 import { api, grid } from "./api";
-import { button, clear, formatCount, h, isNumericType, openDialog, toast } from "./dom";
+import { button, clear, formatCount, h, isNumericType, markStaleOnChange, openDialog, toast } from "./dom";
 import { selection, viewColumns } from "./gridView";
 import { state } from "./state";
 
@@ -128,6 +128,7 @@ export async function openRegression(target?: string, predictors: string[] = [],
     h("p", { class: "hint" }, "A number target gets a linear regression: how much it moves with each predictor. A yes/no target (late, refunded, above a line) gets a logistic one, whose effects are odds ratios. It shows what goes together, not what causes what."),
     results,
   );
+  markStaleOnChange(body, results);
   foot.append(actions, button("Close", close));
   if (target && predictors.length) await run();
 }

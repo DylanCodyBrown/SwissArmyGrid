@@ -17,7 +17,7 @@ import { datasetName, registerAnalysis, resultButtons, tableName } from "./analy
 import { cheatSheet } from "./cheatSheets";
 import { openRegression } from "./modelDialog";
 import "./timeSeriesDialog"; // registers Time series and Forecast in the Analyze menu
-import { button, clear, formatCount, h, isNumericType, openDialog, toast } from "./dom";
+import { button, clear, formatCount, h, isNumericType, markStaleOnChange, openDialog, toast } from "./dom";
 import { selection, viewColumns } from "./gridView";
 import { state } from "./state";
 
@@ -164,6 +164,7 @@ export async function openFitTest(columns: string[], expectedKind?: string): Pro
     h("p", { class: "hint" }, "Chi-square goodness of fit: could the differences between what the column holds and what you expect be chance? Read the effect too: with many rows, small differences are certain but may not matter."),
     results,
   );
+  markStaleOnChange(body, results);
   foot.append(actions, button("Close", close));
   if (columns.length) await run();
 }
@@ -333,6 +334,7 @@ export async function openOutliers(column?: string): Promise<void> {
     cheatSheet("outliers", () => [which.value, by.value].filter(Boolean)).element,
     results,
   );
+  markStaleOnChange(body, results);
   foot.append(actions, show, exclude, button("Close", close));
   await run();
 }
@@ -495,6 +497,7 @@ export async function openOdds(column?: string): Promise<void> {
     h("p", { class: "hint" }, "How often each value shows up on any one row. Add an outcome (late, a refund, an amount above a line) for each value's odds of it against every other value."),
     results,
   );
+  markStaleOnChange(body, results);
   foot.append(actions, button("Close", close));
   await run();
 }
@@ -621,6 +624,7 @@ export async function openPredictors(target?: string): Promise<void> {
     h("p", { class: "hint" }, "Each candidate is tested together with the target (numbers in equal-sized buckets) and ranked by how much it tells about it. Strong ones are worth a regression; of two that say the same thing, keep one."),
     results,
   );
+  markStaleOnChange(body, results);
   foot.append(actions, button("Close", close));
   if (target) await run();
 }
