@@ -123,6 +123,8 @@ src/swissarmygrid/
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
                          aiPanel.ts is the Sandbox tab (a 12-column dashboard of resizable cards);
+                         tour.ts is the first-time tour (the Application row's question mark: a
+                         spotlight card per word, then a matching game);
                          catalogRail.ts (blades + catalog navigation) is shared by the blades page
                          (catalogPage.ts, static/catalog.html) and the notebook tab (notebookPage.ts,
                          static/notebook.html: the rail left of marimo); bladeEditor.ts is the save screen;

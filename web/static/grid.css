@@ -3237,6 +3237,25 @@ body.popout .app-row {
   line-height: 1.4;
 }
 
+.tour-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: -4px 0 10px;
+  padding: 2px 10px 2px 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tour-where .icon-svg {
+  width: 12px;
+  height: 12px;
+  color: var(--accent);
+}
+
 .tour-clue {
   color: var(--fg);
   font-size: 16px;
@@ -3347,6 +3366,7 @@ body.popout .app-row {
   height: 22px;
   border-radius: 11px;
   background: var(--accent);
+  z-index: 1; /* closed blades fold away behind it */
 }
 
 .tour-handle::after {
@@ -3368,13 +3388,13 @@ body.popout .app-row {
   background: var(--steel-sheen);
   border: 1px solid var(--border-strong);
   transform-origin: 50% 100%;
-  transform: translateX(calc(var(--i) * 17px)) rotate(90deg) translateY(4px);
+  transform: translateX(calc(var(--i) * 15px)) translateY(6px) rotate(90deg) scaleY(0.6);
   transition: transform 0.5s cubic-bezier(0.3, 1.5, 0.6, 1);
   transition-delay: calc(var(--i) * 0.12s);
 }
 
 .tour-blade.open {
-  transform: translateX(calc(var(--i) * 17px)) rotate(calc(-30deg + var(--i) * 15deg));
+  transform: translateX(calc(var(--i) * 15px)) rotate(calc(-30deg + var(--i) * 15deg));
 }
 
 @keyframes tour-pulse {

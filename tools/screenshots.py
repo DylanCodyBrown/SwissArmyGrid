@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import BrowserContext, Page, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -42,6 +42,12 @@ def call(info: dict[str, Any], method: str, path: str, body: Any = None, agent: 
     )
     with urllib.request.urlopen(request, timeout=200) as response:  # noqa: S310
         return json.loads(response.read() or b"null")
+
+
+def seen(context: BrowserContext) -> BrowserContext:
+    """The tour counts as seen, so its first-visit bubble stays out of the pictures."""
+    context.add_init_script("localStorage.setItem('swissarmygrid.tour.seen', '1')")
+    return context
 
 
 def ready(page: Page) -> None:
@@ -114,7 +120,7 @@ def main() -> None:
             page.keyboard.press("Escape")
 
         def page_for(width: int = 1600, height: int = 950, theme: str = "dark") -> Page:
-            page = browser.new_context(viewport={"width": width, "height": height}).new_page()
+            page = seen(browser.new_context(viewport={"width": width, "height": height})).new_page()
             page.goto(url)
             ready(page)
             set_theme(page, theme)
@@ -187,7 +193,7 @@ def main() -> None:
         page.get_by_role("button", name="Dock the panel to the right").click()
         page.context.close()
 
-        page = browser.new_context(viewport={"width": 900, "height": 800}).new_page()
+        page = seen(browser.new_context(viewport={"width": 900, "height": 800})).new_page()
         page.goto(url)
         ready(page)
         page.screenshot(path=str(SHOTS / "narrow.png"))
@@ -223,7 +229,7 @@ def main() -> None:
         page.get_by_role("button", name="Dock the panel to the right").click()
         page.context.close()
 
-        page = browser.new_context(viewport={"width": 480, "height": 860}).new_page()
+        page = seen(browser.new_context(viewport={"width": 480, "height": 860})).new_page()
         page.goto(url)
         ready(page)
         page.screenshot(path=str(SHOTS / "width-480.png"))

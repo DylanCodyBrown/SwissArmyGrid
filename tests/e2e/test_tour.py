@@ -22,7 +22,7 @@ def test_the_tour_lights_up_each_word_and_ends_with_a_game(browser: Browser, ser
         row = page.locator(".app-row")
         bubble = row.locator(".tour-bubble")
         expect(bubble).to_contain_text("New here?")  # a first visit
-        row.get_by_role("button", name="Tour").click()
+        row.get_by_role("button", name="Tour", exact=True).click()
         tour = page.get_by_role("dialog", name="Tour")
         expect(tour).to_contain_text("Hi!")
         expect(bubble).to_have_count(0)  # seen: gone for good
@@ -50,7 +50,7 @@ def test_the_tour_lights_up_each_word_and_ends_with_a_game(browser: Browser, ser
         expect(tour).to_have_count(0)
         page.reload()
         expect(page.locator(".app-row .tour-bubble")).to_have_count(0)  # remembered in this browser
-        page.locator(".app-row").get_by_role("button", name="Tour").click()
+        page.locator(".app-row").get_by_role("button", name="Tour", exact=True).click()
         page.keyboard.press("Escape")
         expect(page.get_by_role("dialog", name="Tour")).to_have_count(0)
     finally:

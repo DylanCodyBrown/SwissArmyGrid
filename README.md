@@ -87,6 +87,9 @@ The design is [Plans/swissarmygrid-build-plan.md](Plans/swissarmygrid-build-plan
 been checked against real versions is in [docs/verified.md](docs/verified.md); decisions and
 open notes are in [docs/ideas.md](docs/ideas.md).
 
+New here? The **Tour** button (the question mark in the Application row) explains every word, grid to
+pack, by lighting up each one on the page, then plays a quick matching game.
+
 ## Install it: one package, two installs
 
 From a release (each release carries the wheel, the VS Code extension and two installers), one line:

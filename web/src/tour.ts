@@ -20,6 +20,8 @@ interface Stop {
   line: string;
   /** A CSS selector for the control to light up; the first visible match wins. */
   target?: string;
+  /** Where to find it, when the lit-up control has another name. Not in the game: it would give it away. */
+  where?: string;
   /** A line of code, when the word is something you type. */
   code?: string;
 }
@@ -35,13 +37,13 @@ export const STOPS: readonly Stop[] = [
   { icon: "profile", word: "Profile", line: "A column at a glance: blanks, top values, spread.", target: '.ribbon [aria-label="Profile"]' },
   { icon: "columns", word: "Compare", line: "Drag a tab onto another: two tables, row by row.", target: ".tabs-row" },
   { icon: "zoom", word: "Key Finder", line: "Finds the columns two tables share.", target: '.ribbon [aria-label="Key Finder"]' },
-  { icon: "crown", word: "Tang", line: "Saved joins between tables. Run one to test it.", target: '.ribbon [aria-label="Relationships"]' },
+  { icon: "crown", word: "Tang", line: "Saved joins between tables. Run one to test it.", where: "Relationships", target: '.ribbon [aria-label="Relationships"]' },
   { icon: "image", word: "Sandbox", line: "Charts, notes and diagrams on one board.", target: ".tab-agent" },
-  { icon: "key", word: "Blade", line: "Saved code that loads data: a database, a file.", target: BLADES_BUTTON, code: 'conn = sag.blade("Warehouse")' },
-  { icon: "folder", word: "Catalog", line: "Every table and column your blades reach. Search it.", target: BLADES_BUTTON },
-  { icon: "group", word: "Pack", line: "Blades and tangs your team shares on GitHub.", target: BLADES_BUTTON },
+  { icon: "key", word: "Blade", line: "Saved code that loads data: a database, a file.", where: "Blades and catalog", target: BLADES_BUTTON, code: 'conn = sag.blade("Warehouse")' },
+  { icon: "folder", word: "Catalog", line: "Every table and column your blades reach. Search it.", where: "Blades and catalog", target: BLADES_BUTTON },
+  { icon: "group", word: "Pack", line: "Blades and tangs your team shares on GitHub.", where: "Blades and catalog, then Packs", target: BLADES_BUTTON },
   { icon: "code", word: "Notebook", line: "Python and SQL cells, in a tab of its own.", target: '.app-row [aria-label="Notebook"]' },
-  { icon: "agent", word: "Agent", line: "Your AI helper. Sees what you see, asks before it exports.", target: '.app-row [aria-label="Settings"]' },
+  { icon: "agent", word: "Agent", line: "Your AI helper. Sees what you see, asks before it exports.", where: "Settings", target: '.app-row [aria-label="Settings"]' },
 ];
 
 const ROUNDS = 5;
@@ -167,6 +169,7 @@ export function openTour(): void {
       h("div", { class: "tour-icon" }, icon(stop.icon)),
       h("h2", { class: "tour-word" }, stop.word),
       h("p", { class: "tour-line" }, stop.line),
+      stop.where ? h("p", { class: "tour-where" }, icon("expand"), stop.where) : "",
       stop.code ? h("code", { class: "tour-code" }, stop.code) : "",
       dots(at),
       h(
