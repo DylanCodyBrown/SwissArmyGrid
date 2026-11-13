@@ -131,6 +131,10 @@ Considered for the live-update broadcasts and the agent approvals, and left out:
   `adapters/database.py` (the locked database, the worker pool, DuckDB's grammar),
   `adapters/datasets.py` (the store and the file loaders), `adapters/views.py`; the first ports.
   The domain no longer imports DuckDB: compiling takes `Describe` and `SqlGrammar` as arguments.
+- [x] 3. Profiling (`services/profile.py`), charts (`domain/charts.py`, `services/charts.py`), code
+  generation (`domain/codegen.py`, `services/codegen.py`, `adapters/codegen.py`), export
+  (`domain/export.py`, `adapters/export.py`), relationships with the key finder and compare
+  (`domain/relationships.py`, `services/relationships.py`). `codegen/` and `charts/` are gone.
 
 ## Left alone, and why
 

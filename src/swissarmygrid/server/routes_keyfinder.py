@@ -26,9 +26,10 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.domain.grids import Grid
-from swissarmygrid.engine.keyfinder import KeyOptions, find_keys, most_distinct, sample_values
+from swissarmygrid.domain.relationships import KeyOptions
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
 from swissarmygrid.services.ports import AGENT, BACKGROUND
+from swissarmygrid.services.relationships import find_keys, most_distinct, sample_values
 
 MAX_PAIRS: int = 200
 

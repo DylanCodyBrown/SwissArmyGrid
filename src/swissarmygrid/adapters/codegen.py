@@ -32,40 +32,21 @@ import builtins
 import importlib
 import math
 import threading
-from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
 import duckdb
 import pyarrow as pa
 
+from swissarmygrid.domain.codegen import Outcome, Pasted
+from swissarmygrid.services.ports import SqlSession
+
 _ALLOWED_IMPORTS: frozenset[str] = frozenset(
     {"__future__", "datetime", "fnmatch", "typing", "pandas", "duckdb", "pyarrow", "polars"}
 )
-VALUE_KINDS: tuple[str, ...] = ("pandas", "polars", "arrow", "duckdb", "records")
 
 _default_connection_lock = threading.Lock()
 _default_connection_ready = False
-
-
-@dataclass(frozen=True)
-class Pasted:
-    """Code as the user copies it, and how they run it."""
-
-    code: str
-    variable: str  # the user's table, by name: the only thing in the namespace
-    value: str  # what that variable holds (VALUE_KINDS)
-    result: str  # the variable the code assigns
-    # Run instead when `value` (or the copy's output call) needs a library this Python lacks.
-    fallback: Pasted | None = None
-    fallback_note: str | None = None
-
-
-@dataclass(frozen=True)
-class Outcome:
-    identical: bool
-    message: str | None
-    note: str | None = None
 
 
 def check_imports(code: str) -> None:
@@ -222,3 +203,23 @@ def verify(
         return Outcome(False, f"The code failed: {type(error).__name__}: {error}")
     outcome = compare(names, rows, expected_names, expected)
     return Outcome(outcome.identical, outcome.message, note)
+
+
+class Verifier:
+    """The service layer's `CodeVerifier` port: run the copy over the dataset as it was pushed and
+    compare what it assigns with the rows the grid shows."""
+
+    def __init__(self, memory_limit: str = "1GiB") -> None:
+        self._memory_limit = memory_limit
+
+    def verify(
+        self,
+        pasted: Pasted,
+        session: SqlSession,
+        table: str,
+        expected_names: list[str],
+        expected: list[list[Any]],
+    ) -> Outcome:
+        cursor: Any = session
+        source = cursor.sql(f"SELECT * FROM {table} ORDER BY rowid").to_arrow_table()  # noqa: S608 (the dataset's own quoted table name)
+        return verify(pasted, source, expected_names, expected, self._memory_limit)

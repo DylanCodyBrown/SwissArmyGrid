@@ -31,6 +31,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from swissarmygrid.adapters.codegen import Verifier
 from swissarmygrid.adapters.database import PriorityWorkers, duckdb_grammar, open_database
 from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.adapters.views import ViewEngine
@@ -98,6 +99,7 @@ def create_app(
         notebook=NotebookServer(settings.state_dir / "notebooks"),
         notebook_cookie=secrets.token_urlsafe(32),
         grammar=duckdb_grammar(),
+        verifier=Verifier(settings.duckdb_memory_limit),
     )
 
     tickets = routes_agent.ExportTickets()  # the agent exports the user approved, not yet written

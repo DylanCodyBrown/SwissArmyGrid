@@ -14,7 +14,7 @@ import pyarrow.parquet as pq
 import pytest
 from starlette.testclient import TestClient
 
-from swissarmygrid.engine import export as exporting
+from swissarmygrid.adapters import export as exporting
 from tests.conftest import AGENT, AUTH, grid_id, make_client, push
 
 TRICKY = pa.table(

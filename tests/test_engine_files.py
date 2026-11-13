@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from swissarmygrid.domain.relationships import mermaid_erd, parse_model
 from swissarmygrid.engine.recipes import load_recipe
-from swissarmygrid.engine.relationships import mermaid_erd, parse_model
 
 
 @pytest.mark.parametrize("body", ["[]", '"text"', "3", '{"steps": {"kind": "sort"}}', "{", '{"settings": 1}'])

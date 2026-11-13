@@ -15,26 +15,43 @@ keep the largest; histograms are binned in DuckDB; scatter plots over the cap ar
 repeatable reservoir sample (and say so). The result becomes a Vega-Lite spec with the data
 inline; the page adds the theme's colors. Series are told apart by shape or dash as well as by
 color (plan section 13: never color alone).
+
+This file is the specification: what a chart may say, the one query it becomes, and the Vega-Lite
+and Altair it is drawn with. Running the query is the service layer's (services/charts.py).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import duckdb
-
-from swissarmygrid.codegen.duckdb_code import python_string, variable_name
+from swissarmygrid.domain.codegen import python_string, variable_name
 from swissarmygrid.domain.datasets import Column, quote
 from swissarmygrid.domain.steps import type_family
 
 MARKS: tuple[str, ...] = ("bar", "line", "area", "point", "histogram", "heatmap")
+
+
 AGGREGATES: tuple[str, ...] = ("count", "sum", "mean", "min", "max")
+
+
 TIME_UNITS: tuple[str, ...] = ("day", "week", "month", "quarter", "year")
+
+
 _TOP_KEYS = {"mark", "x", "y", "color", "title"}
+
+
 _X_KEYS = {"field", "time_unit", "bins", "sort"}
+
+
 _Y_KEYS = {"field", "aggregate"}
+
+
 _COLOR_KEYS = {"field"}
+
+
 _SQL_AGG = {"count": "count", "sum": "sum", "mean": "avg", "min": "min", "max": "max"}
+
+
 _TIME_FORMATS = {"day": "%d %b %Y", "week": "%d %b %Y", "month": "%b %Y", "quarter": "%b %Y", "year": "%Y"}
 
 
@@ -107,78 +124,6 @@ def validate(spec: Any, columns: tuple[Column, ...]) -> dict[str, Any]:
     if "title" in spec and not isinstance(spec["title"], str):
         raise ChartError("title must be text.")
     return dict(spec)
-
-
-def aggregate(
-    cursor: duckdb.DuckDBPyConnection, view_sql: str, spec: dict[str, Any], max_points: int
-) -> dict[str, Any]:
-    """Run the chart's one aggregate query. Returns {"values": [...], "note": str | None}."""
-    v = f"({view_sql}) AS v"
-    mark = spec["mark"]
-    x = spec["x"]
-    xf = quote(x["field"])
-    note: str | None = None
-
-    if mark == "histogram":
-        bins = x.get("bins", 20)
-        # NaN and infinities have no bin (their width would be NaN, which no BIGINT holds).
-        where = f"{xf} IS NOT NULL AND isfinite(CAST({xf} AS DOUBLE))"
-        low, high = cursor.execute(f"SELECT min({xf}), max({xf}) FROM {v} WHERE {where}").fetchone() or (
-            None,
-            None,
-        )
-        if low is None:
-            return {"values": [], "note": "No values to chart."}
-        low_f, high_f = float(low), float(high)
-        # Divided before subtracting, so -1e308 to 1e308 does not overflow to infinity.
-        width = high_f / bins - low_f / bins if high_f > low_f else 1.0
-        position = f"(CAST({xf} AS DOUBLE) / {width!r} - {low_f / width!r})"
-        rows = cursor.execute(
-            f"SELECT greatest(0, least(CAST(floor({position}) AS BIGINT), {bins - 1})), count(*) "
-            f"FROM {v} WHERE {where} GROUP BY 1 ORDER BY 1"
-        ).fetchall()
-        values = [
-            {"bin_start": low_f + b * width, "bin_end": low_f + (b + 1) * width, "count": n} for b, n in rows
-        ]
-        return {"values": values, "note": None}
-
-    y = spec.get("y", {})
-    color = spec.get("color")
-
-    if mark == "point" and y.get("aggregate") is None:
-        yf = quote(y["field"])
-        select = f"{xf} AS x, {yf} AS y" + (f", {quote(color['field'])} AS color" if color else "")
-        total_row = cursor.execute(
-            f"SELECT count(*) FROM {v} WHERE {xf} IS NOT NULL AND {yf} IS NOT NULL"
-        ).fetchone()
-        total = int(total_row[0]) if total_row else 0
-        sample = ""
-        if total > max_points:
-            sample = f" USING SAMPLE reservoir({max_points} ROWS) REPEATABLE (42)"
-            note = f"Showing a repeatable sample of {max_points:,} of {total:,} points."
-        rows = cursor.execute(
-            f"SELECT {select} FROM (SELECT * FROM {v} WHERE {xf} IS NOT NULL AND {yf} IS NOT NULL){sample}"
-        ).fetchall()
-        keys = ["x", "y", "color"] if color else ["x", "y"]
-        return {"values": [dict(zip(keys, r, strict=True)) for r in rows], "note": note}
-
-    projection, group, order = _grouped(spec)
-    groups_row = cursor.execute(
-        f"SELECT count(*) FROM (SELECT 1 FROM {v} GROUP BY {', '.join(group)})"
-    ).fetchone()
-    groups = int(groups_row[0]) if groups_row else 0
-    if groups > max_points:
-        note = f"Showing the {max_points:,} largest of {groups:,} groups."
-        top = (
-            f"SELECT {', '.join(projection)} FROM {v} GROUP BY {', '.join(group)} "
-            f"ORDER BY y DESC NULLS LAST LIMIT {max_points}"
-        )
-        sql = f"SELECT * FROM ({top}) ORDER BY {order}"
-    else:
-        sql = f"SELECT {', '.join(projection)} FROM {v} GROUP BY {', '.join(group)} ORDER BY {order}"
-    result = cursor.execute(sql)
-    names = [d[0] for d in result.description or []]
-    return {"values": [dict(zip(names, r, strict=True)) for r in result.fetchall()], "note": note}
 
 
 _ORDER = {

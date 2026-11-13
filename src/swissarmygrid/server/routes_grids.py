@@ -42,8 +42,9 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.codegen.generate import generate_code
+from swissarmygrid.adapters import export as exporting
 from swissarmygrid.domain.datasets import Column, DatasetInfo, quote
+from swissarmygrid.domain.export import FORMATS, ExportOptions, Provenance
 from swissarmygrid.domain.grids import POS, Grid, combine_stats, selection_scope, stats_sql, view_key
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import (
@@ -58,8 +59,6 @@ from swissarmygrid.domain.steps import (
     steps_from_json,
     with_header_sort,
 )
-from swissarmygrid.engine import export as exporting
-from swissarmygrid.engine.profile import header_stats, profile_column, profile_table
 from swissarmygrid.engine.recipes import delete_recipe, save_recipe
 from swissarmygrid.server.context import (
     Context,
@@ -72,7 +71,9 @@ from swissarmygrid.server.context import (
 )
 from swissarmygrid.server.routes_agent import ExportTickets
 from swissarmygrid.server.routes_datasets import budget, store_table
+from swissarmygrid.services.codegen import generate_code
 from swissarmygrid.services.ports import AGENT, BACKGROUND, INTERACTIVE
+from swissarmygrid.services.profile import header_stats, profile_column, profile_table
 
 _SAFE_FILE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
@@ -632,7 +633,7 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
                     "An agent export needs the user's approval first; table_export asks for it.",
                     status_code=403,
                 )
-            options = exporting.ExportOptions.from_query(params)
+            options = ExportOptions.from_query(params)
             scope = params.get("scope", "view")
             if scope not in ("view", "rows", "columns", "selection", "source", "profile"):
                 raise ValueError("scope must be view, rows, columns, selection, source or profile.")
@@ -642,7 +643,7 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
             file_stem = params.get("file", info.name)
             if not _SAFE_FILE.fullmatch(file_stem):
                 raise ValueError("File names may use letters, digits, '_' and '-'.")
-            extension, media_type = exporting.FORMATS[options.format]
+            extension, media_type = FORMATS[options.format]
             file_name = file_stem + extension
 
             def prepare(cur: duckdb.DuckDBPyConnection) -> Any:
@@ -685,7 +686,7 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
 
             sql, columns, total, step_text = await ctx.grid_query(grid, None, BACKGROUND, prepare)
             provenance = (
-                exporting.Provenance(
+                Provenance(
                     source=f"{info.name} (version {info.version}, {info.source_kind})",
                     steps=step_text if scope != "source" else [],
                     settings=describe_settings(grid.settings),
@@ -750,7 +751,14 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
 
             def make(cur: duckdb.DuckDBPyConnection) -> Any:
                 return generate_code(
-                    cur, ctx.views, info, grid.steps, grid.settings, target, settings.duckdb_memory_limit
+                    cur,
+                    ctx.views,
+                    info,
+                    grid.steps,
+                    grid.settings,
+                    target,
+                    verifier=ctx.verifier,
+                    grammar=ctx.grammar,
                 )
 
             result = await ctx.grid_query(grid, None, BACKGROUND, make)

@@ -1,43 +1,8 @@
-"""Key Finder: which columns of another table share values with this one? (a join-key search)
+"""Relationships between tables: the Key Finder's and the comparison's queries.
 
-The job a data architect otherwise does by hand: take every column of a table, take its
-distinct values, and find the columns of another table holding the same values. The column
-pairs with the most overlap are the likely join keys.
-
-How it works, in DuckDB:
-1. Each side's columns are profiled in one pass: the longest value, the distinct count, the
-   non-blank count. Only columns whose longest value is at most `max_length` characters (128
-   by default) take part; longer text is notes and descriptions, never a key. True/false,
-   list, struct and binary columns are skipped too.
-2. Every value is compared as normalized text, so 42 (a number), 42.0 and '42' all meet:
-   whole numbers lose their decimals, a timestamp at midnight reads as its date, and text is
-   trimmed and/or lowercased when the switches say so.
-3. Each side becomes one two-column list (column number, distinct value), and one hash join on
-   the value counts the shared values for every column pair at once. Think of it as a
-   GROUP BY over an inverted index of both tables.
-
-For each pair it reports the shared distinct values, the share of each side's values found in
-the other, whether each side is unique per row (so which one looks like the primary key), and
-a score:
-
-    overlap = shared / min(distinct on either side)          (the overlap coefficient)
-    cover   = min(share of source found, share of target found)
-    score   = (0.7 x overlap + 0.3 x cover) x min(1, log10(shared) / 3)
-
-Overlap is 1.0 when one side's values all appear in the other (a foreign key into a primary
-key). Cover breaks the classic tie: two unrelated running counters (1, 2, 3 ...) also overlap
-completely, but a 6,000-row order_id covers a 2,000-row customer id only a third of the way,
-while the real customer_id covers it 95%. The last factor (full weight from 1,000 shared
-values) keeps a Y/N flag or a five-value status code, which overlap by accident, below a key.
-
-It also answers the question asked of a table on its own: which columns together tell every
-row apart (its primary key, often a composite one)? `most_distinct` reads the grid's first rows
-and builds the combination greedily: the column with the most distinct values first, then each
-round the column that separates the most rows still sharing a combination, until every row is
-unique or no column helps. Greedy, not exhaustive: every combination of 50 columns is far too
-many to count, while each round here is one scan, so the answer comes in seconds. A blank is a
-value of its own there (as in GROUP BY), since two rows differing only by a blank are different
-rows.
+The rules (what a key is, how values are normalized, the score, how two grids line up) are the
+domain's (domain/relationships.py). Here they are run, through the `SqlSession` port, on the
+relations the caller hands in (each grid's view).
 """
 
 # Every query here is built from quote()d column names and the grids' own compiled view SQL;
@@ -46,85 +11,31 @@ rows.
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
 from typing import Any
 
-import duckdb
-
 from swissarmygrid.domain.datasets import Column
-from swissarmygrid.domain.steps import quote, type_family
+from swissarmygrid.domain.grids import POS
+from swissarmygrid.domain.relationships import (
+    MAX_ALTERNATIVES,
+    MAX_KEY_COLUMNS,
+    ColumnStats,
+    CompareSpec,
+    KeyOptions,
+    _joined,
+    _value_list,
+    keyed_sql,
+    normalized,
+    relationship,
+    score,
+)
+from swissarmygrid.domain.steps import quote
+from swissarmygrid.services.ports import SqlSession
 
-DEFAULT_MAX_LENGTH: int = 128
-_SKIPPED_FAMILIES: frozenset[str] = frozenset({"boolean", "other"})
-# The most distinct combination stops growing here; a key wider than this isn't a useful key.
-MAX_KEY_COLUMNS: int = 8
-MAX_ALTERNATIVES: int = 10
-
-
-@dataclass(frozen=True)
-class KeyOptions:
-    trim: bool = True
-    ignore_case: bool = False
-    max_length: int = DEFAULT_MAX_LENGTH
-
-    @staticmethod
-    def from_json(raw: Any) -> KeyOptions:
-        raw = raw if isinstance(raw, dict) else {}
-        max_length = raw.get("max_length", DEFAULT_MAX_LENGTH)
-        if not isinstance(max_length, int) or isinstance(max_length, bool) or not 1 <= max_length <= 4096:
-            raise ValueError("max_length must be a whole number from 1 to 4,096.")
-        return KeyOptions(bool(raw.get("trim", True)), bool(raw.get("ignore_case", False)), max_length)
-
-
-@dataclass(frozen=True)
-class ColumnStats:
-    name: str
-    type: str
-    max_length: int | None
-    distinct: int
-    filled: int  # non-blank rows
-
-    @property
-    def unique(self) -> bool:
-        return self.filled > 0 and self.distinct == self.filled
-
-
-def normalized(column: Column, options: KeyOptions) -> str | None:
-    """The SQL for one column's values as comparable text, or None if the column can't be a key."""
-    family = type_family(column.type)
-    if family in _SKIPPED_FAMILIES:
-        return None
-    c = quote(column.name)
-    if family == "number":
-        if column.type.upper().startswith(("FLOAT", "DOUBLE", "REAL", "DECIMAL")):
-            # 42.0 and 42.00 read as 42, like an integer column's 42; a DECIMAL's 1.50 reads as
-            # 1.5, as a DOUBLE's 1.5 does (its text keeps every decimal place).
-            other = f"CAST({c} AS VARCHAR)"
-            if column.type.upper().startswith("DECIMAL"):
-                other = f"rtrim({other}, '0')"
-            return (
-                f"CASE WHEN {c} = trunc({c}) AND abs({c}) < 1e18 "
-                f"THEN CAST(CAST({c} AS HUGEINT) AS VARCHAR) ELSE {other} END"
-            )
-        return f"CAST({c} AS VARCHAR)"
-    if family == "timestamp":
-        return (
-            f"CASE WHEN {c} = date_trunc('day', {c}) THEN CAST(CAST({c} AS DATE) AS VARCHAR) "
-            f"ELSE CAST({c} AS VARCHAR) END"
-        )
-    if family == "date":
-        return f"CAST({c} AS VARCHAR)"
-    text = c
-    if options.trim:
-        text = f"trim({text}, ' ' || chr(9) || chr(13) || chr(10))"
-    if options.ignore_case:
-        text = f"lower({text})"
-    return f"NULLIF({text}, '')"
+# ===== Key Finder =====
 
 
 def profile_side(
-    cursor: duckdb.DuckDBPyConnection, relation: str, columns: tuple[Column, ...], options: KeyOptions
+    cursor: SqlSession, relation: str, columns: tuple[Column, ...], options: KeyOptions
 ) -> tuple[list[tuple[ColumnStats, str]], list[dict[str, str]]]:
     """(the eligible columns with their normalized SQL, the skipped columns with the reason)."""
     expressions: list[tuple[Column, str]] = []
@@ -156,34 +67,8 @@ def profile_side(
     return eligible, skipped
 
 
-def _value_list(relation: str, eligible: list[tuple[ColumnStats, str]]) -> str:
-    return " UNION ALL ".join(
-        f"SELECT DISTINCT {i} AS c, {sql} AS v FROM ({relation}) WHERE {sql} IS NOT NULL"
-        for i, (_, sql) in enumerate(eligible)
-    )
-
-
-def score(shared: int, source_distinct: int, target_distinct: int) -> float:
-    if not shared:
-        return 0.0
-    overlap = shared / max(1, min(source_distinct, target_distinct))
-    cover = shared / max(1, source_distinct, target_distinct)
-    confidence = min(1.0, math.log10(shared) / 3) if shared > 1 else 0.05
-    return round((0.7 * overlap + 0.3 * cover) * confidence, 4)
-
-
-def relationship(source: ColumnStats, target: ColumnStats) -> str:
-    if source.unique and target.unique:
-        return "one to one"
-    if target.unique:
-        return "many to one (the target looks like the key)"
-    if source.unique:
-        return "one to many (this column looks like the key)"
-    return "many to many"
-
-
 def find_keys(
-    cursor: duckdb.DuckDBPyConnection,
+    cursor: SqlSession,
     source: str,
     source_columns: tuple[Column, ...],
     target: str,
@@ -231,7 +116,7 @@ def find_keys(
 
 
 def most_distinct(
-    cursor: duckdb.DuckDBPyConnection,
+    cursor: SqlSession,
     relation: str,
     columns: tuple[Column, ...],
     options: KeyOptions,
@@ -295,7 +180,7 @@ def most_distinct(
 
 
 def sample_values(
-    cursor: duckdb.DuckDBPyConnection,
+    cursor: SqlSession,
     source: str,
     source_column: Column,
     target: str,
@@ -328,3 +213,70 @@ def sample_values(
         "matched_count": int(counts[0]),
         "missing_count": int(counts[1]),
     }
+
+
+# ===== Compare =====
+
+
+def counts(
+    cursor: SqlSession,
+    left_positioned: str,
+    left_columns: tuple[Column, ...],
+    right_positioned: str,
+    right_columns: tuple[Column, ...],
+    spec: CompareSpec,
+) -> dict[str, int]:
+    """Matched pairs, rows only on the left, rows only on the right (whatever the mode)."""
+    left = keyed_sql(left_positioned, left_columns, [k[0] for k in spec.keys], "left")
+    right = keyed_sql(right_positioned, right_columns, [k[1] for k in spec.keys], "right")
+    row = cursor.execute(
+        "SELECT count(*) FILTER (WHERE lp IS NOT NULL AND rp IS NOT NULL), "
+        "count(*) FILTER (WHERE rp IS NULL), count(*) FILTER (WHERE lp IS NULL) "
+        f"FROM ({_joined(left, right, len(spec.keys))})"
+    ).fetchone() or (0, 0, 0)
+    return {"matched": int(row[0]), "left_only": int(row[1]), "right_only": int(row[2])}
+
+
+def rows_at(
+    cursor: SqlSession,
+    positioned: str,
+    columns: tuple[Column, ...],
+    positions: list[int | None],
+) -> list[list[Any] | None]:
+    """The view rows at these positions, in this order; None where the position is None."""
+    wanted = sorted({p for p in positions if p is not None})
+    found: dict[int, list[Any]] = {}
+    if wanted:
+        names = ", ".join('"' + c.name.replace('"', '""') + '"' for c in columns)
+        listed = ", ".join(str(int(p)) for p in wanted)
+        for record in cursor.execute(
+            f"SELECT {POS}, {names} FROM ({positioned}) WHERE {POS} IN ({listed})"
+        ).fetchall():
+            found[int(record[0])] = list(record[1:])
+    return [found.get(p) if p is not None else None for p in positions]
+
+
+def focus_positions(
+    cursor: SqlSession,
+    picked_positioned: str,
+    picked_columns: tuple[Column, ...],
+    picked_keys: list[str],
+    picked_position: int,
+    other_positioned: str,
+    other_columns: tuple[Column, ...],
+    other_keys: list[str],
+) -> tuple[list[int], list[Any]]:
+    """Cross compare: the other side's positions with the same key as the picked row, and that
+    key (the picked row's values, for the banner)."""
+    picked = keyed_sql(picked_positioned, picked_columns, picked_keys, "picked")
+    other = keyed_sql(other_positioned, other_columns, other_keys, "other")
+    n = len(picked_keys)
+    on = " AND ".join(f"o.k{i} = p.k{i}" for i in range(n))
+    picked_row = f"SELECT * FROM ({picked}) WHERE {POS} = {int(picked_position)}"
+    hits = cursor.execute(
+        f"SELECT o.{POS} FROM ({other}) AS o JOIN ({picked_row}) AS p ON {on} ORDER BY o.{POS}"
+    ).fetchall()
+    key = cursor.execute(
+        f"SELECT {', '.join(f'k{i}' for i in range(n))} FROM ({picked}) WHERE {POS} = {int(picked_position)}"
+    ).fetchone()
+    return [int(h[0]) for h in hits], list(key) if key else []

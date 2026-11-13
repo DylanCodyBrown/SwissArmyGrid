@@ -13,7 +13,7 @@ from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.adapters.views import ViewEngine
 from swissarmygrid.domain.datasets import Column, DatasetInfo
 from swissarmygrid.domain.steps import Step, ViewSettings
-from swissarmygrid.engine.profile import header_stats, profile_column, profile_table
+from swissarmygrid.services.profile import header_stats, profile_column, profile_table
 
 
 @pytest.fixture

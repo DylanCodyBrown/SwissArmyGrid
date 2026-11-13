@@ -33,6 +33,7 @@ from swissarmygrid.domain.datasets import Column, DatasetInfo, quote
 from swissarmygrid.domain.grids import POS, Window, view_key
 from swissarmygrid.domain.sql_guard import SqlGrammar
 from swissarmygrid.domain.steps import CompiledView, Step, ViewSettings, compile_view
+from swissarmygrid.services.ports import SqlSession
 
 
 @dataclass
@@ -64,7 +65,7 @@ class ViewEngine:
 
     def compile(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -88,7 +89,7 @@ class ViewEngine:
 
     def window(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -117,7 +118,7 @@ class ViewEngine:
 
     def row_count(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -132,7 +133,7 @@ class ViewEngine:
 
     def positioned_sql(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -156,7 +157,7 @@ class ViewEngine:
     @contextmanager
     def reading(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -185,7 +186,7 @@ class ViewEngine:
 
     def rows_sql(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -197,7 +198,7 @@ class ViewEngine:
 
     def ordered_sql(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -209,7 +210,7 @@ class ViewEngine:
 
     def step_counts(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -223,7 +224,7 @@ class ViewEngine:
 
     def cell(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         steps: list[Step],
         settings: ViewSettings,
@@ -244,7 +245,7 @@ class ViewEngine:
 
     def _materialize(
         self,
-        cursor: duckdb.DuckDBPyConnection,
+        cursor: SqlSession,
         info: DatasetInfo,
         compiled: CompiledView,
         steps: list[Step],
@@ -300,7 +301,7 @@ class ViewEngine:
             hit.readers += 1
         return hit
 
-    def _release(self, cursor: duckdb.DuckDBPyConnection, entry: _Cached) -> None:
+    def _release(self, cursor: SqlSession, entry: _Cached) -> None:
         with self._lock:
             entry.readers -= 1
             doomed = [entry.table] if entry.evicted and entry.readers == 0 else []
@@ -327,7 +328,7 @@ class ViewEngine:
         return [entry.table] if entry.readers == 0 else []
 
     @staticmethod
-    def _drop(cursor: duckdb.DuckDBPyConnection, tables: list[str]) -> None:
+    def _drop(cursor: SqlSession, tables: list[str]) -> None:
         for table in tables:
             cursor.execute(f"DROP TABLE IF EXISTS {table}")
 

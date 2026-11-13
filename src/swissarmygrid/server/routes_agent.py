@@ -37,11 +37,10 @@ from starlette.routing import BaseRoute, Route
 from swissarmygrid.blade_core.packages import needed
 from swissarmygrid.blade_core.portable import write_blade
 from swissarmygrid.domain.datasets import DatasetInfo, quote
+from swissarmygrid.domain.export import FORMATS
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import filter_condition
-from swissarmygrid.engine.export import FORMATS
-from swissarmygrid.engine.profile import profile_column, profile_table
 from swissarmygrid.server.blade_store import parse_blade
 from swissarmygrid.server.blade_templates import TEMPLATES
 from swissarmygrid.server.context import (
@@ -53,6 +52,7 @@ from swissarmygrid.server.context import (
     read_json_object,
 )
 from swissarmygrid.services.ports import AGENT
+from swissarmygrid.services.profile import profile_column, profile_table
 from swissarmygrid.settings import EXCEL_MAX_ROWS
 
 # The most rows one agent read returns: as many as one Excel worksheet holds. The agent still

@@ -39,6 +39,7 @@ import duckdb
 
 from swissarmygrid.domain.sql_guard import SqlGrammar
 from swissarmygrid.domain.steps import Describe, EngineError
+from swissarmygrid.services.ports import SqlSession
 
 T = TypeVar("T")
 
@@ -61,7 +62,7 @@ def open_database(memory_limit: str) -> duckdb.DuckDBPyConnection:
 # ===== what the domain asks about SQL text =====
 
 
-def describer(cursor: duckdb.DuckDBPyConnection) -> Describe:
+def describer(cursor: SqlSession) -> Describe:
     """The columns a query returns, as (name, type) pairs, asked on `cursor`. DuckDB's refusal comes
     back as the domain's EngineError, carrying DuckDB's own text."""
 

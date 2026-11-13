@@ -18,6 +18,7 @@ import pickle
 import subprocess
 import sys
 from datetime import date, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -28,15 +29,23 @@ import pyarrow.ipc as ipc
 import pytest
 from starlette.testclient import TestClient
 
-from swissarmygrid.adapters.database import open_database
+from swissarmygrid.adapters import codegen as verifying
+from swissarmygrid.adapters.codegen import compare, result_rows
+from swissarmygrid.adapters.database import duckdb_grammar, open_database
 from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.adapters.views import ViewEngine
-from swissarmygrid.codegen import verify as verifying
-from swissarmygrid.codegen.duckdb_code import python_string, table_name_sql, variable_name
-from swissarmygrid.codegen.generate import generate_code
-from swissarmygrid.codegen.verify import compare, result_rows
+from swissarmygrid.domain import codegen as code_text
+from swissarmygrid.domain.codegen import Pasted, python_string, variable_name
 from swissarmygrid.domain.steps import ViewSettings, steps_from_json
+from swissarmygrid.services import codegen as code_service
 from tests.conftest import ARROW, AUTH, arrow_bytes, grid_id
+
+# The use case and the quoting rule, given their ports: the verifier that runs the copy, and
+# DuckDB's own grammar (its keywords).
+generate_code = partial(
+    code_service.generate_code, verifier=verifying.Verifier("1GiB"), grammar=duckdb_grammar()
+)
+table_name_sql = partial(code_text.table_name_sql, keywords=duckdb_grammar().keywords)
 
 
 def make_orders(n: int = 240) -> pd.DataFrame:
@@ -422,7 +431,7 @@ def test_without_pandas_beside_the_server_the_query_is_still_checked(monkeypatch
 
 def test_wrong_code_is_not_verified() -> None:
     """The check runs what the user gets: code naming a table they do not have fails."""
-    pasted = verifying.Pasted(
+    pasted = Pasted(
         'import duckdb\n\norders_view = duckdb.sql("SELECT * FROM ds_orders").df()\n',
         "orders",
         "pandas",
@@ -432,7 +441,7 @@ def test_wrong_code_is_not_verified() -> None:
         pasted, SOURCE, list(SOURCE.column_names), [list(r.values()) for r in SOURCE.to_pylist()]
     )
     assert not outcome.identical and "ds_orders" in (outcome.message or "")
-    no_result = verifying.Pasted("import duckdb\n", "orders", "pandas", "orders_view")
+    no_result = Pasted("import duckdb\n", "orders", "pandas", "orders_view")
     assert not verifying.verify(no_result, SOURCE, [], []).identical
 
 

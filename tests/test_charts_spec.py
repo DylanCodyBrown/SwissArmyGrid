@@ -10,8 +10,9 @@ import pytest
 
 from swissarmygrid.adapters.database import open_database
 from swissarmygrid.adapters.datasets import DatasetStore
-from swissarmygrid.charts.spec import ChartError, aggregate, validate
+from swissarmygrid.domain.charts import ChartError, validate
 from swissarmygrid.domain.datasets import DatasetInfo
+from swissarmygrid.services.charts import aggregate
 
 
 @pytest.fixture
@@ -78,7 +79,7 @@ def test_a_blank_date_does_not_stretch_the_y_axis() -> None:
     # 158 blank dates drew nowhere on the time axis but set its top at 170, over bars of 1.
     import datetime as dt
 
-    from swissarmygrid.charts.spec import vega_lite
+    from swissarmygrid.domain.charts import vega_lite
     from swissarmygrid.domain.datasets import Column
 
     columns = (Column("day", "DATE"), Column("kind", "VARCHAR"))

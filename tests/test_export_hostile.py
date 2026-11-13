@@ -14,15 +14,9 @@ import pytest
 
 from swissarmygrid.adapters.database import open_database
 from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.adapters.export import batches, delimited, excel
 from swissarmygrid.domain.datasets import Column, DatasetInfo
-from swissarmygrid.engine.export import (
-    ExportError,
-    ExportOptions,
-    Provenance,
-    batches,
-    delimited,
-    excel,
-)
+from swissarmygrid.domain.export import ExportError, ExportOptions, Provenance
 
 
 @pytest.fixture
@@ -59,8 +53,8 @@ def test_the_column_wise_csv_writer_matches_the_cell_by_cell_one(
 ) -> None:
     import csv
 
+    from swissarmygrid.adapters.export import _text_value
     from swissarmygrid.domain.steps import type_family
-    from swissarmygrid.engine.export import _text_value
 
     info = store.replace("mixed", MIXED, "arrow")
     got = b"".join(delimited(batches(store.cursor(), whole(info)), info.columns, options))

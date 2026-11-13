@@ -96,22 +96,22 @@ select = ["E", "F", "W", "I", "UP", "B", "S", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 # Tests use assert and fixed fake tokens; golden cases hold deliberate Greek letters.
 "tests/**" = ["S101", "S105", "S106", "RUF001"]
-# These modules build SQL text by design. Every value goes through steps.literal() and every
+# These modules build SQL text by design (domain/codegen.py also holds the templates for generated
+# code, whose lines are the lines the user will read, hence E501). Every value goes through steps.literal() and every
 # name through quote(); no caller text is ever spliced in. S608 cannot see that, so it is off
 # here rather than sprinkled as noqa on every line.
 "src/swissarmygrid/domain/steps.py" = ["S608"]
 "src/swissarmygrid/adapters/views.py" = ["S608"]
-"src/swissarmygrid/engine/profile.py" = ["S608"]
-"src/swissarmygrid/charts/spec.py" = ["S608"]
-"src/swissarmygrid/codegen/duckdb_code.py" = ["S608", "E501"]
+"src/swissarmygrid/services/profile.py" = ["S608"]
+"src/swissarmygrid/domain/charts.py" = ["S608"]
+"src/swissarmygrid/services/charts.py" = ["S608"]
+"src/swissarmygrid/domain/codegen.py" = ["S608", "E501"]
 "src/swissarmygrid/server/routes_grids.py" = ["S608"]
 "src/swissarmygrid/server/routes_agent.py" = ["S608"]
 # Developer scripts: they run fixed local tools (git, npm, uv, VS Code) with our own arguments,
 # set up sys.path before importing, and hold long command lines.
 "tools/**" = ["S603", "S607", "S110", "E402", "E501"]
 "build.py" = ["S603", "S607"]
-# Templates for generated code: their lines are the lines the user will read.
-"src/swissarmygrid/codegen/python_code.py" = ["E501"]
 # The command catalog: one-line help prose per command and argument, read by the agent as written.
 "src/swissarmygrid/cli/commands.py" = ["E501"]
 

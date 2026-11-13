@@ -10,7 +10,7 @@ import pyarrow as pa
 import pytest
 from starlette.testclient import TestClient
 
-from swissarmygrid.engine.relationships import merge, mermaid_erd, parse_model
+from swissarmygrid.domain.relationships import merge, mermaid_erd, parse_model
 from tests.conftest import AGENT, AUTH, grid_id, push
 
 MODEL: dict[str, Any] = {

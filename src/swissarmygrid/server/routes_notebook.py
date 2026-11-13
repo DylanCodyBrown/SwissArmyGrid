@@ -26,7 +26,6 @@ from starlette.responses import FileResponse, RedirectResponse, Response, Stream
 from starlette.routing import BaseRoute, Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from swissarmygrid.codegen.generate import generate_code
 from swissarmygrid.server.context import (
     Context,
     actor,
@@ -36,6 +35,7 @@ from swissarmygrid.server.context import (
     read_json_object,
 )
 from swissarmygrid.server.notebook import BASE_URL, DEFAULT_NOTEBOOK, NotebookControl, NotebookError
+from swissarmygrid.services.codegen import generate_code
 from swissarmygrid.services.ports import BACKGROUND
 
 NOTEBOOK_COOKIE: str = "sag_notebook"
@@ -165,7 +165,8 @@ def routes(ctx: Context) -> list[BaseRoute]:
                     grid.steps,
                     grid.settings,
                     "duckdb",
-                    ctx.settings.duckdb_memory_limit,
+                    verifier=ctx.verifier,
+                    grammar=ctx.grammar,
                 )
                 return result
 

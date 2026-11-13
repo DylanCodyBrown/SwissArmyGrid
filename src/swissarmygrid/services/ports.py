@@ -7,7 +7,13 @@ concrete adapters. Nothing here imports an adapter, so a test can pass a fake.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from typing import Any, Protocol
+
+from swissarmygrid.domain.codegen import Outcome, Pasted
+from swissarmygrid.domain.datasets import Column, DatasetInfo
+from swissarmygrid.domain.grids import Window
+from swissarmygrid.domain.steps import CompiledView, Step, ViewSettings
 
 # Worker priorities: lower runs first.
 INTERACTIVE: int = 0  # grid windows and counts
@@ -30,3 +36,99 @@ class SqlSession(Protocol):
     def fetchmany(self, size: int = 1, /) -> list[Any]: ...
 
     def interrupt(self) -> None: ...
+
+
+class Views(Protocol):
+    """A dataset run through a grid's steps: the compiled view, its windows and counts, and the
+    relation other queries read it by (the view cache, adapters/views.py)."""
+
+    def compile(
+        self, cursor: SqlSession, info: DatasetInfo, steps: list[Step], settings: ViewSettings
+    ) -> CompiledView: ...
+
+    def window(
+        self,
+        cursor: SqlSession,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        start: int,
+        end: int,
+        upto: int | None = None,
+    ) -> Window: ...
+
+    def row_count(
+        self,
+        cursor: SqlSession,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        upto: int | None = None,
+    ) -> int: ...
+
+    def positioned_sql(
+        self,
+        cursor: SqlSession,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        upto: int | None = None,
+    ) -> tuple[str, tuple[Column, ...]]: ...
+
+    def reading(
+        self,
+        cursor: SqlSession,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        upto: int | None = None,
+        ordered: bool = False,
+    ) -> AbstractContextManager[str]: ...
+
+    def rows_sql(
+        self,
+        cursor: SqlSession,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        upto: int | None = None,
+    ) -> str: ...
+
+    def ordered_sql(
+        self,
+        cursor: SqlSession,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        upto: int | None = None,
+    ) -> str: ...
+
+    def step_counts(
+        self, cursor: SqlSession, info: DatasetInfo, steps: list[Step], settings: ViewSettings
+    ) -> list[int]: ...
+
+    def cell(
+        self,
+        cursor: SqlSession,
+        info: DatasetInfo,
+        steps: list[Step],
+        settings: ViewSettings,
+        row: int,
+        column: str,
+    ) -> Any: ...
+
+    def forget_dataset(self, name: str) -> None: ...
+
+
+class CodeVerifier(Protocol):
+    """Run copied code the way the user will, over `table` as it was pushed, and compare what it
+    assigns with the rows the grid shows."""
+
+    def verify(
+        self,
+        pasted: Pasted,
+        session: SqlSession,
+        table: str,
+        expected_names: list[str],
+        expected: list[list[Any]],
+    ) -> Outcome: ...

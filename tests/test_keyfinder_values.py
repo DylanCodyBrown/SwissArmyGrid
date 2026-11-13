@@ -8,7 +8,8 @@ import pyarrow as pa
 
 from swissarmygrid.adapters.database import open_database
 from swissarmygrid.adapters.datasets import DatasetStore
-from swissarmygrid.engine.keyfinder import KeyOptions, find_keys
+from swissarmygrid.domain.relationships import KeyOptions
+from swissarmygrid.services.relationships import find_keys
 
 
 def test_a_decimal_and_a_double_with_the_same_values_meet() -> None:

@@ -8,27 +8,31 @@ Statistics follow the reference semantics: sample standard deviation and quartil
 linear interpolation (DuckDB stddev_samp / quantile_cont, which match pandas' std() and
 quantile() defaults; tested in tests/test_profile.py). "Distinct" counts non-blank values,
 like pandas nunique().
+
+Every query goes through the `SqlSession` port, on the relation the caller hands in (the grid's
+view, held by the view cache); nothing here knows DuckDB's Python library.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import duckdb
-
 from swissarmygrid.domain.datasets import Column, quote
 from swissarmygrid.domain.steps import _TRIM_SQL, type_family
+from swissarmygrid.services.ports import SqlSession
 
 TOP_VALUES: int = 20
+
+
 HISTOGRAM_BINS: int = 20
 
 
-def _one(cursor: duckdb.DuckDBPyConnection, sql: str) -> tuple[Any, ...]:
+def _one(cursor: SqlSession, sql: str) -> tuple[Any, ...]:
     row = cursor.execute(sql).fetchone()
     return tuple(row) if row else ()
 
 
-def profile_column(cursor: duckdb.DuckDBPyConnection, view_sql: str, column: Column) -> dict[str, Any]:
+def profile_column(cursor: SqlSession, view_sql: str, column: Column) -> dict[str, Any]:
     """Everything section 8 lists for one column of the view `view_sql`. GROUP BY and ORDER
     BY name their columns by position: an alias would lose to a view column of the same name."""
     c = quote(column.name)
@@ -117,7 +121,7 @@ def profile_column(cursor: duckdb.DuckDBPyConnection, view_sql: str, column: Col
     return profile
 
 
-def _histogram(cursor: duckdb.DuckDBPyConnection, v: str, c: str, duckdb_type: str) -> list[dict[str, Any]]:
+def _histogram(cursor: SqlSession, v: str, c: str, duckdb_type: str) -> list[dict[str, Any]]:
     """Equal-width bins between the smallest and largest finite values; the largest lands in
     the last bin. NaN and infinities have no bin (min and max still report them)."""
     floating = duckdb_type.upper() in ("FLOAT", "DOUBLE", "REAL", "FLOAT4", "FLOAT8")
@@ -143,9 +147,7 @@ def _histogram(cursor: duckdb.DuckDBPyConnection, v: str, c: str, duckdb_type: s
     ]
 
 
-def profile_table(
-    cursor: duckdb.DuckDBPyConnection, view_sql: str, columns: tuple[Column, ...]
-) -> dict[str, Any]:
+def profile_table(cursor: SqlSession, view_sql: str, columns: tuple[Column, ...]) -> dict[str, Any]:
     """The whole-table Profile view: one summary row per column, plus duplicate rows."""
     v = f"({view_sql}) AS v"
     names = ", ".join(quote(c.name) for c in columns)
@@ -177,9 +179,7 @@ def profile_table(
     return {"rows": rows, "duplicate_rows": rows - distinct_rows, "columns": summary}
 
 
-def header_stats(
-    cursor: duckdb.DuckDBPyConnection, view_sql: str, columns: tuple[Column, ...]
-) -> dict[str, dict[str, Any]]:
+def header_stats(cursor: SqlSession, view_sql: str, columns: tuple[Column, ...]) -> dict[str, dict[str, Any]]:
     """The small numbers shown in each column header, in one pass over the view."""
     if not columns:
         return {}

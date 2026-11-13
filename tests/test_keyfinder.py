@@ -11,7 +11,7 @@ from typing import Any
 import pyarrow as pa
 from starlette.testclient import TestClient
 
-from swissarmygrid.engine.keyfinder import score
+from swissarmygrid.domain.relationships import score
 from tests.conftest import AGENT, AUTH, grid_id, make_client, push
 
 N = 2000

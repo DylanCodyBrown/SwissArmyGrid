@@ -32,16 +32,17 @@ from swissarmygrid.domain.datasets import (
     DatasetTooLargeError,
     mib,
 )
+from swissarmygrid.domain.export import ExportError
 from swissarmygrid.domain.grids import Grid, GridLimitError, GridRegistry, StaleRequestError
 from swissarmygrid.domain.sql_guard import SqlGrammar, SqlRefused
 from swissarmygrid.domain.steps import CompiledView, StepError
 from swissarmygrid.engine.audit import AuditLog
 from swissarmygrid.engine.catalog import CatalogError, CatalogStore
-from swissarmygrid.engine.export import ExportError
 from swissarmygrid.server.blade_store import BladeError, BladeStore
 from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.notebook import NotebookServer
 from swissarmygrid.server.processes import ProcessRegistry
+from swissarmygrid.services.ports import CodeVerifier
 from swissarmygrid.settings import Settings
 
 T = TypeVar("T")
@@ -74,6 +75,8 @@ class Context:
     notebook_cookie: str
     # DuckDB's own reading of SQL text, which the guard checks every query against.
     grammar: SqlGrammar
+    # Runs copied code to check it against the grid (adapters/codegen.py).
+    verifier: CodeVerifier
 
     def grid_url(self, grid: Grid, with_token: bool = True) -> str:
         """The grid's page. The fragment carries the token to the page without ever sending it to

@@ -11,18 +11,22 @@ All data is made up.
 from __future__ import annotations
 
 import ast
+from functools import partial
 from typing import Any
 
 import pytest
 
-from swissarmygrid.adapters.database import open_database
+from swissarmygrid.adapters.codegen import Verifier, compare, result_rows, user_value
+from swissarmygrid.adapters.database import duckdb_grammar, open_database
 from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.adapters.views import ViewEngine
-from swissarmygrid.codegen.generate import generate_code
-from swissarmygrid.codegen.verify import compare, result_rows, user_value
 from swissarmygrid.domain.steps import ViewSettings, steps_from_json
+from swissarmygrid.services import codegen as code_service
 from tests.golden.cases import CASES, Case
 from tests.golden.tables import to_arrow
+
+# The use case, given its two ports: the verifier that runs the copy, and DuckDB's own grammar.
+generate_code = partial(code_service.generate_code, verifier=Verifier("1GiB"), grammar=duckdb_grammar())
 
 TARGETS = ["duckdb", "pandas", "plain"]
 # What each target's code reads: the DuckDB copy reads what was pushed (pandas here).

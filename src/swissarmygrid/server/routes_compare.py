@@ -34,16 +34,10 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.domain.datasets import Column, DatasetInfo
 from swissarmygrid.domain.grids import Grid
-from swissarmygrid.engine.compare import (
-    CompareSpec,
-    counts,
-    differences,
-    focus_positions,
-    mapping_sql,
-    rows_at,
-)
+from swissarmygrid.domain.relationships import CompareSpec, differences, mapping_sql
 from swissarmygrid.server.context import Context, actor, error_response, json_response, query_int, read_json
 from swissarmygrid.services.ports import INTERACTIVE
+from swissarmygrid.services.relationships import counts, focus_positions, rows_at
 
 
 @dataclass

@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from swissarmygrid.domain.datasets import Column
-from swissarmygrid.engine.compare import differences
+from swissarmygrid.domain.relationships import differences
 
 COLUMNS = (Column("id", "BIGINT"), Column("v", "DOUBLE"))
 
