@@ -286,9 +286,11 @@ def rows_at(
     found: dict[int, list[Any]] = {}
     if wanted:
         names = ", ".join('"' + c.name.replace('"', '""') + '"' for c in columns)
-        listed = ", ".join(str(int(p)) for p in wanted)
+        # The positions as one list to join on, not a literal each: DuckDB then reads only the row
+        # groups they fall in (200 scattered rows of 1,600,000: 22 ms -> 4.5 ms).
         for record in cursor.execute(
-            f"SELECT {POS}, {names} FROM ({positioned}) WHERE {POS} IN ({listed})"
+            f"SELECT {POS}, {names} FROM ({positioned}) WHERE {POS} IN (SELECT unnest(?))",
+            [[int(p) for p in wanted]],
         ).fetchall():
             found[int(record[0])] = list(record[1:])
     return [found.get(p) if p is not None else None for p in positions]
@@ -561,34 +563,73 @@ class Compares:
         left, right = self._side(cur, cmp.left), self._side(cur, cmp.right)
         sig = self._signature(left, right, cmp.spec)
         if sig != cmp.signature:
-            cmp.tallies = counts(
-                cur, left.positioned, left.columns, right.positioned, right.columns, cmp.spec
-            )
+            mode = cmp.spec.mode
             cmp.differ = None
-            if cmp.spec.mode == "cross":
+            # The join of the two sides is the costly part, so it runs once where it can: an outer
+            # mapping holds every pair and is counted as built, and diff mode's summary counts them
+            # too. Only cross (no mapping) and anti (unmatched rows only) count on their own.
+            if mode in ("cross", "anti"):
+                cmp.tallies = counts(
+                    cur, left.positioned, left.columns, right.positioned, right.columns, cmp.spec
+                )
+            if mode == "cross":
                 cmp.row_count = 0
+            elif mode == "diff":
+                self._build_diff(cur, cmp, left, right)
             else:
                 # Numbered in the order the sorted mapping comes out (order checked in verified.md).
                 sql = mapping_sql(left.positioned, left.columns, right.positioned, right.columns, cmp.spec)
-                if cmp.spec.mode == "diff":
-                    options = cmp.spec.diff
-                    compared = diff.pairs(left.columns, right.columns, cmp.spec.keys, options)
-                    diffed = diff.diffed_sql(sql, left.positioned, right.positioned, compared, options)
-                    row = cur.execute(diff.summary_sql(diffed, compared)).fetchone() or (0,) * (
-                        4 + len(compared)
-                    )
-                    cmp.differ = diff.summary(tuple(row), compared)
-                    sql = diff.kept_sql(
-                        diffed, len(cmp.spec.keys), compared, options, mapping_order(len(cmp.spec.keys))
-                    )
-                cur.execute(
-                    f"CREATE OR REPLACE TABLE {cmp.table} AS "
-                    f"SELECT row_number() OVER () - 1 AS cpos, * FROM ({sql})"
-                )
-                result = cur.execute(f"SELECT count(*) FROM {cmp.table}").fetchone()
-                cmp.row_count = int(result[0]) if result else 0
+                self._number(cur, cmp, sql)
+                if mode != "anti":
+                    row = cur.execute(
+                        "SELECT count(*) FILTER (WHERE lp IS NOT NULL AND rp IS NOT NULL), "
+                        "count(*) FILTER (WHERE rp IS NULL), count(*) FILTER (WHERE lp IS NULL) "
+                        f"FROM {cmp.table}"
+                    ).fetchone() or (0, 0, 0)
+                    cmp.tallies = {"matched": int(row[0]), "left_only": int(row[1]), "right_only": int(row[2])}
             cmp.signature = sig
         return left, right
+
+    @staticmethod
+    def _number(cur: SqlSession, cmp: Compare, sql: str) -> None:
+        """Keep `sql` (a mapping, in compare order) as the compare's table, each row numbered."""
+        cur.execute(
+            f"CREATE OR REPLACE TABLE {cmp.table} AS SELECT row_number() OVER () - 1 AS cpos, * FROM ({sql})"
+        )
+        result = cur.execute(f"SELECT count(*) FROM {cmp.table}").fetchone()
+        cmp.row_count = int(result[0]) if result else 0
+
+    def _build_diff(self, cur: SqlSession, cmp: Compare, left: Side, right: Side) -> None:
+        """Diff mode: every pair with what differs in it, worked out once into a table of its own
+        (the summary and the rows kept each joined and compared both sides again), then counted,
+        and the pairs that differ kept in compare order."""
+        options, keys = cmp.spec.diff, len(cmp.spec.keys)
+        # In no order: the rows kept are sorted at the end, by a total order (key, then positions).
+        mapping = mapping_sql(
+            left.positioned, left.columns, right.positioned, right.columns, cmp.spec, ordered=False
+        )
+        compared = diff.pairs(left.columns, right.columns, cmp.spec.keys, options)
+        diff.kept_sql("", keys, compared, options, mapping_order(keys))  # refuses an unknown column
+        staged = f'"__sag_cmp_{cmp.id}_diffed"'
+        cur.execute(
+            f"CREATE OR REPLACE TABLE {staged} AS "
+            + diff.diffed_sql(mapping, left.positioned, right.positioned, compared, options)
+        )
+        try:
+            row = cur.execute(diff.summary_sql(f"SELECT * FROM {staged}", compared)).fetchone() or (0,) * (
+                4 + len(compared)
+            )
+            cmp.differ = diff.summary(tuple(row), compared)
+            cmp.tallies = {
+                "matched": cmp.differ["matched"],
+                "left_only": cmp.differ["left_only"],
+                "right_only": cmp.differ["right_only"],
+            }
+            self._number(
+                cur, cmp, diff.kept_sql(f"SELECT * FROM {staged}", keys, compared, options, mapping_order(keys))
+            )
+        finally:
+            cur.execute(f"DROP TABLE IF EXISTS {staged}")
 
     async def _run(self, fn: Callable[[Any], Any]) -> Any:
         ws = self.ws

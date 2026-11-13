@@ -606,9 +606,11 @@ def mapping_sql(
     right_positioned: str,
     right_columns: tuple[Column, ...],
     spec: CompareSpec,
+    ordered: bool = True,
 ) -> str:
     """The aligned mapping (lp, rp, s0, s1, ...) in compare order, for outer and anti mode. The s
-    columns are the row's normalized key, so the rows sharing a key can be found again."""
+    columns are the row's normalized key, so the rows sharing a key can be found again. Not
+    `ordered`: in no particular order, for a caller that sorts what it keeps of it."""
     left = keyed_sql(left_positioned, left_columns, [k[0] for k in spec.keys], "left")
     right = keyed_sql(right_positioned, right_columns, [k[1] for k in spec.keys], "right")
     n = len(spec.keys)
@@ -619,9 +621,10 @@ def mapping_sql(
             "left": "WHERE rp IS NULL",
             "right": "WHERE lp IS NULL",
         }[spec.anti_side]
+    order = f" ORDER BY {mapping_order(n)}" if ordered else ""
     return (
-        f"SELECT lp, rp, {', '.join(f's{i}' for i in range(n))} FROM ({_joined(left, right, n)}) {where} "
-        f"ORDER BY {mapping_order(n)}"
+        f"SELECT lp, rp, {', '.join(f's{i}' for i in range(n))} FROM ({_joined(left, right, n)}) {where}"
+        f"{order}"
     )
 
 
