@@ -124,13 +124,19 @@ Considered for the live-update broadcasts and the agent approvals, and left out:
 
 ## Progress
 
-- [x] 0. Baseline: 1,370 passed, 1 failed (see "Left alone").
-- [ ] 1. Plan and architecture test
+- [x] 0. Baseline: 1,371 tests; 1,370 passed and 1 failed in the full run (see "Left alone").
+- [x] 1. Plan and architecture test.
+- [x] 2. The core: `domain/datasets.py`, `domain/steps.py` (with the plain-language descriptions),
+  `domain/sql_guard.py`, `domain/grids.py` (with selections, windows and view keys);
+  `adapters/database.py` (the locked database, the worker pool, DuckDB's grammar),
+  `adapters/datasets.py` (the store and the file loaders), `adapters/views.py`; the first ports.
+  The domain no longer imports DuckDB: compiling takes `Describe` and `SqlGrammar` as arguments.
 
 ## Left alone, and why
 
 (Filled in as the work goes.)
 
 - `tests/e2e/test_notebook_page.py::test_phase_2_done_when_a_notebook_table_is_a_grid_and_its_steps_go_back`
-  fails on this machine before any change (two SQL cells where the test expects one, with Chromium in
-  place of Edge). It is not touched.
+  failed in the first full run on this machine, before any change (two SQL cells where the test
+  expects one), and passes when its file is run alone: it is timing-sensitive here (Chromium in place
+  of Edge). It is not touched.

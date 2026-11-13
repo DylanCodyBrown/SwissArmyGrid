@@ -16,8 +16,8 @@ from typing import Any
 
 import duckdb
 
-from swissarmygrid.engine.datasets import Column, quote
-from swissarmygrid.engine.steps import _TRIM_SQL, type_family
+from swissarmygrid.domain.datasets import Column, quote
+from swissarmygrid.domain.steps import _TRIM_SQL, type_family
 
 TOP_VALUES: int = 20
 HISTOGRAM_BINS: int = 20

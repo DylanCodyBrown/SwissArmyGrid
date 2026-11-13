@@ -15,12 +15,12 @@ from typing import Any
 
 import pytest
 
+from swissarmygrid.adapters.database import open_database
+from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.adapters.views import ViewEngine
 from swissarmygrid.codegen.generate import generate_code
 from swissarmygrid.codegen.verify import compare, result_rows, user_value
-from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import DatasetStore
-from swissarmygrid.engine.steps import ViewSettings, steps_from_json
-from swissarmygrid.engine.views import ViewEngine
+from swissarmygrid.domain.steps import ViewSettings, steps_from_json
 from tests.golden.cases import CASES, Case
 from tests.golden.tables import to_arrow
 

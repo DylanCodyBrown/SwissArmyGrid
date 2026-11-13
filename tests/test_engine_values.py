@@ -11,9 +11,9 @@ from collections.abc import Iterator
 import pyarrow as pa
 import pytest
 
-from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import DatasetStore
-from swissarmygrid.engine.steps import Step, ViewSettings, compile_view
+from swissarmygrid.adapters.database import describer, duckdb_grammar, open_database
+from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.domain.steps import Step, ViewSettings, compile_view
 
 
 @pytest.fixture
@@ -38,7 +38,9 @@ def count(store: DatasetStore, step: Step) -> int | str:
     info = store.get("times")
     assert info is not None
     cursor = store.cursor()
-    compiled = compile_view(cursor, info.table, info.columns, [step], ViewSettings(), info.name)
+    compiled = compile_view(
+        describer(cursor), duckdb_grammar(), info.table, info.columns, [step], ViewSettings(), info.name
+    )
     if compiled.error is not None:
         return compiled.error.message
     row = cursor.execute(f"SELECT count(*) FROM ({compiled.sql()})").fetchone()  # noqa: S608

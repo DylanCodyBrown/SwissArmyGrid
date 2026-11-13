@@ -27,7 +27,6 @@ from starlette.routing import BaseRoute, Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from swissarmygrid.codegen.generate import generate_code
-from swissarmygrid.engine.workers import BACKGROUND
 from swissarmygrid.server.context import (
     Context,
     actor,
@@ -37,6 +36,7 @@ from swissarmygrid.server.context import (
     read_json_object,
 )
 from swissarmygrid.server.notebook import BASE_URL, DEFAULT_NOTEBOOK, NotebookControl, NotebookError
+from swissarmygrid.services.ports import BACKGROUND
 
 NOTEBOOK_COOKIE: str = "sag_notebook"
 # Headers that belong to one hop, or carry SAG's own credentials, never passed on.

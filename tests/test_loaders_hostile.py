@@ -10,8 +10,8 @@ import openpyxl
 import pyarrow as pa
 import pytest
 
-from swissarmygrid.engine.datasets import DatasetError
-from swissarmygrid.engine.loaders import load_file, parse_pasted
+from swissarmygrid.adapters.datasets import load_file, parse_pasted
+from swissarmygrid.domain.datasets import DatasetError
 
 MAX = 1 << 30
 

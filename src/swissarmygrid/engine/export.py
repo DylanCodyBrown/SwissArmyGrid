@@ -34,8 +34,8 @@ import pyarrow.parquet as pq
 import xlsxwriter
 from xlsxwriter.utility import xl_col_to_name
 
-from swissarmygrid.engine.datasets import Column
-from swissarmygrid.engine.steps import type_family
+from swissarmygrid.domain.datasets import Column
+from swissarmygrid.domain.steps import type_family
 
 EXCEL_MAX_ROWS: int = 1_048_576
 EXCEL_MAX_COLUMNS: int = 16_384

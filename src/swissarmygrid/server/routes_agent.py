@@ -36,12 +36,12 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.blade_core.packages import needed
 from swissarmygrid.blade_core.portable import write_blade
-from swissarmygrid.engine.datasets import DatasetInfo, quote
+from swissarmygrid.domain.datasets import DatasetInfo, quote
+from swissarmygrid.domain.grids import Grid
+from swissarmygrid.domain.sql_guard import guard
+from swissarmygrid.domain.steps import filter_condition
 from swissarmygrid.engine.export import FORMATS
 from swissarmygrid.engine.profile import profile_column, profile_table
-from swissarmygrid.engine.sql_guard import guard
-from swissarmygrid.engine.steps import filter_condition
-from swissarmygrid.engine.workers import AGENT
 from swissarmygrid.server.blade_store import parse_blade
 from swissarmygrid.server.blade_templates import TEMPLATES
 from swissarmygrid.server.context import (
@@ -52,7 +52,7 @@ from swissarmygrid.server.context import (
     read_json,
     read_json_object,
 )
-from swissarmygrid.server.grids import Grid
+from swissarmygrid.services.ports import AGENT
 from swissarmygrid.settings import EXCEL_MAX_ROWS
 
 # The most rows one agent read returns: as many as one Excel worksheet holds. The agent still
@@ -225,7 +225,7 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
                     grid_sql = compiled.sql
                 else:
                     grid_sql = lambda: f"SELECT * FROM {info.table}"  # noqa: E731
-                guarded = guard(text, {i.name for i in ctx.store.all()}, grid_sql)
+                guarded = guard(text, {i.name for i in ctx.store.all()}, grid_sql, grammar=ctx.grammar)
                 if guarded.kind != "select":
                     raise ValueError("Agents may only run SELECT queries; use steps_save_result to pin.")
                 timer = threading.Timer(ctx.settings.query_timeout_seconds, cur.interrupt)

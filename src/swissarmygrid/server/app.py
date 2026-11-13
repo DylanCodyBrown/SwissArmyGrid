@@ -31,12 +31,12 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from swissarmygrid.adapters.database import PriorityWorkers, duckdb_grammar, open_database
+from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.adapters.views import ViewEngine
+from swissarmygrid.domain.grids import GridRegistry
 from swissarmygrid.engine.audit import AuditLog
 from swissarmygrid.engine.catalog import CatalogStore
-from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import DatasetStore
-from swissarmygrid.engine.views import ViewEngine
-from swissarmygrid.engine.workers import PriorityWorkers
 from swissarmygrid.server import (
     routes_agent,
     routes_cards,
@@ -53,7 +53,6 @@ from swissarmygrid.server import (
 )
 from swissarmygrid.server.blade_store import BladeStore
 from swissarmygrid.server.context import Context
-from swissarmygrid.server.grids import GridRegistry
 from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.notebook import NotebookServer
 from swissarmygrid.server.processes import ProcessRegistry
@@ -98,6 +97,7 @@ def create_app(
         ),
         notebook=NotebookServer(settings.state_dir / "notebooks"),
         notebook_cookie=secrets.token_urlsafe(32),
+        grammar=duckdb_grammar(),
     )
 
     tickets = routes_agent.ExportTickets()  # the agent exports the user approved, not yet written

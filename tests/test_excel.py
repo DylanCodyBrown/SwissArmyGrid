@@ -9,8 +9,8 @@ import pytest
 from openpyxl import Workbook
 from starlette.testclient import TestClient
 
-from swissarmygrid.engine.datasets import DatasetError
-from swissarmygrid.engine.loaders import excel_sheets, load_file
+from swissarmygrid.adapters.datasets import excel_sheets, load_file
+from swissarmygrid.domain.datasets import DatasetError
 from tests.conftest import AUTH
 
 MAX = 64 * 1024 * 1024

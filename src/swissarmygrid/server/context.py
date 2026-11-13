@@ -22,23 +22,23 @@ import sqlglot
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
-from swissarmygrid.engine.audit import AuditLog
-from swissarmygrid.engine.catalog import CatalogError, CatalogStore
-from swissarmygrid.engine.datasets import (
+from swissarmygrid.adapters.database import PriorityWorkers
+from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.adapters.views import ViewEngine
+from swissarmygrid.domain.datasets import (
     DatasetError,
     DatasetInfo,
     DatasetLimitError,
-    DatasetStore,
     DatasetTooLargeError,
     mib,
 )
+from swissarmygrid.domain.grids import Grid, GridLimitError, GridRegistry, StaleRequestError
+from swissarmygrid.domain.sql_guard import SqlGrammar, SqlRefused
+from swissarmygrid.domain.steps import CompiledView, StepError
+from swissarmygrid.engine.audit import AuditLog
+from swissarmygrid.engine.catalog import CatalogError, CatalogStore
 from swissarmygrid.engine.export import ExportError
-from swissarmygrid.engine.sql_guard import SqlRefused
-from swissarmygrid.engine.steps import CompiledView, StepError
-from swissarmygrid.engine.views import ViewEngine
-from swissarmygrid.engine.workers import PriorityWorkers
 from swissarmygrid.server.blade_store import BladeError, BladeStore
-from swissarmygrid.server.grids import Grid, GridLimitError, GridRegistry, StaleRequestError
 from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.notebook import NotebookServer
 from swissarmygrid.server.processes import ProcessRegistry
@@ -72,6 +72,8 @@ class Context:
     # The notebook (marimo), started on first use, and the cookie its frame is let in with.
     notebook: NotebookServer
     notebook_cookie: str
+    # DuckDB's own reading of SQL text, which the guard checks every query against.
+    grammar: SqlGrammar
 
     def grid_url(self, grid: Grid, with_token: bool = True) -> str:
         """The grid's page. The fragment carries the token to the page without ever sending it to

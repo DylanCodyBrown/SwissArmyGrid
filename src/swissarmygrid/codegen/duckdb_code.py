@@ -40,10 +40,9 @@ import duckdb
 import sqlglot
 from sqlglot import exp
 
-from swissarmygrid.engine.datasets import DatasetInfo
-from swissarmygrid.engine.describe import describe_step
-from swissarmygrid.engine.sql_guard import keeps_order, step_tables
-from swissarmygrid.engine.steps import (
+from swissarmygrid.domain.datasets import DatasetInfo
+from swissarmygrid.domain.sql_guard import keeps_order, step_tables
+from swissarmygrid.domain.steps import (
     CompiledView,
     Stage,
     Step,
@@ -51,6 +50,7 @@ from swissarmygrid.engine.steps import (
     bucket_expression,
     categorize_expression,
     column_list,
+    describe_step,
     filter_condition,
     group_order,
     group_parts,

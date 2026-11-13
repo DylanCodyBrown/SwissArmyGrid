@@ -8,11 +8,12 @@ from collections.abc import Iterator
 import pyarrow as pa
 import pytest
 
-from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import Column, DatasetInfo, DatasetStore
+from swissarmygrid.adapters.database import open_database
+from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.adapters.views import ViewEngine
+from swissarmygrid.domain.datasets import Column, DatasetInfo
+from swissarmygrid.domain.steps import Step, ViewSettings
 from swissarmygrid.engine.profile import header_stats, profile_column, profile_table
-from swissarmygrid.engine.steps import Step, ViewSettings
-from swissarmygrid.engine.views import ViewEngine
 
 
 @pytest.fixture

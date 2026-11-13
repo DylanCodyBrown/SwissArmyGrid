@@ -44,13 +44,12 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from swissarmygrid.adapters.datasets import arrow_stream_to_table, split_json_to_arrow
 from swissarmygrid.blade_core import code as blade_code
 from swissarmygrid.blade_core.packages import install_command, needed, pip_name
 from swissarmygrid.blade_core.portable import file_name as portable_file_name
 from swissarmygrid.blade_core.portable import read_blades, write_blade, write_zip
 from swissarmygrid.engine.catalog import CatalogInfo, select_sql
-from swissarmygrid.engine.datasets import arrow_stream_to_table, split_json_to_arrow
-from swissarmygrid.engine.workers import BACKGROUND, INTERACTIVE
 from swissarmygrid.server import blade_runner
 from swissarmygrid.server.blade_store import Blade, BladeError, VaultUnavailableError
 from swissarmygrid.server.blade_templates import TEMPLATES
@@ -64,6 +63,7 @@ from swissarmygrid.server.context import (
     read_json,
     read_json_object,
 )
+from swissarmygrid.services.ports import BACKGROUND, INTERACTIVE
 
 _ARROW_STREAM: str = "application/vnd.apache.arrow.stream"
 _PIP_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\-]{0,99}(\[[A-Za-z0-9,._\-]{1,100}\])?")

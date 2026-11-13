@@ -1,6 +1,6 @@
 """The guard in front of the SQL box and agent SQL (plan section 6, rule 5).
 
-Two layers. DuckDB itself is locked (engine/database.py): no SQL can touch files, the network
+Two layers. DuckDB itself is locked (adapters/database.py): no SQL can touch files, the network
 or extensions whatever this module decides. On top of that, every query is parsed with sqlglot
 and must be exactly one statement of an allowed shape:
 
@@ -29,21 +29,22 @@ Two details keep the name rules exact:
   sqlglot reads differently from DuckDB is refused rather than trusted.
 
 Think of it as a whitelist validator in front of a stored-procedure-only database.
+
+The rules are plain Python over text. What they need from DuckDB itself (its own parse of a
+statement, its table functions, its keywords) arrives as a `SqlGrammar`, which the adapter
+(adapters/database.duckdb_grammar) fills in; this module never imports DuckDB.
 """
 
 from __future__ import annotations
 
-import json
-import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-import duckdb
 import sqlglot
 from sqlglot import exp
 
-from swissarmygrid.engine.datasets import NAME_PATTERN
+from swissarmygrid.domain.datasets import NAME_PATTERN
 
 GRID_TABLE: str = "grid"
 # Table functions that only generate values (no files, no catalogs, no SQL strings).
@@ -97,57 +98,28 @@ class SqlRefused(ValueError):
     """The query is not allowed. The message says why, in plain words."""
 
 
-# A private connection that only parses: DuckDB's own reading of a query (json_serialize_sql)
-# and its list of table functions. It holds no data and reaches nothing.
-_parser_lock = threading.Lock()
-_parser: duckdb.DuckDBPyConnection | None = None
-_table_functions: frozenset[str] | None = None
+@dataclass(frozen=True)
+class SqlGrammar:
+    """What DuckDB itself says about SQL text: the port behind the guard's second opinion and the
+    code generator's quoting. The adapter reads these from DuckDB once (adapters/database.py)."""
 
-
-def _parser_connection() -> duckdb.DuckDBPyConnection:
-    global _parser
-    if _parser is None:
-        _parser = duckdb.connect(
-            ":memory:",
-            config={
-                "enable_external_access": False,
-                "autoinstall_known_extensions": False,
-                "autoload_known_extensions": False,
-                "lock_configuration": True,
-            },
-        )
-    return _parser
-
-
-def table_only_functions() -> frozenset[str]:
-    """DuckDB's table functions that are not also scalar or aggregate functions (repeat and
-    range are both): a call to one of these anywhere in a query is refused."""
-    global _table_functions
-    with _parser_lock:
-        if _table_functions is None:
-            rows = (
-                _parser_connection()
-                .execute(
-                    "SELECT function_name FROM duckdb_functions() GROUP BY function_name "
-                    "HAVING bool_or(function_type IN ('table', 'table_macro', 'pragma')) "
-                    "AND NOT bool_or(function_type IN ('scalar', 'aggregate', 'macro'))"
-                )
-                .fetchall()
-            )
-            _table_functions = frozenset(str(r[0]).lower() for r in rows) - _ALLOWED_TABLE_FUNCTIONS
-        return _table_functions
+    # DuckDB's own parse of one text (json_serialize_sql), as the JSON it gives.
+    parse: Callable[[str], dict[str, Any]]
+    # Its table functions that are not also scalar or aggregate functions (repeat and range are
+    # both): a call to one of these anywhere in a query is refused.
+    table_functions: frozenset[str]
+    # Its keywords, lowercase: a table named like one is quoted in generated SQL.
+    keywords: frozenset[str]
 
 
 # What DuckDB says when asked to serialize a query holding a PIVOT.
 _PIVOT_UNPARSED: str = "Only SELECT statements can be serialized"
 
 
-def check_duckdb_parse(sql: str, tables: set[str]) -> None:
+def check_duckdb_parse(sql: str, tables: set[str], grammar: SqlGrammar) -> None:
     """Refuse `sql` unless DuckDB's own parse of it reads only `tables` (plain names) and the
     allowed table functions: the second opinion behind the sqlglot rewrite."""
-    with _parser_lock:
-        row = _parser_connection().execute("SELECT json_serialize_sql(?)", [sql]).fetchone()
-    parsed: Any = json.loads(str(row[0])) if row else {"error": True}
+    parsed = grammar.parse(sql)
     if parsed.get("error"):
         raise SqlRefused(f"DuckDB could not read the query: {parsed.get('error_message', 'unknown error')}")
     # DuckDB runs every statement it is given, so the text it will run must be exactly one.
@@ -195,6 +167,8 @@ def guard(
     grid_sql: Callable[[], str] | None,
     dataset_sql: Callable[[str], str] | None = None,
     grid_alias: str | None = None,
+    *,
+    grammar: SqlGrammar,
 ) -> GuardedQuery:
     """Check `text` and rewrite its table names. `grid_sql()` gives the grid view's SQL.
 
@@ -208,7 +182,7 @@ def guard(
     Python variable of that name does.
     """
     try:
-        return _guard(text, datasets, grid_sql, dataset_sql, grid_alias)
+        return _guard(text, datasets, grid_sql, dataset_sql, grid_alias, grammar)
     except RecursionError as error:  # sqlglot parses and prints recursively
         raise SqlRefused("The query is nested too deeply.") from error
 
@@ -219,6 +193,7 @@ def _guard(
     grid_sql: Callable[[], str] | None,
     dataset_sql: Callable[[str], str] | None,
     grid_alias: str | None,
+    grammar: SqlGrammar,
 ) -> GuardedQuery:
     try:
         statements = [s for s in sqlglot.parse(text, read="duckdb") if s is not None]
@@ -250,14 +225,14 @@ def _guard(
             "Only SELECT (or WITH ... SELECT) queries and CREATE TABLE ... AS SELECT are allowed."
         )
 
-    _refuse_denied_functions(query)
+    _refuse_denied_functions(query, grammar)
     grid_names = {GRID_TABLE} if grid_alias is None else {GRID_TABLE, grid_alias}
     needs_grid, read, targets = _rewrite_tables(
         query, datasets, grid_names if grid_sql is not None else set(), as_views=dataset_sql is not None
     )
     # DuckDB's own parse of the user's part, before the server's CTEs are added.
     try:
-        check_duckdb_parse(query.sql(dialect="duckdb"), targets)
+        check_duckdb_parse(query.sql(dialect="duckdb"), targets, grammar)
     except SqlRefused as refused:
         # DuckDB cannot serialize a PIVOT (it expands one into several statements), so its parse
         # fails for every query holding one. Such a query keeps the first opinion only: the rewrite
@@ -272,7 +247,7 @@ def _guard(
     return GuardedQuery(query.sql(dialect="duckdb"), "create" if new_table else "select", new_table)
 
 
-def guard_step(text: str, grid_sql: str, dataset: str) -> str:
+def guard_step(text: str, grid_sql: str, dataset: str, grammar: SqlGrammar) -> str:
     """A SQL step (plan section 7, "sql"): one SELECT that reads only the table entering the
     step, named either `grid` or the grid's own `dataset` name. Returns the query rewritten for
     DuckDB, with an order the grid can rely on.
@@ -286,7 +261,7 @@ def guard_step(text: str, grid_sql: str, dataset: str) -> str:
     sorted by every column (ORDER BY ALL) and comes out the same way on every run.
     """
     try:
-        guarded = guard(text, set(), lambda: grid_sql, grid_alias=dataset)
+        guarded = guard(text, set(), lambda: grid_sql, grid_alias=dataset, grammar=grammar)
     except SqlRefused as error:
         message = str(error)
         if message.startswith("Unknown table"):
@@ -347,8 +322,8 @@ def _function_name(node: exp.Func) -> str:
     return (node.name if isinstance(node, exp.Anonymous) else node.sql_name()).lower()
 
 
-def _refuse_denied_functions(query: exp.Expression) -> None:
-    table_functions = table_only_functions()
+def _refuse_denied_functions(query: exp.Expression, grammar: SqlGrammar) -> None:
+    table_functions = grammar.table_functions - _ALLOWED_TABLE_FUNCTIONS
     for node in query.find_all(exp.Func):
         name = _function_name(node)
         if name.startswith(_DENIED_PREFIXES) or name in table_functions:

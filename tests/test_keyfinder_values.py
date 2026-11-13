@@ -6,8 +6,8 @@ from decimal import Decimal
 
 import pyarrow as pa
 
-from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import DatasetStore
+from swissarmygrid.adapters.database import open_database
+from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.engine.keyfinder import KeyOptions, find_keys
 
 

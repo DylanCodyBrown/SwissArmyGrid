@@ -24,8 +24,8 @@ from typing import Any
 import duckdb
 
 from swissarmygrid.codegen.duckdb_code import python_string, variable_name
-from swissarmygrid.engine.datasets import Column, quote
-from swissarmygrid.engine.steps import type_family
+from swissarmygrid.domain.datasets import Column, quote
+from swissarmygrid.domain.steps import type_family
 
 MARKS: tuple[str, ...] = ("bar", "line", "area", "point", "histogram", "heatmap")
 AGGREGATES: tuple[str, ...] = ("count", "sum", "mean", "min", "max")

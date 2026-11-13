@@ -8,9 +8,10 @@ from typing import Any
 import pyarrow as pa
 import pytest
 
+from swissarmygrid.adapters.database import open_database
+from swissarmygrid.adapters.datasets import DatasetStore
 from swissarmygrid.charts.spec import ChartError, aggregate, validate
-from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import DatasetInfo, DatasetStore
+from swissarmygrid.domain.datasets import DatasetInfo
 
 
 @pytest.fixture
@@ -78,7 +79,7 @@ def test_a_blank_date_does_not_stretch_the_y_axis() -> None:
     import datetime as dt
 
     from swissarmygrid.charts.spec import vega_lite
-    from swissarmygrid.engine.datasets import Column
+    from swissarmygrid.domain.datasets import Column
 
     columns = (Column("day", "DATE"), Column("kind", "VARCHAR"))
     values = [{"x": None, "y": 158}, {"x": dt.date(2026, 1, 1), "y": 2}, {"x": dt.date(2026, 1, 2), "y": 1}]

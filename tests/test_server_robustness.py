@@ -166,7 +166,7 @@ def test_a_job_that_raises_stop_iteration_still_answers() -> None:
     # A future refuses StopIteration, and the request awaiting it never answered.
     import asyncio
 
-    from swissarmygrid.engine.workers import PriorityWorkers
+    from swissarmygrid.adapters.database import PriorityWorkers
 
     workers = PriorityWorkers(1)
 

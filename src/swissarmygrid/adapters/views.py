@@ -12,13 +12,12 @@ recompute (plan section 6a: caches "may be evicted freely"). An entry dies when 
 is re-pushed or closed.
 
 Think of ViewEngine as a query service over the DatasetStore repository: it never changes a
-dataset, only reads it.
+dataset, only reads it. It is the `Views` port of the service layer (services/ports.py); the
+window shape, the position column and the cache key are the domain's (domain/grids.py).
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import secrets
 import threading
 from collections import OrderedDict
@@ -29,17 +28,11 @@ from typing import Any
 
 import duckdb
 
-from swissarmygrid.engine.datasets import Column, DatasetInfo, quote
-from swissarmygrid.engine.steps import CompiledView, Step, ViewSettings, compile_view
-
-POS: str = "__sag_pos"
-
-
-@dataclass(frozen=True)
-class Window:
-    rows: list[list[Any]]
-    row_count: int
-    columns: tuple[Column, ...]
+from swissarmygrid.adapters.database import describer, duckdb_grammar
+from swissarmygrid.domain.datasets import Column, DatasetInfo, quote
+from swissarmygrid.domain.grids import POS, Window, view_key
+from swissarmygrid.domain.sql_guard import SqlGrammar
+from swissarmygrid.domain.steps import CompiledView, Step, ViewSettings, compile_view
 
 
 @dataclass
@@ -53,24 +46,13 @@ class _Cached:
     evicted: bool = False
 
 
-def view_key(info: DatasetInfo, steps: list[Step], settings: ViewSettings, upto: int | None) -> str:
-    payload = json.dumps(
-        {
-            "d": info.name,
-            "v": info.version,
-            "s": [s.to_json() | {"id": ""} for s in steps],
-            "o": settings.to_json(),
-            "u": upto,
-        },
-        sort_keys=True,
-        default=str,
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()[:24]
-
-
 class ViewEngine:
-    def __init__(self, connection: duckdb.DuckDBPyConnection, cache_bytes: int) -> None:
+    def __init__(
+        self, connection: duckdb.DuckDBPyConnection, cache_bytes: int, grammar: SqlGrammar | None = None
+    ) -> None:
         self._connection = connection
+        # What a SQL step is checked against: this DuckDB's own grammar unless one is given.
+        self._grammar = grammar or duckdb_grammar()
         self._cache_bytes = cache_bytes
         self._compiled: OrderedDict[str, CompiledView] = OrderedDict()
         self._tables: OrderedDict[str, _Cached] = OrderedDict()
@@ -93,7 +75,9 @@ class ViewEngine:
             if hit is not None:
                 self._compiled.move_to_end(key)
                 return hit
-        compiled = compile_view(cursor, info.table, info.columns, steps, settings, info.name)
+        compiled = compile_view(
+            describer(cursor), self._grammar, info.table, info.columns, steps, settings, info.name
+        )
         with self._lock:
             self._compiled[key] = compiled
             while len(self._compiled) > 256:

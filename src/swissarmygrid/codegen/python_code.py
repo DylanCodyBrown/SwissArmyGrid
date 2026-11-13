@@ -30,10 +30,9 @@ from datetime import date, datetime
 from typing import Any
 
 from swissarmygrid.codegen.duckdb_code import variable_name
-from swissarmygrid.engine.datasets import Column
-from swissarmygrid.engine.describe import describe_step
-from swissarmygrid.engine.sql_guard import step_query_text, step_tables
-from swissarmygrid.engine.steps import (
+from swissarmygrid.domain.datasets import Column
+from swissarmygrid.domain.sql_guard import step_query_text, step_tables
+from swissarmygrid.domain.steps import (
     TRIM_CHARACTERS,
     Step,
     StepError,
@@ -41,6 +40,7 @@ from swissarmygrid.engine.steps import (
     aggregate_name,
     bucket_edges,
     bucket_labels,
+    describe_step,
     has_wildcards,
     type_family,
 )

@@ -28,14 +28,14 @@ import pyarrow.ipc as ipc
 import pytest
 from starlette.testclient import TestClient
 
+from swissarmygrid.adapters.database import open_database
+from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.adapters.views import ViewEngine
 from swissarmygrid.codegen import verify as verifying
 from swissarmygrid.codegen.duckdb_code import python_string, table_name_sql, variable_name
 from swissarmygrid.codegen.generate import generate_code
 from swissarmygrid.codegen.verify import compare, result_rows
-from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import DatasetStore
-from swissarmygrid.engine.steps import ViewSettings, steps_from_json
-from swissarmygrid.engine.views import ViewEngine
+from swissarmygrid.domain.steps import ViewSettings, steps_from_json
 from tests.conftest import ARROW, AUTH, arrow_bytes, grid_id
 
 

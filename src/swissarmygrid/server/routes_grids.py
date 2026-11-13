@@ -43,23 +43,24 @@ from starlette.responses import Response, StreamingResponse
 from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.codegen.generate import generate_code
-from swissarmygrid.engine import export as exporting
-from swissarmygrid.engine.datasets import Column, DatasetInfo, quote
-from swissarmygrid.engine.describe import describe_settings, describe_step, describe_steps
-from swissarmygrid.engine.profile import header_stats, profile_column, profile_table
-from swissarmygrid.engine.recipes import delete_recipe, save_recipe
-from swissarmygrid.engine.sql_guard import guard
-from swissarmygrid.engine.steps import (
+from swissarmygrid.domain.datasets import Column, DatasetInfo, quote
+from swissarmygrid.domain.grids import POS, Grid, combine_stats, selection_scope, stats_sql, view_key
+from swissarmygrid.domain.sql_guard import guard
+from swissarmygrid.domain.steps import (
     Step,
     StepError,
     ViewSettings,
     categorize_conditions,
+    describe_settings,
+    describe_step,
+    describe_steps,
     filter_condition,
     steps_from_json,
     with_header_sort,
 )
-from swissarmygrid.engine.views import POS, view_key
-from swissarmygrid.engine.workers import AGENT, BACKGROUND, INTERACTIVE
+from swissarmygrid.engine import export as exporting
+from swissarmygrid.engine.profile import header_stats, profile_column, profile_table
+from swissarmygrid.engine.recipes import delete_recipe, save_recipe
 from swissarmygrid.server.context import (
     Context,
     actor,
@@ -69,10 +70,9 @@ from swissarmygrid.server.context import (
     query_int,
     read_json,
 )
-from swissarmygrid.server.grids import Grid
 from swissarmygrid.server.routes_agent import ExportTickets
 from swissarmygrid.server.routes_datasets import budget, store_table
-from swissarmygrid.server.selection import combine_stats, selection_scope, stats_sql
+from swissarmygrid.services.ports import AGENT, BACKGROUND, INTERACTIVE
 
 _SAFE_FILE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
@@ -537,7 +537,7 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
                 # running every step again (engine/views.reading).
                 names_known = {i.name for i in ctx.store.all()}
                 with ctx.views.reading(cur, info, grid.steps, grid.settings, upto, ordered=True) as view:
-                    guarded = guard(text, names_known, lambda: view)
+                    guarded = guard(text, names_known, lambda: view, grammar=ctx.grammar)
                     timer = threading.Timer(settings.query_timeout_seconds, cur.interrupt)
                     started = time.perf_counter()
                     timer.start()
@@ -804,7 +804,7 @@ def routes(ctx: Context, tickets: ExportTickets) -> list[BaseRoute]:
 
 
 def _sql_value(value: Any) -> str:
-    from swissarmygrid.engine.steps import literal
+    from swissarmygrid.domain.steps import literal
 
     # The profile sheet is all text, so every value goes in as text.
     return "NULL" if value is None else literal(str(value))

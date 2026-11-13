@@ -99,8 +99,8 @@ select = ["E", "F", "W", "I", "UP", "B", "S", "RUF"]
 # These modules build SQL text by design. Every value goes through steps.literal() and every
 # name through quote(); no caller text is ever spliced in. S608 cannot see that, so it is off
 # here rather than sprinkled as noqa on every line.
-"src/swissarmygrid/engine/steps.py" = ["S608"]
-"src/swissarmygrid/engine/views.py" = ["S608"]
+"src/swissarmygrid/domain/steps.py" = ["S608"]
+"src/swissarmygrid/adapters/views.py" = ["S608"]
 "src/swissarmygrid/engine/profile.py" = ["S608"]
 "src/swissarmygrid/charts/spec.py" = ["S608"]
 "src/swissarmygrid/codegen/duckdb_code.py" = ["S608", "E501"]

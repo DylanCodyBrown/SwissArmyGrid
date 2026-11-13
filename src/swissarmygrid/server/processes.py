@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any
 
-from swissarmygrid.engine.datasets import NAME_PATTERN
+from swissarmygrid.domain.datasets import NAME_PATTERN
 
 MAX_TABLES: int = 500
 MAX_LABEL_CHARS: int = 120

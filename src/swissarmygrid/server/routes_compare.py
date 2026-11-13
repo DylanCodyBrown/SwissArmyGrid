@@ -32,6 +32,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from swissarmygrid.domain.datasets import Column, DatasetInfo
+from swissarmygrid.domain.grids import Grid
 from swissarmygrid.engine.compare import (
     CompareSpec,
     counts,
@@ -40,10 +42,8 @@ from swissarmygrid.engine.compare import (
     mapping_sql,
     rows_at,
 )
-from swissarmygrid.engine.datasets import Column, DatasetInfo
-from swissarmygrid.engine.workers import INTERACTIVE
 from swissarmygrid.server.context import Context, actor, error_response, json_response, query_int, read_json
-from swissarmygrid.server.grids import Grid
+from swissarmygrid.services.ports import INTERACTIVE
 
 
 @dataclass

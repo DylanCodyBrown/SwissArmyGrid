@@ -13,8 +13,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from swissarmygrid.engine.datasets import validate_name
-from swissarmygrid.engine.steps import Step, ViewSettings, steps_from_json
+from swissarmygrid.domain.datasets import validate_name
+from swissarmygrid.domain.steps import Step, ViewSettings, steps_from_json
 
 
 def _path(folder: Path, dataset: str) -> Path:

@@ -7,14 +7,16 @@ internal name, the catalog, or the settings. A refused query raises SqlRefused b
 from __future__ import annotations
 
 from collections.abc import Iterator
+from functools import partial
 
 import duckdb
 import pyarrow as pa
 import pytest
 
-from swissarmygrid.engine.database import open_database
-from swissarmygrid.engine.datasets import DatasetStore
-from swissarmygrid.engine.sql_guard import SqlRefused, check_duckdb_parse, guard, guard_step
+from swissarmygrid.adapters.database import duckdb_grammar, open_database
+from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.domain import sql_guard
+from swissarmygrid.domain.sql_guard import SqlRefused
 
 
 @pytest.fixture
@@ -27,6 +29,12 @@ def store() -> Iterator[DatasetStore]:
     store.cursor().execute("CREATE TABLE vc_0123 AS SELECT 42 AS cached")
     yield store
     connection.close()
+
+
+# The guard's rules are the domain's; DuckDB's own grammar (the port they ask for) is the adapter's.
+guard = partial(sql_guard.guard, grammar=duckdb_grammar())
+guard_step = partial(sql_guard.guard_step, grammar=duckdb_grammar())
+check_duckdb_parse = partial(sql_guard.check_duckdb_parse, grammar=duckdb_grammar())
 
 
 def run(store: DatasetStore, text: str, grid: str = "SELECT * FROM ds_pub") -> list[tuple[object, ...]]:

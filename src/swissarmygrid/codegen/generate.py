@@ -22,12 +22,12 @@ from typing import Any
 
 import duckdb
 
+from swissarmygrid.adapters.views import ViewEngine
 from swissarmygrid.codegen.duckdb_code import output_call, python_code, variable_name, view_query
 from swissarmygrid.codegen.python_code import generate_python
 from swissarmygrid.codegen.verify import VALUE_KINDS, Pasted, verify
-from swissarmygrid.engine.datasets import DatasetInfo
-from swissarmygrid.engine.steps import Step, StepError, ViewSettings
-from swissarmygrid.engine.views import ViewEngine
+from swissarmygrid.domain.datasets import DatasetInfo
+from swissarmygrid.domain.steps import Step, StepError, ViewSettings
 
 TARGETS: tuple[str, ...] = ("duckdb", "pandas", "plain")
 _READS: dict[str, str] = {

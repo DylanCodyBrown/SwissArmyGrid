@@ -26,11 +26,11 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.charts.spec import ChartError, aggregate, altair_code, validate, vega_lite
-from swissarmygrid.engine.sql_guard import guard
-from swissarmygrid.engine.steps import Step, type_family
-from swissarmygrid.engine.workers import BACKGROUND
+from swissarmygrid.domain.grids import Grid
+from swissarmygrid.domain.sql_guard import guard
+from swissarmygrid.domain.steps import Step, type_family
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
-from swissarmygrid.server.grids import Grid
+from swissarmygrid.services.ports import BACKGROUND
 
 _TABLE_CARD_ROWS: int = 100
 # A diagram is Mermaid text (an ERD from GET /relationships/erd, or any flowchart), drawn by the page.
@@ -83,7 +83,9 @@ def routes(ctx: Context) -> list[BaseRoute]:
                 shown["note"] = data["note"]
                 shown["points"] = len(data["values"])
             elif card["kind"] == "table":
-                guarded = guard(card["sql"], {i.name for i in ctx.store.all()}, compiled.sql)
+                guarded = guard(
+                    card["sql"], {i.name for i in ctx.store.all()}, compiled.sql, grammar=ctx.grammar
+                )
                 if guarded.kind != "select":
                     raise ValueError("A table card runs a SELECT.")
                 result = cur.execute(guarded.sql)

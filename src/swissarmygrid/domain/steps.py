@@ -15,7 +15,7 @@ Row order is explicit. SQL relations have no order, so every stage carries a hid
 column and the final query sorts by it. Filters keep it; a sort step renumbers it; group-by
 orders groups by their keys; distinct keeps each row's first position.
 
-Reference semantics (the code generators in codegen/ must reproduce all of these):
+Reference semantics (the code generators in domain/codegen.py must reproduce all of these):
 - SQL blanks: a blank never equals anything, so `not equals`, `not in` and range filters
   drop blank rows too.
 - Sorting puts blanks last in both directions; ties keep the previous order.
@@ -28,11 +28,18 @@ Reference semantics (the code generators in codegen/ must reproduce all of these
 - Weeks start on Monday (DuckDB date_trunc('week')).
 - A SQL step is a SELECT over the stage before it, named `grid` or the dataset's own name (so
   the text runs unchanged in the user's Python), checked by the same guard as the
-  SQL box (engine/sql_guard.guard_step). Its rows are numbered in the order the query returns
+  SQL box (domain/sql_guard.guard_step). Its rows are numbered in the order the query returns
   them; a query with no defined order is sorted by every column first.
 
 Every value from a step goes into SQL as a validated literal (`literal()`), and every name as
 a quoted identifier (`quote()`), so step parameters can never inject SQL.
+
+This module builds SQL text and never runs it. Compiling needs two things from the engine, both
+passed in: `Describe` (the columns a query returns) and the `SqlGrammar` a SQL step is checked
+against. The adapter (adapters/database.py) supplies them from DuckDB.
+
+The last section says each step in plain language, for the steps panel, the Excel "Provenance"
+sheet, Parquet metadata and the comment headers of generated code.
 """
 
 from __future__ import annotations
@@ -40,14 +47,23 @@ from __future__ import annotations
 import itertools
 import math
 import secrets
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from typing import Any, TypeGuard
 
-import duckdb
+from swissarmygrid.domain.datasets import Column, reserved_column_name, same_name_ignoring_case
+from swissarmygrid.domain.sql_guard import SqlGrammar, SqlRefused, guard_step
 
-from swissarmygrid.engine.datasets import Column, reserved_column_name, same_name_ignoring_case
-from swissarmygrid.engine.sql_guard import SqlRefused, guard_step
+# Port: the (name, type) of each column a query returns, asked of the engine. It raises EngineError
+# when the engine refuses the query.
+Describe = Callable[[str], Sequence[tuple[str, str]]]
+
+
+class EngineError(Exception):
+    """The engine (DuckDB) refused a query. The message is the engine's own text, which can quote a
+    cell value."""
+
 
 ORD: str = "__sag_ord"
 RESERVED_PREFIX: str = "__sag_"
@@ -346,7 +362,8 @@ class CompiledView:
 
 
 def compile_view(
-    cursor: duckdb.DuckDBPyConnection,
+    describe: Describe,
+    grammar: SqlGrammar,
     table: str,
     source_columns: tuple[Column, ...],
     steps: list[Step],
@@ -364,14 +381,14 @@ def compile_view(
             continue
         name = f"s{len(ctes)}"
         try:
-            body = _compile_step(step, previous, settings, dataset)
+            body = _compile_step(step, previous, settings, dataset, grammar)
             candidate = [*ctes, (name, body)]
-            columns = _describe(cursor, candidate, name)
+            columns = _describe(describe, candidate, name)
             if step.kind == "sql":
                 _check_sql_columns(columns)
         except StepError as error:
             return CompiledView(tuple(ctes), tuple(stages), StepError(index, error.message))
-        except duckdb.Error as error:
+        except EngineError as error:
             # DuckDB's own text, which can quote a cell value: the server hides it from an agent.
             return CompiledView(tuple(ctes), tuple(stages), StepError(index, str(error), from_engine=True))
         except ValueError as error:
@@ -381,11 +398,9 @@ def compile_view(
     return CompiledView(tuple(ctes), tuple(stages), None)
 
 
-def _describe(
-    cursor: duckdb.DuckDBPyConnection, ctes: list[tuple[str, str]], name: str
-) -> tuple[Column, ...]:
+def _describe(describe: Describe, ctes: list[tuple[str, str]], name: str) -> tuple[Column, ...]:
     with_clause = ", ".join(f"{n} AS ({b})" for n, b in ctes)
-    rows = cursor.execute(f"DESCRIBE WITH {with_clause} SELECT * FROM {name}").fetchall()
+    rows = describe(f"WITH {with_clause} SELECT * FROM {name}")
     return tuple(Column(str(r[0]), str(r[1])) for r in rows if r[0] != ORD)
 
 
@@ -579,7 +594,7 @@ def categorize_conditions(
     return column, out
 
 
-def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str) -> str:
+def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str, grammar: SqlGrammar) -> str:
     p = step.params
     src = stage.name
     if step.kind == "filter":
@@ -628,7 +643,7 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
         if not isinstance(text, str) or not text.strip():
             raise StepError(None, 'A SQL step needs "sql": a SELECT over grid.')
         try:
-            query = guard_step(text, f"SELECT * EXCLUDE ({ORD}) FROM {src} ORDER BY {ORD}", dataset)
+            query = guard_step(text, f"SELECT * EXCLUDE ({ORD}) FROM {src} ORDER BY {ORD}", dataset, grammar)
         except SqlRefused as error:
             raise StepError(None, str(error)) from error
         # Numbered in the order the (ordered) query returns its rows; checked in verified.md.
@@ -640,7 +655,7 @@ def _compile_step(step: Step, stage: Stage, settings: ViewSettings, dataset: str
 
 
 # ----- One step's SQL pieces. The engine wraps them in a CTE that carries the order column;
-# codegen/duckdb_code.py puts the same pieces into the one query the user copies. -----
+# domain/codegen.py puts the same pieces into the one query the user copies. -----
 
 
 def column_list(stage: Stage, p: dict[str, Any]) -> list[str]:
@@ -827,3 +842,113 @@ def with_header_sort(steps: list[Step], keys: list[list[str]]) -> list[Step]:
     previous = steps[-1] if steps and steps[-1].params.get("header") else None
     step = Step(kind="sort", params={"keys": keys, "header": True})
     return [*base, replace(step, id=previous.id) if previous else step]
+
+
+# ===== Steps in plain language: "Keep rows where city equals 'Oslo'" =====
+#
+# A step reads the same everywhere it is shown. Never includes cell values beyond what the user
+# typed into the step itself.
+
+_FILTER_WORDS: dict[str, str] = {
+    "eq": "equals",
+    "ne": "does not equal",
+    "in": "is one of",
+    "not_in": "is none of",
+    "blank": "is blank",
+    "not_blank": "is not blank",
+    "contains": "contains",
+    "starts_with": "starts with",
+    "ends_with": "ends with",
+    "lt": "is less than",
+    "gt": "is greater than",
+    "between": "is between",
+    "before": "is before",
+    "after": "is after",
+    "date_between": "is between",
+    "true": "is true",
+    "false": "is false",
+}
+
+
+def _v(value: Any) -> str:
+    return repr(value) if isinstance(value, str) else str(value)
+
+
+def describe_step(step: Step) -> str:
+    """One step in words. A step whose params have the wrong shape (saved as sent, so that its
+    error can show) is described by its kind alone, rather than failing every read of the grid."""
+    try:
+        return _describe_step(step)
+    except (AttributeError, TypeError, ValueError):
+        return step.kind
+
+
+def _describe_step(step: Step) -> str:
+    p = step.params
+    kind = step.kind
+    if kind == "filter":
+        words = _FILTER_WORDS.get(str(p.get("op")), str(p.get("op")))
+        column = p.get("column")
+        op = p.get("op")
+        if op in ("in", "not_in"):
+            values = ", ".join(_v(v) for v in p.get("values", []))
+            return f"Keep rows where {column} {words} [{values}]"
+        if op in ("between", "date_between"):
+            return f"Keep rows where {column} {words} {_v(p.get('low'))} and {_v(p.get('high'))}"
+        if op in ("blank", "not_blank", "true", "false"):
+            return f"Keep rows where {column} {words}"
+        return f"Keep rows where {column} {words} {_v(p.get('value'))}"
+    if kind == "sort":
+        keys = ", ".join(f"{c} {'descending' if d == 'desc' else 'ascending'}" for c, d in p.get("keys", []))
+        return f"Sort by {keys}"
+    if kind == "columns":
+        return "Keep columns " + ", ".join(p.get("keep", []))
+    if kind == "rename":
+        return "Rename " + ", ".join(f"{a} to {b}" for a, b in p.get("mapping", {}).items())
+    if kind == "group_by":
+        keys = ", ".join(p.get("keys", [])) or "everything"
+        aggs = ", ".join(aggregate_name(a) for a in p.get("aggregates", []))
+        return f"Group by {keys}: {aggs}"
+    if kind == "distinct":
+        return "Keep distinct rows"
+    if kind == "limit":
+        return f"Keep the first {p.get('n')} rows"
+    if kind == "transform":
+        columns = p.get("columns")
+        target = "every text column" if columns == "*text" else ", ".join(columns or [])
+        verb = {
+            "trim_both": "Trim spaces from both ends of",
+            "trim_left": "Trim leading spaces from",
+            "trim_right": "Trim trailing spaces from",
+            "upper": "Upper-case",
+            "lower": "Lower-case",
+        }.get(str(p.get("fn")), str(p.get("fn")))
+        return f"{verb} {target}"
+    if kind == "bucket":
+        if p.get("mode") == "date":
+            return f"Bucket {p.get('column')} by {p.get('unit')} into {p.get('as')}"
+        return f"Bucket {p.get('column')} into {p.get('as')}"
+    if kind == "categorize":
+        return f"Categorize {p.get('column')} into {p.get('as')} ({len(p.get('rules', []))} rules)"
+    if kind == "sql":
+        text = " ".join(str(p.get("sql", "")).split())
+        return f"SQL: {text if len(text) <= 120 else text[:117] + '...'}"
+    return kind
+
+
+def describe_steps(steps: list[Step]) -> list[str]:
+    return [f"{i}. {describe_step(s)}{'' if s.enabled else ' (off)'}" for i, s in enumerate(steps, start=1)]
+
+
+def describe_settings(settings: ViewSettings) -> str:
+    on = [
+        name
+        for name, value in (
+            ("case insensitive", not settings.case_sensitive),
+            ("wildcards", settings.wildcards),
+            ("trim spaces", settings.trim_spaces),
+            ("empty text is blank", settings.empty_is_blank),
+        )
+        if value
+    ]
+    return ", ".join(on) if on else "defaults"

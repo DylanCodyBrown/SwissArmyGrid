@@ -29,19 +29,17 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import BaseRoute, Route
 
 from swissarmygrid import __version__
-from swissarmygrid.engine.datasets import (
-    DatasetError,
-    DatasetInfo,
+from swissarmygrid.adapters.datasets import (
     arrow_stream_to_table,
-    mib,
-    quote,
+    excel_sheets,
+    load_file,
+    parse_pasted,
     split_json_to_arrow,
-    validate_name,
 )
-from swissarmygrid.engine.loaders import excel_sheets, load_file, parse_pasted
+from swissarmygrid.domain.datasets import DatasetError, DatasetInfo, mib, quote, validate_name
+from swissarmygrid.domain.grids import Grid
+from swissarmygrid.domain.sql_guard import SqlRefused, guard
 from swissarmygrid.engine.recipes import load_recipe
-from swissarmygrid.engine.sql_guard import SqlRefused, guard
-from swissarmygrid.engine.workers import BACKGROUND, INTERACTIVE
 from swissarmygrid.server.context import (
     Context,
     actor,
@@ -51,8 +49,8 @@ from swissarmygrid.server.context import (
     read_body,
     read_json,
 )
-from swissarmygrid.server.grids import Grid
 from swissarmygrid.server.info_file import info_file_path
+from swissarmygrid.services.ports import BACKGROUND, INTERACTIVE
 
 ARROW_STREAM: str = "application/vnd.apache.arrow.stream"
 
@@ -338,7 +336,9 @@ def routes(ctx: Context) -> list[BaseRoute]:
 
             def execute(cursor: duckdb.DuckDBPyConnection) -> pa.Table:
                 datasets = {i.name for i in ctx.store.all()}
-                guarded = guard(text, datasets, None, lambda dataset: tab_view(cursor, dataset))
+                guarded = guard(
+                    text, datasets, None, lambda dataset: tab_view(cursor, dataset), grammar=ctx.grammar
+                )
                 if guarded.kind != "select":
                     raise SqlRefused(f"Write one SELECT; its result becomes {name}.")
                 timer = threading.Timer(settings.query_timeout_seconds, cursor.interrupt)

@@ -20,8 +20,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.engine.workers import AGENT
 from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
+from swissarmygrid.services.ports import AGENT
 
 
 def routes(ctx: Context) -> list[BaseRoute]:

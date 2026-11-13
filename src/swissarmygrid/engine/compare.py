@@ -33,9 +33,9 @@ from typing import Any
 
 import duckdb
 
-from swissarmygrid.engine.datasets import Column
+from swissarmygrid.domain.datasets import Column
+from swissarmygrid.domain.grids import POS
 from swissarmygrid.engine.keyfinder import KeyOptions, normalized
-from swissarmygrid.engine.views import POS
 
 MODES: tuple[str, ...] = ("outer", "anti", "cross")
 ANTI_SIDES: tuple[str, ...] = ("both", "left", "right")

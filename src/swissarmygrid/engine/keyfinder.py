@@ -52,8 +52,8 @@ from typing import Any
 
 import duckdb
 
-from swissarmygrid.engine.datasets import Column
-from swissarmygrid.engine.steps import quote, type_family
+from swissarmygrid.domain.datasets import Column
+from swissarmygrid.domain.steps import quote, type_family
 
 DEFAULT_MAX_LENGTH: int = 128
 _SKIPPED_FAMILIES: frozenset[str] = frozenset({"boolean", "other"})
