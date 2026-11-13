@@ -161,6 +161,7 @@ NOT_COMMANDS = {
     "/relationships/tangs": "saving a tang file is the user's (Relationships window), refused to the agent",
     "/relationships/tang": "a .tang download is the user's, refused to the agent",
     "/relationships/import": "importing a .tang file is the user's, refused to the agent",
+    "/compares/{}/tie-out/show": "the tie-out window's click on a group; the agent adds its own steps",
     "/dashboards/{}/open": "opening a dashboard replaces the Sandbox: the user's click, refused to the agent",
     "/relationships/reject": "the user's review of the finder's suggestions in the Relationships window",
     "/blades/fill": "as /blades: writes the user's own values into a blade's code, refused to the agent",

@@ -16,7 +16,7 @@ from typing import Any
 
 from swissarmygrid.domain.datasets import Column, quote
 from swissarmygrid.domain.relationships import KeyOptions, normalized
-from swissarmygrid.domain.steps import type_family
+from swissarmygrid.domain.steps import literal, type_family
 
 MAX_GROUPS: int = 10_000
 MAX_GROUP_COLUMNS: int = 4
@@ -134,13 +134,35 @@ def query(left_view: str, right_view: str, request: Request) -> str:
     right = _side(right_view, [p.right for p in request.groups], [p.right for p in request.measures])
     on = " AND ".join(f"l.g{i} IS NOT DISTINCT FROM r.g{i}" for i in range(n)) or "TRUE"
     values = [f"coalesce(CAST(l.v{i} AS VARCHAR), CAST(r.v{i} AS VARCHAR)) AS v{i}" for i in range(n)]
+    keys = [f"coalesce(l.g{i}, r.g{i}) AS k{i}" for i in range(n)]
     totals = [f"l.s{i} AS ls{i}, r.s{i} AS rs{i}" for i in range(m)]
-    select = ", ".join([*values, "l.n AS ln", "r.n AS rn", *totals])
+    select = ", ".join([*values, *keys, "l.n AS ln", "r.n AS rn", *totals])
     order = ", ".join(f"v{i} NULLS LAST" for i in range(n)) or "1"
     return (
         f"SELECT {select} FROM ({left}) AS l FULL OUTER JOIN ({right}) AS r ON {on} "
         f"ORDER BY {order} LIMIT {MAX_GROUPS + 1}"
     )
+
+
+def group_steps(request: Request, keys: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The two SQL steps that keep one group's rows, left and right: its values met the way the report
+    met them (plain WHERE, so each grid keeps its order). `keys` are the group's "keys" in a report."""
+    if not request.groups:
+        raise TieOutError("Without group columns the report is one total: every row is in it.")
+    if not isinstance(keys, list) or len(keys) != len(request.groups):
+        raise TieOutError("keys are the group's keys from the report, one per group column.")
+    options = KeyOptions()
+
+    def step(columns: list[Column]) -> dict[str, Any]:
+        tests = [
+            f"{normalized(c, options)} IS NULL"
+            if k is None
+            else f"{normalized(c, options)} = {literal(str(k))}"
+            for c, k in zip(columns, keys, strict=True)
+        ]
+        return {"kind": "sql", "params": {"sql": "SELECT * FROM grid\nWHERE " + "\n  AND ".join(tests)}}
+
+    return step([p.left for p in request.groups]), step([p.right for p in request.groups])
 
 
 def _number(value: Any) -> float | None:
@@ -167,7 +189,8 @@ def report(rows: list[tuple[Any, ...]], request: Request) -> dict[str, Any]:
     total_left_rows = total_right_rows = 0
     sums = [[0.0, 0.0] for _ in range(m)]
     for row in rows[:MAX_GROUPS]:
-        values = list(row[:n])
+        values, keys = list(row[:n]), list(row[n : 2 * n])
+        row = row[n:]  # the totals follow the keys as they followed the values
         left_rows, right_rows = row[n], row[n + 1]
         both = left_rows is not None and right_rows is not None
         measures = []
@@ -193,6 +216,7 @@ def report(rows: list[tuple[Any, ...]], request: Request) -> dict[str, Any]:
         groups.append(
             {
                 "group": values,
+                "keys": keys,
                 "left_rows": left_rows,
                 "right_rows": right_rows,
                 "row_difference": (right_rows or 0) - (left_rows or 0),

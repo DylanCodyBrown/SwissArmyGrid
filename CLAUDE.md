@@ -147,6 +147,7 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          forecast (Plotly charts in the window); cheatSheets.ts each form's Data shape;
                          analysisCards.ts every result as Sandbox cards (a report-style note and a chart);
                          sandboxDashboards.ts saving and opening the Sandbox as named dashboards;
+                         tieOutDialog.ts the compare's tie-out report (Tie-out… in the Compare row);
                          sandboxPages.ts Page view, Print to PDF and moving cards; sandboxExport.ts the
                          markdown export; cellMenu.ts the right-click menus on cells and headers;
                          tour.ts is the first-time tour (the Application row's question mark: a

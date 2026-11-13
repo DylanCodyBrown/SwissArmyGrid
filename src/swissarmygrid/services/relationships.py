@@ -491,6 +491,9 @@ class Compare:
     # Cross compare: the side whose rows are filtered, its positions, and the key picked.
     focus: tuple[str, list[int], list[Any]] | None = None
     tallies: dict[str, int] = field(default_factory=dict)
+    # Both grids changing at once (a tie-out group shown on each) has both sides ask for rows together:
+    # one rebuild of the mapping table at a time, or DuckDB refuses the second (a write-write conflict).
+    rebuilding: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @property
     def table(self) -> str:
@@ -547,6 +550,10 @@ class Compares:
 
     def _ensure(self, cur: SqlSession, cmp: Compare) -> tuple[Side, Side]:
         """Both sides, with the mapping table and the counts up to date."""
+        with cmp.rebuilding:
+            return self._rebuild(cur, cmp)
+
+    def _rebuild(self, cur: SqlSession, cmp: Compare) -> tuple[Side, Side]:
         left, right = self._side(cur, cmp.left), self._side(cur, cmp.right)
         sig = self._signature(left, right, cmp.spec)
         if sig != cmp.signature:

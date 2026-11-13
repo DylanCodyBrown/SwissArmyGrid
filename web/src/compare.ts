@@ -84,6 +84,25 @@ export async function changeCompare(patch: Partial<Pick<CompareInfo, "keys" | "m
   apply(pair);
 }
 
+let recounting = 0;
+
+/** The compare's counts again, after a side's view changed (debounced: both sides often change at once). */
+async function recount(grid: string): Promise<void> {
+  if (!current || (current.left !== grid && current.right !== grid)) return;
+  window.clearTimeout(recounting);
+  recounting = window.setTimeout(() => {
+    const was = current;
+    if (!was) return;
+    void api<CompareInfo>(`/compares/${encodeURIComponent(was.compare)}`)
+      .then((now) => {
+        if (current?.compare !== was.compare) return;
+        current = { ...now, focus: current.focus };
+        changed();
+      })
+      .catch(() => undefined);
+  }, 150);
+}
+
 export async function stopCompare(): Promise<void> {
   const was = current;
   current = null;
@@ -107,6 +126,13 @@ function apply([left, right]: [Context, Context]): void {
   right.view?.setCompare({ id: cmp.compare, side: "right" });
   // Each view is linked once; the handlers look up the current split when they fire.
   for (const mine of [left, right]) {
+    if (!linked.has(mine.state)) {
+      linked.add(mine.state);
+      // A step on either side changes what lines up: the ribbon's counts are read again. A step made
+      // here raises "view"; one from the server (the agent, a tie-out click) reloads, raising "info".
+      mine.state.on("view", () => void recount(mine.id));
+      mine.state.on("info", () => void recount(mine.id));
+    }
     const view = mine.view;
     if (!view || linked.has(view)) continue;
     linked.add(view);

@@ -105,6 +105,26 @@ def test_no_group_is_one_grand_total_and_bad_requests_say_why(client: TestClient
         assert answer.status_code == 400 and words in answer.text, body
 
 
+def test_clicking_a_group_filters_both_grids_to_it_as_it_was_grouped(
+    client: TestClient, compare: str
+) -> None:
+    read = client.get(f"/compares/{compare}", headers=AUTH).json()
+    north = next(g for g in tie_out(client, compare, group=["region"])["groups"] if g["group"] == ["North"])
+    shown = client.post(
+        f"/compares/{compare}/tie-out/show", json={"group": ["region"], "keys": north["keys"]}, headers=AUTH
+    )
+    assert shown.status_code == 200, shown.text
+    counts = [
+        client.get(f"/grids/{read[side]}/count", headers=AUTH).json()["row_count"]
+        for side in ("left", "right")
+    ]
+    assert counts == [2, 3]  # " North" on the right, trimmed, is in it
+    bad = client.post(
+        f"/compares/{compare}/tie-out/show", json={"group": ["region"], "keys": []}, headers=AUTH
+    )
+    assert bad.status_code == 400
+
+
 def test_the_tie_out_reads_each_grid_after_its_steps(client: TestClient, compare: str) -> None:
     read = client.get(f"/compares/{compare}", headers=AUTH).json()
     step = {"kind": "filter", "params": {"column": "region", "op": "ne", "value": "West"}}

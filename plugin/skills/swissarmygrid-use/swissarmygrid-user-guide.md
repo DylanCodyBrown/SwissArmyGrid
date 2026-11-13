@@ -197,6 +197,8 @@ The Compare row in the ribbon switches the mode.
 - **Outer join** shows every key from both tables, as above.
 - **Anti join** shows only the keys with no match on the other side. Choose both sides, only the left table or only the right table.
 - **Cross compare** keeps each grid on its own rows. Click a row on one side to filter the other side to that key.
+- **Tie-out…** answers "do these two tables add up the same?". Tick the columns to group by (a shared text column with few values, such as region, starts ticked) and the totals (every shared number column), and how far apart still counts as equal (an amount, or a percentage of the left total). The report has one row per group: rows on each side, each total on each side, the difference and its percentage, and **ties** or **off**. Groups that are off come first, the largest first, and a grand total ends it; a group on one side only is off by its whole total. Columns match by name ignoring letter case, and values meet the way compare keys do (" North" meets "North", 42 meets 42.0). Each side is read as its grid shows it, after its steps. **Click a group** to filter both grids to its rows. **Send to Sandbox** keeps it as a note and a table; **Download CSV** saves it. A grand total that ties can still hide groups whose differences cancel out: the words say so.
+- The ribbon's counts (matched, only on one side) follow each grid's steps.
 - **Stop compare** returns to two independent grids. The side-by-side view stays, with no keys.
 
 ## The Sandbox tab

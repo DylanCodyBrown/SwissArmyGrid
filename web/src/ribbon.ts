@@ -28,6 +28,7 @@ import { changeCompare, currentCompare, onCompareChange, stopCompare } from "./c
 import { openFitTest, openOutliers } from "./analysisDialog";
 import { analyzeButton } from "./analyzeMenu";
 import { openCompareDialog } from "./compareDialog";
+import { openTieOut } from "./tieOutDialog";
 import { openExport } from "./exportDialog";
 import { openKeyFinderWindow } from "./keyFinder";
 import { autoSizeColumns, cellValue, copySelection, focusedCell, selectedValues, selection, viewCell, viewColumns } from "./gridView";
@@ -203,6 +204,7 @@ function compareGroup(): HTMLElement | null {
         ] as const).map(([side, label]) => tool(label, "filter", () => void changeCompare({ anti_side: side }), { pressed: cmp?.anti_side === side }))
       : []),
     tool("Cross compare", "zoom", () => void changeCompare({ mode: "cross" }), { disabled: noKeys, pressed: cmp?.mode === "cross", title: "Each grid shows its own rows; click a row to see the rows with its key on the other side" }),
+    tool("Tie-out…", "check", () => cmp && void openTieOut(cmp, pair), { disabled: noKeys, title: "Do the two tables add up the same, group by group? Totals side by side, ties or off" }),
     tool("Stop compare", "close", () => void stopCompare(), { disabled: noKeys, title: "Back to two independent grids (the split stays)" }),
     note,
   );

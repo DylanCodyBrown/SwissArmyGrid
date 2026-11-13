@@ -113,7 +113,9 @@ side, highlighted.
   returns the summary (counts per column, one-sided counts) and `compare_diff_rows` a page of the
   differing rows with their changed columns.
 
-### Tie-out report (a button in the compare bar, any mode)
+### Tie-out report (a button in the compare bar, any mode) (built 2026-11-13)
+Built as designed, except: export is CSV (Excel not yet), and a group on one side only counts its
+whole total as its difference, so it sorts with the largest gaps. Group values meet like compare keys.
 - **Pick what to total:** group by one or more shared columns (suggested: shared text columns with few
   values, such as region), and the measures: row count always, plus the sum of any shared number
   columns (suggested: all of them).

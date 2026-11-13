@@ -4025,3 +4025,16 @@ body.popout .app-row {
 .dashboard-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dashboard-history { margin: 8px 0 0; padding-left: 22px; }
 .dashboard-history li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 0; }
+
+/* The tie-out report (tieOutDialog.ts) */
+.tie-out-choices { display: flex; gap: 16px; flex-wrap: wrap; }
+.tie-out-pick { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; max-width: 100%; }
+.tie-out-pick label { display: inline-flex; align-items: center; gap: 4px; }
+.tie-out-table { overflow: auto; max-height: 55vh; }
+.tie-row { cursor: pointer; }
+.tie-row.total { cursor: default; font-weight: 600; }
+.tie-row.off td:first-child { box-shadow: inset 3px 0 0 var(--danger, #a3141f); }
+.tie-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.badge.tie-ties { background: var(--surface-2); }
+.badge.tie-off { color: var(--danger, #a3141f); border: 1px solid currentColor; background: transparent; }
+td.far { color: var(--danger, #a3141f); font-weight: 600; }
