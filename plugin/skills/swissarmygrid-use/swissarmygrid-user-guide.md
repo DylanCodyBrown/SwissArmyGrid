@@ -122,7 +122,17 @@ Select one column, then **Outliers** in the Column row:
 - **Amount** (number columns): values far from the rest. **Robust** (the default) measures distance from the median, so a few wild values cannot drag the average along and hide themselves. **Quartile fences** is Tukey's box-plot rule; **mean and standard deviation** is the classic z-score. **How far out** sets the line (3.5, 1.5 and 3 by default). **Within each** judges every vendor, store or month on its own, so a normal amount for one is not hidden by another.
 - **Frequency** (any column): values seen far more often or far more rarely than values usually are. A rare one is often a misspelling (Nrth among thousands of Norths); a common one, a copy or a default (the same amount forty times). Ordinary chance (990 against 1,000) is not flagged.
 
-**Show these rows** adds a step that keeps just the outliers, with the fences written in it as numbers, so the grid shows them in their usual order. Undo it like any step. An outlier is a question, not proof: look at the rows before you decide.
+**Show these rows** adds a step that keeps just the outliers, with the fences written in it as numbers, so the grid shows them in their usual order; **Exclude these** adds one that leaves them out (rows with a blank stay). Undo either like any step. An outlier is a question, not proof: look at the rows before you decide.
+
+### The Analyze menu
+
+**Analyze** in the Table row opens analyses that hand off to each other, so you can go from "what is in this column" to "what predicts this metric":
+
+- **Odds:** pick a column. Each value's share of the rows, "1 in N", and its odds on any one row. Add an **outcome** (late, a refund, an amount above a line) and each value gets its rate of it against every other value and an **odds ratio** with its 95% range: "West: late 46% of the time, against 15% elsewhere: 4.85 times the odds (4.16 to 5.65)". Rows whose range leaves out 1 are shaded: those values really differ. A star marks values with under 30 rows (rough). Number columns are cut into equal-sized ranges. **Test together** hands the column and the outcome to the fit test.
+- **Find predictors:** pick a target (a number or a category). Every other column (or the ones you tick) is tested together with it by chi-square, numbers in equal-sized ranges, and ranked by strength (Cramér's V: none, weak, moderate, strong). Number pairs also get their straight-line correlation. Identifiers and dates are skipped with the reason, and two columns that say the same thing are marked, so a regression gets only one. **Test together** on a row opens the fit test for that pair.
+- **Fit test** and **Outliers**, as above.
+
+Every result has three buttons: **Send to Sandbox** (the result in words, as a note), **Open as grid** (the result's table as a new grid) and **To notebook** (the analysis as Python in the notebook: the grid's steps as checked SQL, then one `swissarmygrid.stats` call, the same code the window ran, so the numbers match).
 
 ### Auto width
 

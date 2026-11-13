@@ -52,12 +52,19 @@ What a grid page does:
 - **Packs:** blades and tangs a team keeps in a GitHub repository that is also a Claude Code plugin
   marketplace. Install a pack with `/plugin install` and its blades and tangs show up, marked with the
   pack; `/plugin marketplace update` brings the team's latest.
+- **Analyze** (the Table row): analyses that hand off to each other, to help predict a metric. **Odds**:
+  how often each value shows up, and with an outcome, each value's odds of it against the rest ("West:
+  late 46% of the time, against 15% elsewhere: 4.85 times the odds"). **Find predictors**: every column
+  tested against a target by chi-square, ranked by strength, with the pairs that say the same thing.
+  **Fit test** and **Outliers** (below). Every result can go to the Sandbox, open as a grid, or go to
+  the notebook as Python (`swissarmygrid.stats`, the same code the window ran). Regression, time series
+  and forecasting are next (Plans/analyze-menu.plan.md).
 - **Fit test and outliers:** select columns and ask whether their values spread as expected (chi-square
   against even shares, Benford's law on the first one or two digits, another grid's spread, or two
   columns together), with the verdict in words and an effect size; or find the outliers in a column, by
   amount (robust median fences, Tukey's quartiles or z-scores, within each vendor or month if you like)
   or by frequency (a typo seen once, an amount copied forty times). **Show these rows** adds a step
-  that keeps just them.
+  that keeps just them; **Exclude these**, one that leaves them out.
 - **Key Finder:** pick another grid (or every other grid) and get the likely join columns:
   each column pair that shares values, with the percent of each side's distinct values found in
   the other, whether each side is unique (so which one looks like the key), and a score. Columns

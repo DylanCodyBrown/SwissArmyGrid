@@ -3550,3 +3550,82 @@ body.popout .app-row {
 .analysis-field input[type="number"] {
   width: 6em;
 }
+
+/* ===== The Analyze menu's forms (analysisDialog.ts, analyzeMenu.ts) ===== */
+.menu-caret {
+  margin-left: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.analysis-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-right: auto;
+}
+
+.analysis-inline {
+  display: inline-flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.analysis-inline[hidden] {
+  display: none;
+}
+
+.analysis-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.analysis-checks legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+
+.analysis-checks label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.analysis-field select[multiple] {
+  min-width: 140px;
+}
+
+.analysis-headline {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.odds-table tr.odds-up td {
+  background: var(--accent-soft);
+}
+
+.odds-table tr.odds-down td {
+  background: var(--changed);
+}
+
+.strength-bar {
+  display: inline-block;
+  width: 40px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent) calc(var(--v, 0) * 100%), var(--surface) 0);
+  vertical-align: middle;
+}
+
+.small-btn {
+  padding: 1px 8px;
+  font-size: 12px;
+}

@@ -1,15 +1,20 @@
 /**
- * analysisDialog.ts: the Column row's Fit test and Outliers windows (server: routes_analysis.py).
+ * analysisDialog.ts: the Analyze menu's forms (server: routes_analysis.py; the design in
+ * Plans/analyze-menu.plan.md). Each opens from the menu or the Column row, filled from the selection,
+ * and its result has Send to Sandbox, Open as grid and To notebook (analyzeMenu.ts).
  *
- *   [FIT TEST]   openFitTest(columns): expected spread (even, first digits, another grid, together)
- *                -> POST /grids/{id}/fit-test; per column: the verdict in words, chi-square, p, the
- *                effect size, and each value's observed count against the expected (a bar and a tick)
- *   [OUTLIERS]   openOutliers(column): amount (robust, quartiles, z-score; within each group) or
- *                frequency -> POST /grids/{id}/outliers; Show these rows -> state.addStep(result.step)
+ *   [FIT TEST]    openFitTest(columns): even, first digits, another grid, together -> POST fit-test
+ *   [OUTLIERS]    openOutliers(column): amount (robust, quartiles, z-score; within each group) or
+ *                 frequency -> POST outliers; Show these rows / Exclude these -> state.addStep
+ *   [ODDS]        openOdds(column): each value's share and odds; with an outcome, its odds ratio
+ *                 -> POST odds; Test together -> the fit test on the column and the outcome's column
+ *   [PREDICTORS]  openPredictors(target): candidates ranked by Cramér's V -> POST predictors; a row's
+ *                 Test together -> the fit test on the target and that column
  */
 import { api, grid } from "./api";
+import { datasetName, registerAnalysis, resultButtons, tableName } from "./analyzeMenu";
 import { button, clear, formatCount, h, isNumericType, openDialog, toast } from "./dom";
-import { viewColumns } from "./gridView";
+import { selection, viewColumns } from "./gridView";
 import { state } from "./state";
 
 interface FitRow {
@@ -44,19 +49,53 @@ interface Step {
 const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 const fmt = (v: unknown): string => (v === null || v === undefined ? "(blank)" : typeof v === "number" ? number.format(v) : String(v));
 const pText = (p: number): string => (p < 0.0001 ? "< 0.0001" : p.toFixed(4));
+const percent = (v: number | null | undefined): string => (v === null || v === undefined ? "" : `${(100 * v).toFixed(v < 0.1 ? 1 : 0)}%`);
 
 function tile(label: string, value: string, title?: string): HTMLElement {
   return h("div", { class: "stat", title }, h("div", { class: "label" }, label), h("div", { class: "value" }, value));
 }
 
 function select(label: string, options: [string, string][], value: string, onchange?: () => void): HTMLSelectElement {
-  const el = h("select", { "aria-label": label, onchange }, ...options.map(([v, text]) => h("option", { value: v, selected: v === value }, text)));
-  return el;
+  return h("select", { "aria-label": label, onchange }, ...options.map(([v, text]) => h("option", { value: v, selected: v === value }, text)));
 }
 
 function field(label: string, control: HTMLElement): HTMLElement {
   return h("label", { class: "analysis-field" }, h("span", {}, label), control);
 }
+
+/** The view's columns as options, optionally with a leading "(none)". */
+function columnOptions(none?: string): [string, string][] {
+  const all = viewColumns().map((c): [string, string] => [c.name, c.name]);
+  return none === undefined ? all : [["", none], ...all];
+}
+
+function columnType(name: string): string {
+  return viewColumns().find((c) => c.name === name)?.type ?? "";
+}
+
+/** A list of the view's columns to tick, with `ticked` ticked. */
+function checklist(label: string, ticked: string[], skip: string[] = []): { element: HTMLElement; values: () => string[] } {
+  const boxes = viewColumns()
+    .filter((c) => !skip.includes(c.name))
+    .map((c) => h("input", { type: "checkbox", value: c.name, checked: ticked.includes(c.name) }));
+  const element = h(
+    "fieldset",
+    { class: "analysis-checks" },
+    h("legend", {}, label),
+    ...boxes.map((box) => h("label", {}, box, h("span", {}, box.value))),
+  );
+  return { element, values: () => boxes.filter((b) => b.checked).map((b) => b.value) };
+}
+
+function selected(): string[] {
+  return selection.targetColumns();
+}
+
+// The menu's entries, in the order the plan lists them.
+registerAnalysis("tag", "Odds…", () => void openOdds(selected()[0]));
+registerAnalysis("fit", "Fit test…", () => void openFitTest(selected()));
+registerAnalysis("profile", "Find predictors…", () => void openPredictors(selected()[0]));
+registerAnalysis("outliers", "Outliers…", () => void openOutliers(selected()[0]));
 
 // ===== the fit test =====
 
@@ -68,46 +107,62 @@ const EXPECTED: [string, string][] = [
   ["together", "Together: are the two related?"],
 ];
 
-export async function openFitTest(columns: string[]): Promise<void> {
-  if (!columns.length) return;
-  const { body, foot, close } = openDialog(`Fit test: ${columns.join(", ")}`, true);
-  const types = new Map(viewColumns().map((c) => [c.name, c.type]));
-  const allNumbers = columns.every((c) => isNumericType(types.get(c) ?? ""));
-  const expected = select("Expected spread", EXPECTED, columns.length === 2 && !allNumbers ? "together" : allNumbers ? "benford" : "even", () => {
-    referenceRow.hidden = expected.value !== "grid";
-  });
+export async function openFitTest(columns: string[], expectedKind?: string): Promise<void> {
+  const { body, foot, close } = openDialog("Fit test", true);
+  const chosen = h("select", { multiple: true, size: 4, "aria-label": "Columns to test" }, ...columnOptions().map(([v, text]) => h("option", { value: v, selected: columns.includes(v) }, text)));
+  const picked = (): string[] => [...chosen.selectedOptions].map((o) => o.value);
+  const allNumbers = columns.length > 0 && columns.every((c) => isNumericType(columnType(c)));
+  const guess = expectedKind ?? (columns.length === 2 && !allNumbers ? "together" : allNumbers ? "benford" : "even");
+  const expected = select("Expected spread", EXPECTED, guess, () => (referenceRow.hidden = expected.value !== "grid"));
   const others = h("select", { "aria-label": "The grid to compare with" });
   const otherColumn = h("input", { type: "text", "aria-label": "Its column", placeholder: columns[0] ?? "", size: 14 });
-  const referenceRow = h("div", { class: "analysis-controls", hidden: true }, field("Grid", others), field("Column", otherColumn));
+  const referenceRow = h("div", { class: "analysis-controls", hidden: expected.value !== "grid" }, field("Grid", others), field("Column", otherColumn));
   void api<{ grids: { grid: string; dataset: string }[] }>("/grids").then(({ grids }) => {
-    const current = decodeURIComponent(grid.split("/").pop() ?? "");
+    const current = state.info?.grid ?? "";
     others.append(...grids.filter((g) => g.grid !== current).map((g) => h("option", { value: g.grid }, g.dataset)));
     if (!others.options.length) others.append(h("option", { value: "", disabled: true }, "No other grid is open"));
   });
   const results = h("div", { class: "analysis-results" });
+  const actions = h("span", { class: "analysis-actions" });
   const run = async (): Promise<void> => {
-    clear(results, h("p", { class: "hint" }, "Testing…"));
-    const sent: Record<string, unknown> = { columns, expected: expected.value };
+    clear(actions);
+    const sent: Record<string, unknown> = { columns: picked(), expected: expected.value };
+    if (!picked().length) {
+      clear(results, h("p", { class: "hint" }, "Pick the columns to test."));
+      return;
+    }
     if (expected.value === "grid") sent.reference = { grid: others.value, column: otherColumn.value.trim() || undefined };
+    clear(results, h("p", { class: "hint" }, "Testing…"));
     try {
-      const answer = await api<{ results?: FitResult[]; expected: string } & FitResult>(`${grid}/fit-test`, "POST", sent);
-      clear(results, ...(answer.results ? answer.results.map((r) => fitCard(r)) : [fitCard(answer, columns)]));
+      const answer = await api<{ results?: FitResult[]; columns?: string[] } & FitResult>(`${grid}/fit-test`, "POST", sent);
+      const list = answer.results ?? [{ ...answer, column: (answer.columns ?? []).join(" and ") }];
+      clear(results, ...(answer.results ? answer.results.map((r) => fitCard(r)) : [fitCard(answer, answer.columns)]));
+      clear(
+        actions,
+        ...resultButtons({
+          analysis: "fit_test",
+          body: sent,
+          note: () => ({
+            title: `Fit test: ${picked().join(", ")}`,
+            markdown: list.map((r) => `**${r.column ?? ""}**: ${r.verdict}\n\nChi-square ${fmt(r.statistic)}, ${r.df} degrees of freedom, ${r.effect_name} ${fmt(r.effect_size)} (${r.effect}).${r.conformity ? ` Benford: ${r.conformity}.` : ""}`).join("\n\n"),
+          }),
+          rows: list.length === 1 && list[0]?.categories
+            ? () => ({ name: tableName(datasetName(), "fit", list[0]?.column ?? ""), rows: (list[0]?.categories ?? []).map((c) => ({ ...c })) })
+            : undefined,
+        }),
+      );
     } catch (e) {
       clear(results, h("p", { class: "status-error" }, (e as Error).message));
     }
   };
   body.append(
-    h("div", { class: "analysis-controls" }, field("Expected", expected), button("Test", () => void run(), { icon: "play", class: "primary" })),
+    h("div", { class: "analysis-controls" }, field("Columns", chosen), field("Expected", expected), button("Test", () => void run(), { icon: "play", class: "primary" })),
     referenceRow,
-    h(
-      "p",
-      { class: "hint" },
-      "Chi-square goodness of fit: could the differences between what the column holds and what you expect be chance? Read the effect too: with many rows, small differences are certain but may not matter.",
-    ),
+    h("p", { class: "hint" }, "Chi-square goodness of fit: could the differences between what the column holds and what you expect be chance? Read the effect too: with many rows, small differences are certain but may not matter."),
     results,
   );
-  foot.append(button("Close", close, { class: "primary" }));
-  await run();
+  foot.append(actions, button("Close", close));
+  if (columns.length) await run();
 }
 
 function fitCard(r: FitResult, pair?: string[]): HTMLElement {
@@ -198,6 +253,7 @@ interface AmountResult {
   fences: { group: string | null; rows: number; low_fence: number | null; high_fence: number | null; median: number; low: number; high: number }[];
   outliers: { group: string | null; value: number; score: number }[];
   step: Step | null;
+  exclude_step: Step | null;
   step_note?: string;
 }
 
@@ -210,44 +266,66 @@ interface FrequencyResult {
   judged: boolean;
   outliers: { value: string; count: number; score: number }[];
   step: Step | null;
+  exclude_step: Step | null;
 }
 
-export async function openOutliers(column: string): Promise<void> {
-  const { body, foot, close } = openDialog(`Outliers in ${column}`, true);
-  const columns = viewColumns();
-  const numeric = isNumericType(columns.find((c) => c.name === column)?.type ?? "");
-  const look = select("Look at", [["amount", "Amount: values far from the rest"], ["frequency", "Frequency: values seen too often or too rarely"]], numeric ? "amount" : "frequency", () => sync());
-  if (!numeric) look.options[0]!.disabled = true;
+export async function openOutliers(column?: string): Promise<void> {
+  const { body, foot, close } = openDialog("Outliers", true);
+  const which = select("Column", columnOptions(), column ?? viewColumns()[0]?.name ?? "", () => {
+    const numeric = isNumericType(columnType(which.value));
+    look.options[0]!.disabled = !numeric;
+    if (!numeric) look.value = "frequency";
+    sync();
+  });
+  const look = select("Look at", [["amount", "Amount: values far from the rest"], ["frequency", "Frequency: values seen too often or too rarely"]], isNumericType(columnType(which.value)) ? "amount" : "frequency", () => sync());
+  look.options[0]!.disabled = !isNumericType(columnType(which.value));
   const method = select("Method", METHODS, "robust", () => (threshold.placeholder = DEFAULT[method.value] ?? ""));
   const threshold = h("input", { type: "number", min: "0.1", step: "0.1", size: 5, placeholder: DEFAULT.robust, "aria-label": "How far out counts" });
-  const by = select("Within each", [["", "(the whole column)"], ...columns.filter((c) => c.name !== column).map((c): [string, string] => [c.name, c.name])], "");
+  const by = select("Within each", columnOptions("(the whole column)"), "");
   const amountOnly = [field("Method", method), field("How far out", threshold), field("Within each", by)];
   const sync = (): void => amountOnly.forEach((f) => (f.hidden = look.value !== "amount"));
   const results = h("div", { class: "analysis-results" });
-  let step: Step | null = null;
-  const show = button("Show these rows", () => void showRows(), { icon: "filter", class: "primary", title: "Add a step that keeps only these rows (undo it like any step)" });
-  show.disabled = true;
-  const showRows = async (): Promise<void> => {
-    if (!step) return;
-    await state.addStep(step).then(close, (e: Error) => toast(e.message, "error"));
+  const actions = h("span", { class: "analysis-actions" });
+  let steps: { show: Step | null; exclude: Step | null } = { show: null, exclude: null };
+  const add = async (step: Step | null): Promise<void> => {
+    if (step) await state.addStep(step).then(close, (e: Error) => toast(e.message, "error"));
   };
+  const show = button("Show these rows", () => void add(steps.show), { icon: "filter", class: "primary", title: "Add a step that keeps only these rows (undo it like any step)" });
+  const exclude = button("Exclude these", () => void add(steps.exclude), { icon: "exclude", title: "Add a step that leaves these rows out (blank rows stay)" });
   const run = async (): Promise<void> => {
     clear(results, h("p", { class: "hint" }, "Looking…"));
-    show.disabled = true;
-    const sent: Record<string, unknown> = { column, look: look.value };
-    if (look.value === "amount") Object.assign(sent, { method: method.value, threshold: threshold.value || undefined, by: by.value || undefined });
+    clear(actions);
+    show.disabled = exclude.disabled = true;
+    const sent: Record<string, unknown> = { column: which.value, look: look.value };
+    if (look.value === "amount") Object.assign(sent, { method: method.value, threshold: threshold.value ? Number(threshold.value) : undefined, by: by.value || undefined });
     try {
       const answer = await api<AmountResult | FrequencyResult>(`${grid}/outliers`, "POST", sent);
-      step = answer.step;
-      show.disabled = !step;
-      clear(results, answer.look === "amount" ? amountView(answer, column) : frequencyView(answer));
+      steps = { show: answer.step, exclude: answer.exclude_step };
+      show.disabled = !answer.step;
+      exclude.disabled = !answer.exclude_step;
+      const view = answer.look === "amount" ? amountView(answer, which.value) : frequencyView(answer);
+      clear(results, view);
+      clear(
+        actions,
+        ...resultButtons({
+          analysis: "outliers",
+          body: sent,
+          note: () => ({ title: `Outliers in ${which.value}`, markdown: view.querySelector(".analysis-verdict")?.textContent ?? "" }),
+          rows: () => ({
+            name: tableName(datasetName(), "outliers", which.value),
+            rows: answer.look === "amount"
+              ? answer.outliers.map((o) => ({ ...(answer.by ? { [answer.by]: o.group } : {}), [which.value]: o.value, score: o.score }))
+              : answer.outliers.map((o) => ({ [which.value]: o.value, rows: o.count, score: o.score })),
+          }),
+        }),
+      );
     } catch (e) {
       clear(results, h("p", { class: "status-error" }, (e as Error).message));
     }
   };
   sync();
-  body.append(h("div", { class: "analysis-controls" }, field("Look at", look), ...amountOnly, button("Look", () => void run(), { icon: "play" })), results);
-  foot.append(show, button("Close", close));
+  body.append(h("div", { class: "analysis-controls" }, field("Column", which), field("Look at", look), ...amountOnly, button("Look", () => void run(), { icon: "play" })), results);
+  foot.append(actions, show, exclude, button("Close", close));
   await run();
 }
 
@@ -311,5 +389,268 @@ function frequencyView(r: FrequencyResult): HTMLElement {
           h("tbody", {}, ...r.outliers.map((o) => h("tr", {}, h("td", {}, o.value), h("td", { class: "num" }, formatCount(o.count)), h("td", { class: "hint" }, o.score < 0 ? "rarer" : "commoner"), h("td", { class: "num" }, fmt(o.score))))),
         )
       : null,
+  );
+}
+
+// ===== odds =====
+
+interface OddsValue {
+  value: string;
+  rows: number;
+  share: number;
+  one_in: number;
+  odds_against: number;
+  outcome_rows?: number;
+  rate?: number;
+  rest_rate?: number | null;
+  odds_ratio?: number;
+  low?: number;
+  high?: number;
+  clear?: boolean;
+  small?: boolean;
+}
+
+interface OddsResult {
+  column: string;
+  bucketed: boolean;
+  blanks: number;
+  rows: number;
+  outcome: string | null;
+  rate?: number;
+  values: OddsValue[];
+  together?: { verdict: string; effect_size?: number; effect?: string };
+}
+
+const OPS: [string, string][] = [
+  ["values", "is one of"],
+  ["gt", "is above"],
+  ["ge", "is at least"],
+  ["lt", "is below"],
+  ["le", "is at most"],
+  ["eq", "equals"],
+];
+
+export async function openOdds(column?: string): Promise<void> {
+  const { body, foot, close } = openDialog("Odds", true);
+  const which = select("Column", columnOptions(), column ?? viewColumns()[0]?.name ?? "");
+  const buckets = h("input", { type: "number", min: "2", max: "20", size: 4, placeholder: "auto", "aria-label": "Buckets for a number column" });
+  const outcomeColumn = select("Outcome column", columnOptions("(no outcome)"), "");
+  const op = select("Outcome test", OPS, "values");
+  const outcomeValue = h("input", { type: "text", size: 16, placeholder: "late, or 1000", "aria-label": "Outcome value" });
+  const outcomeRow = h("span", { class: "analysis-inline" }, op, outcomeValue);
+  const sync = (): void => {
+    outcomeRow.hidden = !outcomeColumn.value;
+  };
+  outcomeColumn.addEventListener("change", sync);
+  const results = h("div", { class: "analysis-results" });
+  const actions = h("span", { class: "analysis-actions" });
+  const run = async (): Promise<void> => {
+    const sent: Record<string, unknown> = { column: which.value };
+    if (buckets.value) sent.buckets = Number(buckets.value);
+    if (outcomeColumn.value) {
+      const text = outcomeValue.value.trim();
+      if (!text) {
+        clear(results, h("p", { class: "hint" }, "Say what counts as the outcome, such as late, or above 1000."));
+        return;
+      }
+      sent.outcome = op.value === "values"
+        ? { column: outcomeColumn.value, values: text.split(",").map((v) => v.trim()).filter(Boolean) }
+        : { column: outcomeColumn.value, op: op.value, value: Number(text) };
+    }
+    clear(results, h("p", { class: "hint" }, "Counting…"));
+    clear(actions);
+    try {
+      const answer = await api<OddsResult>(`${grid}/odds`, "POST", sent);
+      clear(results, oddsView(answer));
+      const handoffs = answer.outcome
+        ? [button("Test together", () => { close(); void openFitTest([answer.column, outcomeColumn.value], "together"); }, { icon: "fit", title: "Chi-square: are the column and the outcome related, or is it chance?" })]
+        : [];
+      clear(
+        actions,
+        ...handoffs,
+        ...resultButtons({
+          analysis: "odds",
+          body: sent,
+          note: () => ({ title: `Odds: ${answer.column}${answer.outcome ? `, ${answer.outcome}` : ""}`, markdown: oddsWords(answer) }),
+          rows: () => ({ name: tableName(datasetName(), "odds", answer.column), rows: answer.values.map((v) => ({ ...v })) }),
+        }),
+      );
+    } catch (e) {
+      clear(results, h("p", { class: "status-error" }, (e as Error).message));
+    }
+  };
+  sync();
+  body.append(
+    h("div", { class: "analysis-controls" }, field("Column", which), field("Buckets", buckets), field("Outcome", outcomeColumn), outcomeRow, button("Count", () => void run(), { icon: "play", class: "primary" })),
+    h("p", { class: "hint" }, "How often each value shows up on any one row. Add an outcome (late, a refund, an amount above a line) for each value's odds of it against every other value."),
+    results,
+  );
+  foot.append(actions, button("Close", close));
+  await run();
+}
+
+function oddsView(r: OddsResult): HTMLElement {
+  const withOutcome = Boolean(r.outcome);
+  const top = r.values[0];
+  const verdict = withOutcome
+    ? `${r.outcome}: ${percent(r.rate)} of ${formatCount(r.rows)} rows. ${r.together?.verdict ?? ""}`
+    : `${formatCount(r.values.length)} values over ${formatCount(r.rows)} rows${r.blanks ? ` (${formatCount(r.blanks)} blank, left out)` : ""}.`;
+  const headline = withOutcome && top?.clear ? `${top.value}: ${r.outcome} ${percent(top.rate)} of the time, against ${percent(top.rest_rate)} elsewhere: ${fmt(top.odds_ratio)} times the odds.` : null;
+  return h(
+    "div",
+    {},
+    h("p", { class: `analysis-verdict ${withOutcome && top?.clear ? "off" : "ok"}` }, verdict),
+    headline ? h("p", { class: "analysis-headline" }, headline) : null,
+    r.bucketed ? h("p", { class: "hint" }, `${r.column} is a number: shown in equal-sized ranges.`) : null,
+    h(
+      "table",
+      { class: "small odds-table" },
+      h(
+        "thead",
+        {},
+        h(
+          "tr",
+          {},
+          h("th", {}, r.column),
+          h("th", { class: "num" }, "Rows"),
+          h("th", { class: "num" }, "Share"),
+          h("th", { class: "num", title: "On any one row" }, "1 in"),
+          withOutcome ? h("th", { class: "num" }, "Outcome rate") : null,
+          withOutcome ? h("th", { class: "num" }, "Elsewhere") : null,
+          withOutcome ? h("th", { class: "num", title: "The odds of the outcome with this value, against every other value; the 95% range" }, "Odds ratio") : null,
+        ),
+      ),
+      h(
+        "tbody",
+        {},
+        ...r.values.slice(0, 60).map((v) =>
+          h(
+            "tr",
+            { class: v.clear ? (v.odds_ratio! > 1 ? "odds-up" : "odds-down") : "" },
+            h("td", {}, v.value),
+            h("td", { class: "num" }, formatCount(v.rows)),
+            h("td", { class: "num" }, percent(v.share)),
+            h("td", { class: "num" }, fmt(v.one_in)),
+            withOutcome ? h("td", { class: "num" }, percent(v.rate), v.small ? h("span", { class: "hint", title: "Under 30 rows: rough" }, " *") : null) : null,
+            withOutcome ? h("td", { class: "num" }, percent(v.rest_rate)) : null,
+            withOutcome ? h("td", { class: "num" }, `${fmt(v.odds_ratio)} (${fmt(v.low)} to ${fmt(v.high)})`) : null,
+          ),
+        ),
+      ),
+    ),
+    withOutcome ? h("p", { class: "hint" }, "Shaded rows are clearly different: their range leaves out 1. * fewer than 30 rows: rough.") : null,
+  );
+}
+
+function oddsWords(r: OddsResult): string {
+  if (!r.outcome) return r.values.slice(0, 10).map((v) => `- ${v.value}: ${percent(v.share)} of rows, 1 in ${fmt(v.one_in)}`).join("\n");
+  const clear = r.values.filter((v) => v.clear).slice(0, 10);
+  const lines = clear.map((v) => `- ${v.value}: ${percent(v.rate)} against ${percent(v.rest_rate)} elsewhere, ${fmt(v.odds_ratio)} times the odds (${fmt(v.low)} to ${fmt(v.high)})`);
+  return `${r.outcome}: ${percent(r.rate)} of ${formatCount(r.rows)} rows. ${r.together?.verdict ?? ""}\n\n${lines.join("\n") || "No value is clearly different."}`;
+}
+
+// ===== find predictors =====
+
+interface Candidate {
+  column: string;
+  kind: string;
+  bucketed: boolean;
+  v: number;
+  strength: string;
+  p: number;
+  rows: number;
+  correlation: number | null;
+  note: string | null;
+  same_as?: string;
+}
+
+interface PredictorsResult {
+  target: string;
+  target_bucketed: boolean;
+  candidates: Candidate[];
+  skipped: { column: string; reason: string }[];
+  redundant: { keep: string; drop: string; v: number }[];
+}
+
+export async function openPredictors(target?: string): Promise<void> {
+  const { body, foot, close } = openDialog("Find predictors", true);
+  const which = select("Target", columnOptions(), target ?? viewColumns()[0]?.name ?? "", () => rebuild());
+  const buckets = h("input", { type: "number", min: "2", max: "20", size: 4, placeholder: "4", "aria-label": "Buckets for number columns" });
+  let pool = checklist("Candidates", [], [which.value]);
+  const poolSlot = h("div", {}, pool.element);
+  const rebuild = (): void => {
+    pool = checklist("Candidates (none ticked: every other column)", [], [which.value]);
+    clear(poolSlot, pool.element);
+  };
+  rebuild();
+  const results = h("div", { class: "analysis-results" });
+  const actions = h("span", { class: "analysis-actions" });
+  const run = async (): Promise<void> => {
+    const sent: Record<string, unknown> = { target: which.value };
+    if (pool.values().length) sent.candidates = pool.values();
+    if (buckets.value) sent.buckets = Number(buckets.value);
+    clear(results, h("p", { class: "hint" }, "Testing every candidate…"));
+    clear(actions);
+    try {
+      const answer = await api<PredictorsResult>(`${grid}/predictors`, "POST", sent);
+      clear(results, predictorsView(answer, (column) => { close(); void openFitTest([answer.target, column], "together"); }));
+      clear(
+        actions,
+        ...resultButtons({
+          analysis: "predictors",
+          body: sent,
+          note: () => ({
+            title: `Predictors of ${answer.target}`,
+            markdown: answer.candidates.slice(0, 10).map((c) => `- ${c.column}: ${c.strength} (Cramér's V ${fmt(c.v)}${c.correlation === null ? "" : `, correlation ${fmt(c.correlation)}`})${c.same_as ? `, says the same as ${c.same_as}` : ""}`).join("\n"),
+          }),
+          rows: () => ({ name: tableName(datasetName(), "predictors", answer.target), rows: answer.candidates.map((c) => ({ column: c.column, kind: c.kind, strength: c.strength, cramers_v: c.v, p: c.p, correlation: c.correlation, same_as: c.same_as ?? null, note: c.note })) }),
+        }),
+      );
+    } catch (e) {
+      clear(results, h("p", { class: "status-error" }, (e as Error).message));
+    }
+  };
+  body.append(
+    h("div", { class: "analysis-controls" }, field("Target", which), field("Buckets", buckets), button("Find", () => void run(), { icon: "play", class: "primary" })),
+    poolSlot,
+    h("p", { class: "hint" }, "Each candidate is tested together with the target (numbers in equal-sized buckets) and ranked by how much it tells about it. Strong ones are worth a regression; of two that say the same thing, keep one."),
+    results,
+  );
+  foot.append(actions, button("Close", close));
+  if (target) await run();
+}
+
+function predictorsView(r: PredictorsResult, together: (column: string) => void): HTMLElement {
+  const strong = r.candidates.filter((c) => c.strength === "strong" || c.strength === "moderate");
+  const head = strong.length
+    ? `${strong.map((c) => c.column).join(", ")} ${strong.length === 1 ? "goes" : "go"} with ${r.target}.`
+    : `No column goes clearly with ${r.target}.`;
+  return h(
+    "div",
+    {},
+    h("p", { class: `analysis-verdict ${strong.length ? "off" : "ok"}` }, head),
+    r.target_bucketed ? h("p", { class: "hint" }, `${r.target} is a number: tested in equal-sized ranges.`) : null,
+    h(
+      "table",
+      { class: "small" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Column"), h("th", {}, "Strength"), h("th", { class: "num", title: "Cramér's V: 0 nothing, 1 the column decides the target" }, "Cramér's V"), h("th", { class: "num", title: "Straight-line correlation, for two number columns" }, "Correlation"), h("th", {}, ""), h("th", {}, ""))),
+      h(
+        "tbody",
+        {},
+        ...r.candidates.map((c) =>
+          h(
+            "tr",
+            { class: `strength-${c.strength}` },
+            h("td", {}, c.column, c.bucketed ? h("span", { class: "hint" }, " (in ranges)") : null),
+            h("td", {}, h("span", { class: "strength-bar", style: { "--v": String(Math.min(1, c.v / 0.5)) } }), c.strength),
+            h("td", { class: "num" }, fmt(c.v)),
+            h("td", { class: "num" }, c.correlation === null ? "" : fmt(c.correlation)),
+            h("td", { class: "hint" }, c.same_as ? `says the same as ${c.same_as}` : (c.note ?? "")),
+            h("td", {}, button("Test together", () => together(c.column), { class: "ghost small-btn", title: `Fit test: ${r.target} and ${c.column} together` })),
+          ),
+        ),
+      ),
+    ),
+    r.skipped.length ? h("p", { class: "hint" }, "Skipped: ", r.skipped.map((s) => `${s.column} (${s.reason})`).join("; "), ".") : null,
   );
 }

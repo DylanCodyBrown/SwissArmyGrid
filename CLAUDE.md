@@ -41,6 +41,7 @@ has the rules and why. Three layers, imports pointing inwards, nothing deeper th
 ```
 src/swissarmygrid/
   settings.py            every limit (plan 6a) in one frozen dataclass
+  stats.py               public: the Analyze menu's analyses on your own table (what notebook code calls)
   bootstrap.py           the composition root: builds the adapters, hands them to the services
 
   domain/                the model and its rules. Standard library and sqlglot only; no I/O, no clock
@@ -59,8 +60,10 @@ src/swissarmygrid/
                          (read with ast), its pip packages, the portable .blade.py file (a
                          `# /// swissarmygrid-blade` TOML header, zips), its settings (found with ast,
                          placeholders, suggestions, written back), Blade, parse_blade, Template
-    analysis.py          the fit test (chi-square, its p-value, Benford's shares, effect sizes, Nigrini's
-                         conformity) and outliers (amount fences, frequency on two scales): math and query text
+    stats.py             the shared statistics: chi-square, t, F and normal distributions, effect sizes
+    analysis.py          the Analyze menu's math and query text: the fit test (Benford, Nigrini), outliers
+                         (amount fences, frequency on two scales), odds (ratios, Woolf's range), buckets,
+                         find predictors' rules, and the notebook code (one swissarmygrid.stats call)
     packs.py             a pack (a Claude Code plugin with blades/ and tangs/): names, the new marketplace's
                          files, Claude Code's install record read loosely, which plugins are switched off
 
@@ -71,7 +74,8 @@ src/swissarmygrid/
     datasets.py          every way data arrives (push, file, paste, the "+" tab's query), list, close
     grids.py             rows, counts, steps and step changes, highlights, the selection, recipes
     profile.py           column and table profiles, kept by view key
-    analysis.py          the fit test and outliers on a grid's view (the step that shows them, not added)
+    analysis.py          the Analyze menu on a grid's view: run_* functions over any cursor (the same code
+                         swissarmygrid.stats runs on a DataFrame), and the notebook code
     sql.py               the SQL box
     export.py            CSV, Excel, Parquet: a download, or saved (an agent's only with a ticket)
     codegen.py           copy as code: generate, then verify what the user will paste
@@ -126,7 +130,9 @@ src/swissarmygrid/
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
                          aiPanel.ts is the Sandbox tab (a 12-column dashboard of resizable cards);
-                         analysisDialog.ts is the Column row's Fit test and Outliers windows;
+                         analyzeMenu.ts is the Table row's Analyze menu and every result's Send to Sandbox,
+                         Open as grid and To notebook; analysisDialog.ts is its forms (odds, fit test, find
+                         predictors, outliers; Fit test and Outliers are also in the Column row);
                          tour.ts is the first-time tour (the Application row's question mark: a
                          spotlight card per word, then a matching game);
                          catalogRail.ts (blades + catalog navigation) is shared by the blades page

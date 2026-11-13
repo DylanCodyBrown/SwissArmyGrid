@@ -26,6 +26,7 @@
 import { button, clear, h, isDateType, isNumericType, isTextType, toast } from "./dom";
 import { changeCompare, currentCompare, onCompareChange, stopCompare } from "./compare";
 import { openFitTest, openOutliers } from "./analysisDialog";
+import { analyzeButton } from "./analyzeMenu";
 import { openCompareDialog } from "./compareDialog";
 import { openExport } from "./exportDialog";
 import { openKeyFinderWindow } from "./keyFinder";
@@ -139,6 +140,7 @@ function render(): void {
       tool("Clean text", "clean", () => editStep("transform"), { title: "Trim or change the case of text columns" }),
       tool("Auto width", "columns", () => autoSizeColumns(), { title: "Fit every column to its header and the rows on screen" }),
       tool("Profile", "profile", () => void openTableProfile(), { title: "Profile every column" }),
+      analyzeButton(),
       tool("Key Finder", "zoom", () => openKeyFinderWindow(), { title: "Find the columns of other grids that share values with this one (likely join keys)" }),
       tool("Relationships", "crown", () => openRelationships(), { title: "Primary keys and joins: apply a shared model, import or export one, draw an ERD" }),
       tool("Export", "export", () => openExport(), { title: "Export to CSV, text, Excel or Parquet" }),

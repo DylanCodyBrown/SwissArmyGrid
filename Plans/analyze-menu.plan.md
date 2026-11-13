@@ -104,8 +104,10 @@ Rows with a blank in any used column are left out, and the count is shown.
 
 ## Phases
 
-- **A.** The Analyze menu; the three result actions; Odds; Find predictors; Fit test and Outliers in
-  the menu with Exclude these; `swissarmygrid.stats` and the notebook code for these.
+- **A. (built)** The Analyze menu; the three result actions; Odds; Find predictors; Fit test and
+  Outliers in the menu with Exclude these; `swissarmygrid.stats` and the notebook code for these.
+  Send to Sandbox is a note for now: the Sandbox's markdown has no tables, and server-added Plotly
+  cards wait for the Sandbox server part.
 - **B.** Regression (linear and logistic), what-if, predicted and miss columns, Check the misses.
 - **C.** Time series (its decomposition is what the forecast continues), then Forecast over time with
   per-predictor future values and the held-back check.

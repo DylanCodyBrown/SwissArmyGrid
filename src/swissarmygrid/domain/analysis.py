@@ -223,8 +223,8 @@ def together(cells: list[tuple[str, str, int]]) -> dict[str, Any]:
         "effect": effect,
         "verdict": verdict,
         "cells": out[:TOP],
-        "rows": len(rows),
-        "columns": len(cols),
+        "first_values": len(rows),
+        "second_values": len(cols),
         "warnings": warnings,
     }
 
@@ -535,7 +535,8 @@ def outcome_condition(outcome: Any, number: bool) -> tuple[str, str]:
     if not isinstance(values, list) or not values:
         raise AnalysisError("Name the outcome's values, such as late.")
     items = ", ".join(literal(str(v)) for v in values)
-    return f"{as_text(column)} IN ({items})", f"{column} is {' or '.join(map(str, values))}"
+    # Named by its values ("late", "refund or chargeback"): they read as the outcome in a sentence.
+    return f"{as_text(column)} IN ({items})", " or ".join(map(str, values))
 
 
 def odds_query(relation: str, value_sql: str, outcome_sql: str | None) -> str:

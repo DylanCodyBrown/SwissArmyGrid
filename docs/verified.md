@@ -258,3 +258,15 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   is related (Cramér's V 0.88); the three planted unit costs are the only outliers within vendor V2,
   and Show these rows keeps exactly rows 30, 1030 and 2030 in the grid's order; frequency finds the one
   misspelled region. In Chrome for Testing 153, light and dark.
+- (2026-11-13) The Analyze menu, phase A (Plans/analyze-menu.plan.md): odds, find predictors,
+  swissarmygrid.stats, the three result actions. domain/stats.py matches printed tables: t (2.228 with
+  10 degrees of freedom, 2.0096 with 49, 3.169 with 10 at 0.01), F (4.103 for 2 and 10, 2.5336 for 5
+  and 30) and normal quantiles to 1e-12. Odds by hand: 20 of 100 against 10 of 100 is an odds ratio of
+  2.25, Woolf's range 0.9943 to 5.0916. On made-up orders (West late 40% against 10%, office a copy of
+  region): West's odds ratio 4.85 (4.16 to 5.65), clearly above 1; predictors of amount rank units and
+  price strong and the categories none, skip the order number as an identifier; predictors of late put
+  region moderate, size weak, and office as saying the same as region (Cramér's V 1.0). The notebook
+  code (the steps as checked SQL, then the stats call) run on a plain pandas DataFrame gives the
+  window's results for all four analyses, to 1e-9 (sums in another order differ in the last digit).
+  A JSON push takes pandas' split shape, not records (Open as grid sends that). In Chrome for Testing
+  153: odds, Test together, find predictors, Open as grid, Send to Sandbox and Exclude these.
