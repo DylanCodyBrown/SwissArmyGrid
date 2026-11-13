@@ -12,6 +12,10 @@ so the page can mark them.
 A card may also belong to no table (`add_free`): a note, a figure, a picture or a table of rows sent
 from Python (`sag.sandbox`), the agent or the Sandbox's own Add note. It stays when grids close. A
 `key` names a card, so sending the same key again replaces that card's content in its place.
+
+Saved dashboards (the `Dashboards` port): Save freezes every card as drawn, a chart's points and a
+query table's rows included; Open replaces the Sandbox with a version. A chart or query card relinks to
+an open grid on its table (any time one is open again); until then it shows what it showed when saved.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from __future__ import annotations
 import json
 import secrets
 import time
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from swissarmygrid.domain.charts import _grouped, altair_code, validate, vega_lite
@@ -27,7 +31,7 @@ from swissarmygrid.domain.datasets import DatasetInfo, quote
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import Step, type_family
-from swissarmygrid.services.ports import BACKGROUND, SqlSession
+from swissarmygrid.services.ports import BACKGROUND, Dashboards, SqlSession
 from swissarmygrid.services.workspace import NotFound, Refused, Workspace
 
 _TABLE_CARD_ROWS: int = 100
@@ -245,14 +249,49 @@ def _key(body: Any) -> str | None:
     return key
 
 
+# What a saved dashboard keeps of each card (besides what it showed: "frozen").
+_KEPT: tuple[str, ...] = (
+    "kind",
+    "title",
+    "body",
+    "spec",
+    "sql",
+    "columns",
+    "rows",
+    "capped",
+    "size",
+    "pinned",
+    "new_page",
+    "key",
+    "origin",
+    "dataset",
+    "created_by",
+)
+
+
+def _on_a_grid(card: Card) -> bool:
+    """A chart or a query table: drawn on a grid's view, so frozen when no grid on its table is open."""
+    return card["kind"] == "chart" or "sql" in card
+
+
+def _frozen(card: Card) -> Card:
+    """What a chart or query card showed, to keep in a saved dashboard."""
+    if card["kind"] == "chart" and "vega_lite" in card:
+        return {"vega_lite": card["vega_lite"], "points": card.get("points"), "note": card.get("note")}
+    if "sql" in card and "columns" in card:
+        return {"columns": card["columns"], "rows": card["rows"], "capped": card.get("capped", False)}
+    return dict(card.get("frozen") or {})
+
+
 def _place(card: Card) -> tuple[bool, float]:
     """Pinned cards first, then the order the analyst arranged (new cards go last)."""
     return (not card["pinned"], float(card.get("order") or card.get("created") or 0.0))
 
 
 class Cards:
-    def __init__(self, ws: Workspace) -> None:
+    def __init__(self, ws: Workspace, dashboards: Dashboards | None = None) -> None:
         self.ws = ws
+        self.dashboards = dashboards
         self._cards: dict[str, Card] = {}
 
     def get(self, card_id: str) -> Card:
@@ -266,6 +305,8 @@ class Cards:
         card = self._cards.get(card_id)
         if card is None or card["kind"] != "chart":
             raise NotFound("No such chart.")
+        if card["grid"] is None:
+            raise NotFound(f"This chart is as it was saved: open {card['dataset']} to use it live.")
         grid, info = self.ws.grid_and_info(card["grid"])
         return card, grid, info
 
@@ -311,7 +352,9 @@ class Cards:
     async def everything(self) -> dict[str, Any]:
         """The Analysis Sandbox: one list for every table. Each card is still drawn on its own
         grid's view; a card whose grid was closed drops out."""
-        shown: list[Card] = [dict(c) for c in self._cards.values() if c["grid"] is None]
+        for card in self._cards.values():
+            self._relink(card)
+        shown: list[Card] = [self._as_saved(c) for c in self._cards.values() if c["grid"] is None]
         for grid_id in dict.fromkeys(c["grid"] for c in self._cards.values() if c["grid"] is not None):
             grid = self.ws.grids.get(grid_id)
             if grid is None:
@@ -324,6 +367,118 @@ class Cards:
             shown += await self.ws.grid_query(grid, None, BACKGROUND, compute)
         shown.sort(key=_place)
         return {"cards": shown}
+
+    def _relink(self, card: Card) -> None:
+        """A chart or query card whose grid is gone (or was saved) draws on an open grid on its table."""
+        if not _on_a_grid(card) or (card["grid"] is not None and self.ws.grids.get(card["grid"])):
+            return
+        grid = self.ws.grids.first_for(card["dataset"]) if card.get("dataset") else None
+        if grid is not None and self.ws.store.get(grid.dataset) is not None:
+            card["grid"] = grid.id
+        elif card.get("frozen"):
+            card["grid"] = None  # shows what it showed when saved
+
+    def _as_saved(self, card: Card) -> Card:
+        shown = dict(card)
+        if _on_a_grid(card):
+            shown |= card.get("frozen") or {}
+            shown["note"] = " · ".join(
+                filter(
+                    None,
+                    [
+                        card.get("frozen", {}).get("note"),
+                        f"As saved: open {card['dataset']} to redraw it live.",
+                    ],
+                )
+            )
+        return shown
+
+    # ===== saved dashboards =====
+
+    def _shelf(self) -> Dashboards:
+        if self.dashboards is None:
+            raise NotFound("Dashboards are not kept here.")
+        return self.dashboards
+
+    def saved(self) -> dict[str, Any]:
+        return {"dashboards": self._shelf().names()}
+
+    def versions(self, name: str) -> dict[str, Any]:
+        """A dashboard's versions: when each was saved, its cards' kinds and titles (not their content)."""
+        body = self._shelf().read(name)
+        if body is None:
+            raise NotFound(f"No dashboard named {name!r}.")
+        return {
+            "name": name,
+            "versions": [
+                {
+                    "version": number,
+                    "saved": v.get("saved"),
+                    "cards": [
+                        {"kind": c.get("kind"), "title": c.get("title", "")} for c in v.get("cards", [])
+                    ],
+                }
+                for number, v in enumerate(body["versions"], start=1)
+            ],
+        }
+
+    async def save(self, name: Any, who: str) -> dict[str, Any]:
+        """Save the Sandbox as `name`: a new version, every card as it is drawn now."""
+        if not isinstance(name, str):
+            raise ValueError('Send {"name": ...}: 1 to 64 letters, digits, _ or -.')
+        shown = (await self.everything())["cards"]
+        if not shown:
+            raise ValueError("The Sandbox is empty: nothing to save.")
+        kept = [{k: c[k] for k in _KEPT if k in c} | {"frozen": _frozen(c)} for c in shown]
+        saved = datetime.now(UTC).isoformat(timespec="seconds")
+        version = self._shelf().add_version(name, kept, saved)
+        self.ws.audit.write(who, "save_dashboard", name, cards=len(kept), version=version)
+        return {"name": name, "version": version, "cards": len(kept), "saved": saved}
+
+    async def open(self, name: str, version: Any, who: str) -> dict[str, Any]:
+        """Make a saved version (the last one unless `version` names another) the Sandbox."""
+        body = self._shelf().read(name)
+        if body is None or not body["versions"]:
+            raise NotFound(f"No dashboard named {name!r}.")
+        versions = body["versions"]
+        number = len(versions) if version is None else version
+        if not isinstance(number, int) or not 1 <= number <= len(versions):
+            raise ValueError(f"version is 1 to {len(versions)}.")
+        self._cards = {}
+        for order, saved in enumerate(versions[number - 1].get("cards", []), start=1):
+            try:
+                card = check_card(saved) | {
+                    k: saved[k] for k in _KEPT if k in saved and k not in ("columns", "rows")
+                }
+            except ValueError:
+                continue  # edited by hand into something else
+            if "sql" not in card and card["kind"] == "table":
+                card |= {k: saved[k] for k in ("columns", "rows", "capped") if k in saved}
+            card |= {
+                "id": secrets.token_hex(4),
+                "grid": None,
+                "dataset": saved.get("dataset"),
+                "frozen": saved.get("frozen") or {},
+                "origin": saved.get("origin") or "Sandbox",
+                "pinned": bool(saved.get("pinned")),
+                "new_page": bool(saved.get("new_page")),
+                "created_by": saved.get("created_by") or who,
+                "created": time.time(),
+                "order": float(order),
+            }
+            self._relink(card)
+            self._cards[card["id"]] = card
+        await self.ws.live.broadcast({"type": "cards_updated", "grid": None})
+        self.ws.audit.write(who, "open_dashboard", name, version=number, cards=len(self._cards))
+        live = sum(1 for c in self._cards.values() if _on_a_grid(c) and c["grid"] is not None)
+        frozen = sum(1 for c in self._cards.values() if _on_a_grid(c) and c["grid"] is None)
+        return {"name": name, "version": number, "cards": len(self._cards), "live": live, "as_saved": frozen}
+
+    def delete_saved(self, name: str, who: str) -> dict[str, Any]:
+        if not self._shelf().delete(name):
+            raise NotFound(f"No dashboard named {name!r}.")
+        self.ws.audit.write(who, "delete_dashboard", name)
+        return {"deleted": name}
 
     async def _check_chart(self, grid: Grid, info: DatasetInfo, spec: Any) -> None:
         def check(cur: SqlSession) -> None:
@@ -389,10 +544,14 @@ class Cards:
         if set(body) - placing:
             merged = check_card({**card, **{k: v for k, v in body.items() if k not in placing}})
             _not_the_agents(merged, who)
-            if merged["kind"] == "chart":
+            if card["grid"] is None and _on_a_grid(card) and ({"spec", "sql"} & set(body)):
+                raise ValueError(
+                    f"This card is as it was saved: open {card['dataset']} to change what it draws."
+                )
+            if merged["kind"] == "chart" and card["grid"] is not None:
                 grid, info = ws.grid_and_info(card["grid"])
                 await self._check_chart(grid, info, merged["spec"])
-            elif card["grid"] is None and "sql" in merged:
+            elif card["grid"] is None and "sql" in merged and not card.get("frozen"):
                 raise ValueError("A card that belongs to no table has no query.")
             card.update(merged)
         if "pinned" in body:

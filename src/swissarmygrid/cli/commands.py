@@ -906,6 +906,15 @@ def update_card(a: dict[str, Any]) -> Any:
     return api.call("PATCH", f"/cards/{_q(a['card'])}", body)
 
 
+@command(
+    "sandbox_dashboards",
+    "Saved dashboards; with name, its versions (when, and its cards). Saving and opening are the user's.",
+    opt("name", "A dashboard's name."),
+)
+def dashboards(a: dict[str, Any]) -> Any:
+    return api.call("GET", f"/dashboards/{_q(a['name'])}" if a.get("name") else "/dashboards")
+
+
 @command("sandbox_delete", "Remove a card.", req("card", "Card id."))
 def delete_card(a: dict[str, Any]) -> Any:
     return api.call("DELETE", f"/cards/{_q(a['card'])}")

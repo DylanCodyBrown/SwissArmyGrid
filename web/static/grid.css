@@ -4018,3 +4018,10 @@ body.popout .app-row {
 .forecast-predictor input[hidden] {
   display: none;
 }
+
+/* The Sandbox's saved dashboards (sandboxDashboards.ts) */
+.dashboards { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.dashboard-row { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+.dashboard-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dashboard-history { margin: 8px 0 0; padding-left: 22px; }
+.dashboard-history li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 0; }

@@ -219,6 +219,10 @@ Clicking a bar in a chart filters the grid to that value. Each card has a pin, a
 - **Print to PDF** prints exactly those pages: choose Save as PDF in the print dialog. A dark theme prints on light paper.
 - **Export markdown** saves the whole Sandbox as one `.md` file: every note as its markdown, tables as markdown tables, every chart and diagram as a picture inside the file. Ready to keep, or to hand to an AI model to help read it.
 
+### Saved dashboards
+
+**Dashboards…** in the Sandbox's toolbar saves the Sandbox under a name: every card as it is drawn now, its size and place, a chart's points and a query table's rows included, so the dashboard opens even when its tables are gone. Saving again under the same name adds a version (the last 60 are kept); **History** lists them, newest first, with their cards, and **Open this version** brings one back. Opening replaces the cards on the Sandbox (it asks first). A chart or query whose table is open draws live on it; one whose table isn't shows what it showed when saved ("As saved") and turns live by itself once that table is pushed again. Nothing is saved unless you press Save; dashboards live in your SwissArmyGrid folder (`~/.swissarmygrid/dashboards`). An agent can list a dashboard's versions, never save, open or delete one.
+
 ### Sending things to the Sandbox
 
 Anything that shows details can go to the Sandbox, as a readable note and, where there is one, a chart beside it:

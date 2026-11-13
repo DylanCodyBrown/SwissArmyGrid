@@ -153,3 +153,66 @@ def test_the_agent_adds_a_file_and_reads_the_formats(tmp_path: Path, monkeypatch
     monkeypatch.setattr(api, "call", call)
     commands.REGISTRY["sandbox_add"].run({"file": str(tmp_path / "plan.md"), "key": "plan"})
     assert sent == [("POST", "/cards", {"kind": "note", "body": "# Plan\n- one", "key": "plan", "title": ""})]
+
+
+def test_a_saved_dashboard_reopens_as_drawn_and_relinks_when_its_table_is_back(client: TestClient) -> None:
+    sales = pa.table({"region": ["North", "North", "South"], "amount": [1.0, 2.0, 5.0]})
+    gid = grid_id(push(client, "sales", sales))
+    spec = {"mark": "bar", "x": {"field": "region"}, "y": {"aggregate": "sum", "field": "amount"}}
+    chart = client.post(
+        f"/grids/{gid}/cards",
+        json={"kind": "chart", "title": "By region", "spec": spec, "size": {"w": 8, "h": 9}},
+        headers=AUTH,
+    )
+    query = client.post(
+        f"/grids/{gid}/cards",
+        json={
+            "kind": "table",
+            "title": "Top",
+            "sql": "SELECT region FROM sales ORDER BY amount DESC LIMIT 1",
+        },
+        headers=AUTH,
+    )
+    assert chart.status_code == query.status_code == 200
+    client.post("/cards", json={"kind": "note", "title": "Reading", "body": "North leads."}, headers=AUTH)
+    assert client.post("/dashboards", json={"name": "weekly"}, headers=AGENT).status_code == 403
+    first = client.post("/dashboards", json={"name": "weekly"}, headers=AUTH).json()
+    assert first["version"] == 1 and first["cards"] == 3
+    client.delete(f"/cards/{chart.json()['card']}", headers=AUTH)
+    assert client.post("/dashboards", json={"name": "weekly"}, headers=AUTH).json()["version"] == 2
+    listed = client.get("/dashboards", headers=AGENT).json()["dashboards"]
+    assert listed == [{"name": "weekly", "versions": 2, "saved": listed[0]["saved"], "cards": 2}]
+    history = client.get("/dashboards/weekly", headers=AGENT).json()["versions"]
+    assert [len(v["cards"]) for v in history] == [3, 2] and history[0]["cards"][0] == {
+        "kind": "chart",
+        "title": "By region",
+    }
+
+    client.delete(f"/grids/{gid}", headers=AUTH)
+    client.delete("/datasets/sales", headers=AUTH)
+    assert client.post("/dashboards/weekly/open", json={"version": 1}, headers=AGENT).status_code == 403
+    opened = client.post("/dashboards/weekly/open", json={"version": 1}, headers=AUTH).json()
+    assert opened == {"name": "weekly", "version": 1, "cards": 3, "live": 0, "as_saved": 2}
+    shown = {c["title"]: c for c in cards(client)}
+    assert [c["title"] for c in cards(client)] == ["By region", "Top", "Reading"]
+    frozen = shown["By region"]
+    assert (
+        frozen["grid"] is None
+        and frozen["size"] == {"w": 8, "h": 9}
+        and "open sales to redraw" in frozen["note"]
+    )
+    assert sorted(v["y"] for v in frozen["vega_lite"]["data"]["values"]) == [3.0, 5.0]
+    assert shown["Top"]["rows"] == [["South"]]
+    assert (
+        client.post(f"/cards/{frozen['id']}/select", json={"value": "North"}, headers=AUTH).status_code == 404
+    )
+
+    again = grid_id(push(client, "sales", pa.table({"region": ["East"], "amount": [9.0]})))
+    live = {c["title"]: c for c in cards(client)}
+    assert (
+        live["By region"]["grid"] == again
+        and live["By region"]["vega_lite"]["data"]["values"][0]["x"] == "East"
+    )
+    assert live["Top"]["rows"] == [["East"]]
+    assert client.delete("/dashboards/weekly", headers=AUTH).json() == {"deleted": "weekly"}
+    assert client.get("/dashboards/weekly", headers=AUTH).status_code == 404

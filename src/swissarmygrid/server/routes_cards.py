@@ -12,6 +12,14 @@
   POST   /cards/{card}/select              {"value": ...} cross-filter: add a filter step for it
   GET    /cards/{card}/code                Altair code for a chart card
 
+  GET    /dashboards                       the saved dashboards: name, versions, last saved, cards
+  POST   /dashboards                       {"name"}: save the Sandbox as a new version of `name`
+  GET    /dashboards/{name}                its versions: when, and each card's kind and title
+  POST   /dashboards/{name}/open           {"version"?}: make that version the Sandbox
+  DELETE /dashboards/{name}                delete it and its versions
+Saving writes to disk and opening replaces what the user is looking at: those three are the user's
+click, so they refuse the agent, which may list and read them.
+
 A card records its source (dataset, version, steps) and redraws whenever its grid's view
 changes, because charts are computed on request from the grid's current steps. Agent-made
 cards are tagged so the page can mark them.
@@ -26,6 +34,7 @@ from starlette.routing import BaseRoute, Route
 from swissarmygrid.domain.charts import ChartError
 from swissarmygrid.server.http import actor, error_response, json_response, read_json
 from swissarmygrid.services.charts import Cards
+from swissarmygrid.services.workspace import Refused
 
 
 def routes(cards: Cards) -> list[BaseRoute]:
@@ -92,7 +101,56 @@ def routes(cards: Cards) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    def users_only(request: Request) -> None:
+        if actor(request) == "agent":
+            raise Refused(
+                "Saving, opening and deleting dashboards are the user's: the agent may list and read them."
+            )
+
+    async def saved(request: Request) -> Response:
+        try:
+            return json_response(cards.saved())
+        except Exception as error:
+            return error_response(error)
+
+    async def save(request: Request) -> Response:
+        try:
+            users_only(request)
+            body = await read_json(request)
+            return json_response(
+                await cards.save(body.get("name") if isinstance(body, dict) else None, actor(request))
+            )
+        except Exception as error:
+            return error_response(error)
+
+    async def versions(request: Request) -> Response:
+        try:
+            return json_response(cards.versions(request.path_params["name"]))
+        except Exception as error:
+            return error_response(error)
+
+    async def open_saved(request: Request) -> Response:
+        try:
+            users_only(request)
+            body = await read_json(request)
+            version = body.get("version") if isinstance(body, dict) else None
+            return json_response(await cards.open(request.path_params["name"], version, actor(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def delete_saved(request: Request) -> Response:
+        try:
+            users_only(request)
+            return json_response(cards.delete_saved(request.path_params["name"], actor(request)))
+        except Exception as error:
+            return error_response(error)
+
     return [
+        Route("/dashboards", saved),
+        Route("/dashboards", save, methods=["POST"]),
+        Route("/dashboards/{name}", versions),
+        Route("/dashboards/{name}/open", open_saved, methods=["POST"]),
+        Route("/dashboards/{name}", delete_saved, methods=["DELETE"]),
         Route("/cards", all_cards),
         Route("/cards", add_free, methods=["POST"]),
         Route("/grids/{grid_id}/cards", list_cards),

@@ -1,8 +1,9 @@
 """Everything SwissArmyGrid keeps in its own state folder (~/.swissarmygrid), and nothing else is
-written: the audit log, saved recipes, the connection file and the model library's files.
+written: the audit log, saved recipes and dashboards, the connection file and the model library's files.
 
   the audit log        one JSON line per action, never a cell value
   recipes              a grid's steps and settings, saved on the user's click, with no rows
+  dashboards           a Sandbox saved on the user's click: its cards as drawn, the last 60 versions
   the connection file  where the running server is, and its token (owner-only)
   the model library    relationship models: the shipped ones, the user's, and SWISSARMYGRID_MODELS
 
@@ -150,6 +151,66 @@ class RecipeFiles:
 
     def delete(self, dataset: str) -> bool:
         return delete_recipe(self.folder, dataset)
+
+
+# ===== saved dashboards =====
+# A dashboard is the Sandbox frozen on the user's Save: every card's text, size and place, and what a
+# chart or a query table showed (its points or rows), so it opens even when its tables are gone. Like a
+# recipe it is written only on that click; each Save under the same name adds a version.
+
+DASHBOARD_VERSIONS: int = 60
+
+
+class DashboardFiles:
+    """The saved dashboards in one folder: what the service layer's `Dashboards` port is here."""
+
+    def __init__(self, folder: Path) -> None:
+        self.folder = folder
+
+    def _path(self, name: str) -> Path:
+        return self.folder / f"{validate_name(name)}.json"
+
+    def names(self) -> list[dict[str, Any]]:
+        found = []
+        for path in sorted(self.folder.glob("*.json")) if self.folder.is_dir() else []:
+            body = self.read(path.stem)
+            if body and body["versions"]:
+                last = body["versions"][-1]
+                found.append(
+                    {
+                        "name": body["name"],
+                        "versions": len(body["versions"]),
+                        "saved": last.get("saved"),
+                        "cards": len(last.get("cards", [])),
+                    }
+                )
+        return found
+
+    def read(self, name: str) -> dict[str, Any] | None:
+        path = self._path(name)
+        try:
+            body = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(body, dict) or not isinstance(body.get("versions"), list):
+            return None  # edited by hand into something else: ignore it
+        return {"name": name, "versions": [v for v in body["versions"] if isinstance(v, dict)]}
+
+    def add_version(self, name: str, cards: list[dict[str, Any]], saved: str) -> int:
+        self.folder.mkdir(parents=True, exist_ok=True)
+        versions = [*(self.read(name) or {"versions": []})["versions"], {"saved": saved, "cards": cards}]
+        versions = versions[-DASHBOARD_VERSIONS:]
+        self._path(name).write_text(
+            json.dumps({"name": name, "versions": versions}, default=str), encoding="utf-8"
+        )
+        return len(versions)
+
+    def delete(self, name: str) -> bool:
+        path = self._path(name)
+        if path.exists():
+            path.unlink()
+            return True
+        return False
 
 
 # ===== the connection file =====

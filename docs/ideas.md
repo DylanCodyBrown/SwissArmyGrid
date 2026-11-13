@@ -182,7 +182,18 @@ first, the server part once the Cosmic Python refactor has landed.
   standard library only); a `vegalite` card for Altair, **refused from the agent** (Vega compiles its
   expressions and the page allows that; the agent has the checked `chart`), its data inline (any url or
   href refused, so it fetches nothing); `sandbox_formats` and `sandbox_add` with `file`, `key`, `size`
-  and its own rows. Still to build: data-bound figures, saved dashboards, history.
+  and its own rows.
+- **Done (2026-11-13): saved dashboards and their history**, with one change from the design below,
+  **to confirm**: nothing is saved automatically. The rule is that nothing is written to disk except
+  explicit exports, recipes and the audit log, and an automatic save or a daily snapshot would write
+  chart points and table rows without a click. So a dashboard is saved on **Save** (Dashboards… in
+  the Sandbox); saving the same name again adds a version (the last 60); History opens any version.
+  Each card keeps what it showed ("frozen"), so a dashboard opens without its tables; a chart or query
+  relinks to a grid on its table whenever one is open, by the table's name. The agent lists and reads
+  (`sandbox_dashboards`); saving (it writes to disk), opening (it replaces the screen) and deleting are
+  the user's. Still open: automatic save if wanted, a read-only look back ("Viewing 10 November"),
+  comparing two versions (cards added, removed, changed), data-bound Plotly and ECharts figures, and
+  one dashboard per workspace once workspaces exist.
 - **Next (server, after the refactor), the owner's follow-up:** "a sag command to push anything to the
   sandbox ... the script can push anything that is visual"; "the MCPs should be fully aware of what
   tools are available to build graphs and charts"; "an agent can push rendered markdown ... resizable

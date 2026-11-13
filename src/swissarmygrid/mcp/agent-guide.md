@@ -126,6 +126,8 @@ stacking copies. `size` is `{"w": 2-12, "h": 3-30}` on a 12-column board of 40px
 `sandbox_update` edits, resizes, moves or pins one, `sandbox_select` is a click on a chart's mark (it
 adds the filter step), `sandbox_code` returns the Altair Python, `sandbox_list` and `sandbox_all` list
 them. Prefer a `chart` on the grid to a figure you fill yourself: the data stays on the server.
+`sandbox_dashboards` lists the user's saved dashboards and, with `name`, their versions and cards;
+saving, opening and deleting one are the user's (Dashboards… in the Sandbox).
 
 ## Testing values: the fit test and outliers
 

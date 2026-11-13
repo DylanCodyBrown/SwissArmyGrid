@@ -29,7 +29,7 @@ installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), s
   notes go in [docs/ideas.md](docs/ideas.md).
 - **Data is sensitive.** Use only made-up data in tests, examples and screenshots. Keep the
   posture: 127.0.0.1 only, token on every data route, DuckDB locked (`adapters/database.py`),
-  nothing written to disk except explicit exports, saved recipes and the audit log.
+  nothing written to disk except explicit exports, saved recipes and dashboards, and the audit log.
 
 ## Layout
 
@@ -108,7 +108,7 @@ src/swissarmygrid/
                          only: sag.blade uses it too); which packages this Python has
     codegen.py           runs copied code and compares it with the grid
     export.py            CSV, Excel and Parquet writers; the export folder
-    state_files.py       the audit log, recipes, the connection file, the model library
+    state_files.py       the audit log, recipes, saved dashboards, the connection file, the model library
     live_updates.py      the pages' and VS Code windows' sockets
     packs.py             installed packs in Claude Code's plugin folder, editable ones in the blade
                          folders; writing a new marketplace and a pack's files
@@ -133,7 +133,7 @@ src/swissarmygrid/
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (108 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (109 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
@@ -144,6 +144,7 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          modelDialog.ts the regression and what-if; timeSeriesDialog.ts time series and
                          forecast (Plotly charts in the window); cheatSheets.ts each form's Data shape;
                          analysisCards.ts every result as Sandbox cards (a report-style note and a chart);
+                         sandboxDashboards.ts saving and opening the Sandbox as named dashboards;
                          sandboxPages.ts Page view, Print to PDF and moving cards; sandboxExport.ts the
                          markdown export; cellMenu.ts the right-click menus on cells and headers;
                          tour.ts is the first-time tour (the Application row's question mark: a

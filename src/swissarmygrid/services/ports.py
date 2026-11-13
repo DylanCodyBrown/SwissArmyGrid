@@ -202,6 +202,18 @@ class Notifier(Protocol):
     def page_open(self) -> bool: ...
 
 
+class Dashboards(Protocol):
+    """Saved Sandboxes: each name's versions, oldest first, each the cards as they were drawn."""
+
+    def names(self) -> list[dict[str, Any]]: ...
+
+    def read(self, name: str) -> dict[str, Any] | None: ...
+
+    def add_version(self, name: str, cards: list[dict[str, Any]], saved: str) -> int: ...
+
+    def delete(self, name: str) -> bool: ...
+
+
 class Recipes(Protocol):
     """Saved recipes: a dataset name's steps and settings, with no rows."""
 

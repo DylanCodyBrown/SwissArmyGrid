@@ -33,6 +33,7 @@ import { renderMarkdown } from "./markdown";
 import { saveBlob } from "./profileView";
 import { state } from "./state";
 import { sandboxMarkdown, svgToPng } from "./sandboxExport";
+import { dashboardsDialog } from "./sandboxDashboards";
 import { PAPERS, fitPages, makeMovable, moveCard, paginate, printPages, type Paper } from "./sandboxPages";
 import { effectiveTheme, onThemeChange, setTheme, themeChoice } from "./theme";
 import type { Drawn } from "./lazy/charts";
@@ -374,6 +375,8 @@ async function render(): Promise<void> {
 
 // ===== cards =====
 
+let onBoard = 0; // how many cards the Sandbox shows (the Dashboards window warns before replacing them)
+
 async function renderCards(body: HTMLElement): Promise<void> {
   body.append(
     h(
@@ -396,11 +399,13 @@ async function renderCards(body: HTMLElement): Promise<void> {
         : null,
       button("Print to PDF", () => void printSandbox(), { icon: "export", title: "Print the pages (choose Save as PDF in the print dialog)" }),
       button("Export markdown", () => void exportMarkdown(), { icon: "code", title: "The whole Sandbox as one markdown file, charts embedded as pictures: to keep, or to give an AI model" }),
+      button("Dashboards…", () => dashboardsDialog(onBoard, () => void render()), { icon: "columns", title: "Save the Sandbox as a named dashboard, or open one you saved (with its history)" }),
     ),
   );
   let cards: Card[];
   try {
     cards = (await api<{ cards: Card[] }>("/cards")).cards;
+    onBoard = cards.length;
   } catch (e) {
     body.append(h("p", { class: "status-error" }, (e as Error).message));
     return;

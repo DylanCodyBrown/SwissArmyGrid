@@ -161,6 +161,7 @@ NOT_COMMANDS = {
     "/relationships/tangs": "saving a tang file is the user's (Relationships window), refused to the agent",
     "/relationships/tang": "a .tang download is the user's, refused to the agent",
     "/relationships/import": "importing a .tang file is the user's, refused to the agent",
+    "/dashboards/{}/open": "opening a dashboard replaces the Sandbox: the user's click, refused to the agent",
     "/relationships/reject": "the user's review of the finder's suggestions in the Relationships window",
     "/blades/fill": "as /blades: writes the user's own values into a blade's code, refused to the agent",
     "/blades/install": "as /blades: installing packages is the user's click",
@@ -537,8 +538,9 @@ def test_every_command_is_one_lean_typed_tool(live: Live, clients: str) -> None:
         len(json.dumps(t.input_schema)) + len(t.description or "") + len(t.name) for t in tools.values()
     )
     # 24,000 until the Analyze menu (2026-11): its odds, fit test, outliers, predictors, regression,
-    # what-if, data shape, time series and forecast tools are each one short schema; 25,500 leaves room.
-    assert size < 25_500, f"the tool list is {size} characters"
+    # what-if, data shape, time series and forecast tools are each one short schema; then the Sandbox's
+    # formats and saved dashboards, and sandbox_add's own rows, file and key. 26,000 leaves room.
+    assert size < 26_000, f"the tool list is {size} characters"
     # Typed: the schema carries the command's real arguments, required ones marked.
     schema = tools["steps_add"].input_schema
     assert set(schema["properties"]) == {"grid", "kind", "params", "index"}
