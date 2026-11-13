@@ -330,6 +330,10 @@ def test_profile_click_value_adds_a_filter(browser: Browser, orders_url: str) ->
     dialog = page.locator("dialog")
     expect(dialog.locator(".stat-grid")).to_contain_text("Distinct")
     expect(dialog.locator(".dialog-head h2")).to_have_text("Profile of product")
+    # Each value's bar is drawn to its share (a custom property: it was dropped once, leaving 2px ticks).
+    bar = dialog.locator(".bar-row .label").first
+    assert bar.evaluate("e => e.style.getPropertyValue('--share')") == "100%"
+    assert float(bar.evaluate("e => getComputedStyle(e, '::before').width").removesuffix("px")) > 100
     expect(page.locator(".workspace")).not_to_have_attribute("data-view", "agent")
     dialog.locator(".bar-row", has_text="Gizmo").click()
     expect(page.locator("#status")).to_contain_text("of 1,250")
@@ -2117,3 +2121,23 @@ def open_grid_without_rows(browser: Browser, url: str) -> Page:
     page.goto(url)
     expect(page.locator(".pane.active .ag-header-cell").first).to_be_visible(timeout=20000)
     return page
+
+
+def test_selecting_a_cell_keeps_the_status_bar_on_one_line(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url, width=1440)
+    bar = page.locator(".statusbar")
+    height = bar.bounding_box()["height"]  # type: ignore[index]
+    page.locator(".ag-cell[col-id='quantity']").first.click()
+    expect(page.locator(".statusbar")).to_contain_text("1 cell selected")
+    assert bar.bounding_box()["height"] == height  # type: ignore[index]
+    page.close()
+
+
+def test_a_step_forms_fields_share_a_row(browser: Browser, orders_url: str) -> None:
+    page = open_grid(browser, orders_url, width=1440)
+    page.locator(".ribbon-group").first.get_by_role("button", name="Sort", exact=True).click()
+    row = page.locator("dialog .list-editor .row").first
+    expect(row).to_be_visible()
+    assert row.evaluate("e => getComputedStyle(e).display") == "flex"
+    assert row.bounding_box()["height"] < 80  # type: ignore[index]  # one line, not a stack
+    page.close()

@@ -194,3 +194,16 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   catalog command or secret names. In Chrome for Testing 153: the approval window opens on the blades
   page with the code, and Allow saves it into the list. The tool list is 95 tools, 21,040 characters
   (cap 24,000). Full suite: 1,371 passed.
+- (2026-11-12) Fill in your values, release 1.6.0 (blade_core/fill.py, `/blades/inspect` settings,
+  `/blades/fill`, import `fill`): settings are found in 33 of the 35 starters (the 1Password and blank
+  starters have none). Every setting of every starter, changed alone, is written back with every
+  other setting and the rest of the code unchanged, and is found again at the same place. ast's columns
+  are UTF-8 byte offsets: a setting after "Café" in a comment is written at the right place. Lines are
+  counted on newlines only (str.splitlines also splits on form feeds). A raw-string path stays raw; a
+  value a raw string cannot end with (a trailing backslash) is written as an escaped string; a backslash
+  in a plain connection string (`db01\SQLEXPRESS`) is written doubled and found again. Refused: `;` or
+  quotes in a connection-string part, a line break, a word for a number, a stale setting id. Passwords,
+  tokens and keys are never settings, and no password environment variable is ever suggested. In Chrome
+  for Testing 153: the import review marks host, dbname and user as needing a value, a suggestion button
+  fills the field, and Import writes the values into the saved blade's code; on the save screen a
+  changed setting rewrites the code box. Full suite: 1,431 passed.

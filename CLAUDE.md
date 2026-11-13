@@ -50,7 +50,8 @@ src/swissarmygrid/
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
   blade_core/            blades, standard library only: code (what code makes, asks for, imports; read
                          with ast), run (run a blade, its catalog command, a vault), packages (pip names),
-                         portable (the .blade.py file: a `# /// swissarmygrid-blade` TOML header, zips)
+                         portable (the .blade.py file: a `# /// swissarmygrid-blade` TOML header, zips),
+                         fill (a blade's settings: found with ast, placeholders, suggestions, written back)
   engine/catalog.py      catalogs: a source's names and types, tree queries and search (in the locked DuckDB)
   server/blade_store.py  saved blades (~/.swissarmygrid/blades, one JSON each), blade folders (.blade.py
                          files found by their header), favourites, description and tags; secrets via keyring;

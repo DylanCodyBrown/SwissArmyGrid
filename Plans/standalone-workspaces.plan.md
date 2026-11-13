@@ -314,6 +314,15 @@ dropped in full; an import already there (in any form) is never repeated. Drag a
 - **Favourites:** pinned names in `blade_pins.json`, on this computer only, listed first.
 - Every one of these routes refuses the agent, like the rest of the blade routes.
 
+**Settings: fill in your values (done 2026-11-12, release 1.6.0; the owner's request: "auto detect ...
+the variables that are defined inside of the blades so when somebody imports a new blade it will suggest
+what variables to enter"):** `blade_core/fill.py` reads a blade's settings with `ast` (connection keyword
+arguments, `Key=value` parts of connection strings, top-level literals and paths, a path given to
+`connect`/`read_csv`/...; never a password, token or key), flags placeholders, suggests values from the
+user's other blades and a short list of standard environment variables, and writes a new value into
+exactly that span of the code. The save screen's **Settings** and the import review's **Fill in your
+values** use it (`/blades/inspect` returns them, `/blades/fill` writes, import takes `fill`).
+
 ## Phase 3: save and open a workspace
 
 A saved workspace is a folder (`<name>.sagw/`):

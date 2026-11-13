@@ -243,6 +243,15 @@ conn = psycopg.connect(host="db.example", user="reader", password=secret("passwo
   its description or any tag, and the tag chips narrow the list: tag a blade with the app it serves
   and searching for that app finds it.
 - **Favourites:** the star pins a blade to the top. Kept on this computer, never in the file.
+- **Fill in your values.** A blade from someone else is written with their server, database, user or
+  file path. SwissArmyGrid finds these settings in the code (read, never run): connection arguments
+  such as `host=` and `dbname=`, the parts of a connection string (`Server=...;Database=...;`), and top-level
+  values and paths (`path = Path(r"C:\data\orders.csv")`). The import review and the save screen show
+  a field for each, mark the ones still holding an example value (`my-server`, `<your host>`, a
+  starter's path) as **needs your value**, and suggest values from your other blades and from standard
+  environment variables such as `PGHOST`. Whatever you type is written into exactly that place in the
+  code. Passwords are never settings: they stay `secret("...")`, and the import review lets you type them
+  straight into this computer's vault.
 
 The agent reads catalogs with `catalog_list`, `catalog_schemas`, `catalog_tables`, `catalog_columns`
 (with a first SELECT quoted for the source) and `catalog_search`.

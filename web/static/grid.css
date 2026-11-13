@@ -1331,7 +1331,7 @@ table.small td.num {
 
 .statusbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* one line, so selecting a cell never moves the grid; the credit shrinks first */
   align-items: center;
   gap: 4px 18px;
   min-height: 30px;
@@ -1408,7 +1408,7 @@ dialog.wide {
 /* The column and table profiles: nearly the whole window, so long value lists and every column fit. */
 dialog.profile-window {
   width: min(1600px, calc(100vw - 32px));
-  height: calc(100vh - 48px);
+  max-height: calc(100vh - 48px);
 }
 
 dialog::backdrop {
@@ -1463,10 +1463,26 @@ dialog::backdrop {
 }
 
 .list-editor .row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)) auto;
+  /* A wrapping row: repeat(auto-fit, ...) beside an auto track is invalid CSS, so the browser dropped
+     the old grid rule and stacked every field. */
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: end;
+}
+
+.list-editor .row > .field,
+.list-editor .row > .check,
+.list-editor .row > label,
+.list-editor .row > select,
+.list-editor .row > input {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+
+.list-editor .row > .btn,
+.list-editor .row > div {
+  flex: none;
 }
 
 .hint {
@@ -1971,6 +1987,7 @@ body.popout .ribbon {
 }
 
 .credit {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
