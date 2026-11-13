@@ -14,6 +14,8 @@ const OUTSIDE = /^\s*(https?:|\/\/|image:\/\/|url\(|javascript:)/i;
 export interface EChartsDrawn {
   resize: () => void;
   destroy: () => void;
+  /** The chart as a PNG data URL on white, at twice its size on screen (for the markdown export). */
+  toPng: () => string;
 }
 
 function clean(value: unknown): unknown {
@@ -50,5 +52,9 @@ export function drawECharts(host: HTMLElement, text: string, dark: boolean): ECh
   const option = safeOption(text);
   const chart = echarts.init(host, dark ? "dark" : undefined, { renderer: "canvas" });
   chart.setOption({ backgroundColor: "transparent", color: themePalette(), ...option });
-  return { resize: () => chart.resize(), destroy: () => chart.dispose() };
+  return {
+    resize: () => chart.resize(),
+    destroy: () => chart.dispose(),
+    toPng: () => chart.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#ffffff" }),
+  };
 }

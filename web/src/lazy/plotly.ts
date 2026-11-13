@@ -14,6 +14,8 @@ const MAP_TRACES = /^(scattergeo|choropleth|scattermapbox|choroplethmapbox|densi
 export interface PlotlyDrawn {
   resize: () => void;
   destroy: () => void;
+  /** The figure as a PNG data URL, at twice its size on screen (for the markdown export). */
+  toPng: () => Promise<string>;
 }
 
 /** The figure, checked: a plain object with a data list. Throws with a plain message. */
@@ -80,5 +82,6 @@ export async function drawPlotly(host: HTMLElement, text: string, dark: boolean)
   return {
     resize: () => void Plotly.Plots.resize(host),
     destroy: () => Plotly.purge(host),
+    toPng: () => Plotly.toImage(host, { format: "png", width: host.clientWidth || 700, height: host.clientHeight || 420, scale: 2 } as never),
   };
 }

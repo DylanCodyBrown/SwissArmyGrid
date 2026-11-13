@@ -78,3 +78,41 @@ def test_cards_move_lay_out_on_pages_and_print(browser: Browser, server: dict[st
         expect(page.locator("body")).not_to_have_class("sandbox-printing", timeout=5000)  # restored after
     finally:
         page.close()
+
+
+def test_the_sandbox_exports_as_one_markdown_file_with_pictures(
+    browser: Browser, server: dict[str, Any]
+) -> None:
+    url = push_client.push(pd.DataFrame({"a": [1, 2, 3]}), name="export_demo", new_grid=True)  # made up
+    grid = url.split("/g/")[1].split("#")[0]
+    figure = '{"data": [{"type": "bar", "x": ["West", "North"], "y": [46, 15]}], "layout": {}}'
+    call(
+        server,
+        "POST",
+        f"/grids/{grid}/cards",
+        {"kind": "note", "title": "Findings", "body": f"# Late orders\n\n{TABLE}"},
+    )
+    call(
+        server, "POST", f"/grids/{grid}/cards", {"kind": "plotly", "title": "Late by region", "body": figure}
+    )
+    call(
+        server,
+        "POST",
+        f"/grids/{grid}/cards",
+        {"kind": "diagram", "title": "Flow", "body": "flowchart LR\n  A --> B"},
+    )
+    page = open_grid(browser, url, width=1400, height=1000)
+    try:
+        page.locator(".tab-agent").click()
+        expect(page.locator("#ai-panel .figure .main-svg").first).to_be_visible(timeout=20000)
+        with page.expect_download() as download:
+            page.get_by_role("button", name="Export markdown").click()
+        text = download.value.path().read_text(encoding="utf-8")
+        assert text.startswith("# Sandbox") and "`export_demo`" in text.splitlines()[2]  # the tables it holds
+        sections = [line for line in text.splitlines() if line.startswith("## ")]
+        assert sections[-3:] == ["## Findings", "## Late by region", "## Flow"]
+        assert "### Late orders" in text and "| West | 46% |" in text  # the note's heading moved down
+        assert "![Late by region](data:image/png;base64," in text
+        assert "![Flow](data:image/" in text  # a Mermaid drawing: PNG, or its SVG when labels are HTML
+    finally:
+        page.close()

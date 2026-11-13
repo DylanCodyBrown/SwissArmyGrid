@@ -48,3 +48,4 @@ export function fitToCard(svg: Element): void {
     svg.style.maxHeight = `${height}px`;
   }
 }
+

@@ -32,6 +32,7 @@ import { button, clear, formatCount, h, icon, isDateType, isNumericType, openDia
 import { renderMarkdown } from "./markdown";
 import { saveBlob } from "./profileView";
 import { state } from "./state";
+import { sandboxMarkdown, svgToPng } from "./sandboxExport";
 import { PAPERS, fitPages, makeMovable, moveCard, paginate, printPages, type Paper } from "./sandboxPages";
 import { effectiveTheme, onThemeChange, setTheme, themeChoice } from "./theme";
 import type { Drawn } from "./lazy/charts";
@@ -391,6 +392,7 @@ async function renderCards(body: HTMLElement): Promise<void> {
           )
         : null,
       button("Print to PDF", () => void printSandbox(), { icon: "export", title: "Print the pages (choose Save as PDF in the print dialog)" }),
+      button("Export markdown", () => void exportMarkdown(), { icon: "code", title: "The whole Sandbox as one markdown file, charts embedded as pictures: to keep, or to give an AI model" }),
     ),
   );
   let cards: Card[];
@@ -440,6 +442,31 @@ function setPaper(next: Paper): void {
   void render();
 }
 
+/** How each drawn card makes a picture of itself (for the markdown export), filled as cards draw. */
+const pictures = new Map<string, () => Promise<string | null>>();
+
+/** The whole Sandbox as one markdown file, every drawing a PNG; drawn on light paper like the PDF. */
+async function exportMarkdown(): Promise<void> {
+  const theme = themeChoice();
+  const dark = effectiveTheme() !== "light";
+  try {
+    if (dark) setTheme("light");
+    await render();
+    await new Promise((resolve) => setTimeout(resolve, 900)); // charts settle before their pictures
+    const { cards } = await api<{ cards: Card[] }>("/cards");
+    const text = await sandboxMarkdown(cards, (id) => pictures.get(id)?.() ?? Promise.resolve(null), new Date());
+    saveBlob(new Blob([text], { type: "text/markdown" }), `sandbox-${new Date().toISOString().slice(0, 10)}.md`);
+    toast(`Exported ${cards.length} card${cards.length === 1 ? "" : "s"} as markdown.`);
+  } catch (e) {
+    toast((e as Error).message, "error");
+  } finally {
+    if (dark) {
+      setTheme(theme);
+      void render();
+    }
+  }
+}
+
 /** Page view, on light paper, then the print dialog (Save as PDF); the theme and view come back after. */
 async function printSandbox(): Promise<void> {
   const wasPages = pageView();
@@ -467,6 +494,7 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
   const content = h("div", { class: "card-body" });
   const foot = h("div", { class: "card-foot" });
   let drawn: Drawn | null = null;
+  pictures.set(card.id, async () => (drawn ? drawn.toPng() : null));
   const actions = h(
     "span",
     { class: "actions" },
@@ -513,15 +541,18 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
     // Mermaid text (an ERD from the relationship model), drawn by the lazy Mermaid chunk.
     const slot = h("div", { class: "diagram", role: "img", "aria-label": card.title || "Diagram" });
     content.append(slot);
+    pictures.set(card.id, async () => { const svg = slot.querySelector("svg"); return svg ? svgToPng(svg) : null; });
     void diagrams().then((m) => m.drawDiagram(slot, card.body ?? "", dark));
   } else if (card.kind === "graphviz") {
     const slot = h("div", { class: "diagram", role: "img", "aria-label": card.title || "Graph" });
     content.append(slot);
+    pictures.set(card.id, async () => { const svg = slot.querySelector("svg"); return svg ? svgToPng(svg) : null; });
     void graphviz().then((m) => m.drawGraphviz(slot, card.body ?? "", dark)).catch((e: unknown) => failed(slot, e));
   } else if (card.kind === "plotly" || card.kind === "echarts") {
     const slot = h("div", { class: "figure", role: "img", "aria-label": card.title || KIND_NAMES[card.kind] });
     content.append(slot);
-    let drawnFigure: { resize: () => void } | null = null;
+    let drawnFigure: { resize: () => void; toPng: () => string | Promise<string> } | null = null;
+    pictures.set(card.id, async () => (drawnFigure ? drawnFigure.toPng() : null));
     fitDrawing(slot, async () => {
       try {
         if (drawnFigure) return drawnFigure.resize();
@@ -532,6 +563,7 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
     });
   } else if (card.kind === "image") {
     const source = card.body ?? "";
+    pictures.set(card.id, async () => (IMAGE_DATA.test(source) ? source : null));
     if (IMAGE_DATA.test(source)) content.append(h("img", { class: "card-image", src: source, alt: card.title || "Image" }));
     else content.append(h("p", { class: "error-text" }, "This image is not an inline PNG, JPEG, GIF, WebP or SVG picture."));
   } else if (card.kind === "table") {
