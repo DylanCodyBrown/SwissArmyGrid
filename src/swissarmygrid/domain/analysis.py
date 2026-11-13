@@ -645,3 +645,54 @@ def shape_note(v: float, r: float | None) -> str | None:
     if v >= 0.2 and abs(r) < 0.1:
         return "related, but not in a straight line: bucket it for a regression"
     return None
+
+
+# ===== the analysis as Python, for the notebook =====
+
+CODE_ARGUMENTS: dict[str, tuple[str, ...]] = {
+    "fit_test": ("columns", "expected", "shares"),
+    "outliers": ("column", "look", "method", "threshold", "by"),
+    "odds": ("column", "buckets", "outcome"),
+    "predictors": ("target", "candidates", "buckets"),
+}
+
+
+def _name_part(text: Any) -> str:
+    part = "".join(ch if ch.isalnum() else "_" for ch in str(text).lower()).strip("_")
+    return part or "result"
+
+
+def analysis_code(
+    analysis: str,
+    body: dict[str, Any],
+    table: str,
+    view_sql: str | None,
+    reference: str | None = None,
+) -> tuple[str, list[str]]:
+    """(code, imports): the analysis as one `swissarmygrid.stats` call over the analyst's own table
+    (`table`, the name it was pushed with), through the grid's steps as a DuckDB query when it has
+    any. The call is the function the window ran, so the numbers match."""
+    known = CODE_ARGUMENTS.get(analysis)
+    if known is None:
+        raise AnalysisError(f"No analysis {analysis!r}.")
+    args = {k: body[k] for k in known if body.get(k) not in (None, "", [], {})}
+    parts = [f"{k}={v!r}" for k, v in args.items()]
+    if analysis == "fit_test" and args.get("expected") == "grid":
+        given = body.get("reference")
+        ref: dict[str, Any] = given if isinstance(given, dict) else {}
+        if not reference:
+            raise AnalysisError("Testing against another grid needs that grid.")
+        parts.append(f"reference={reference}")
+        if ref.get("column"):
+            parts.append(f"reference_column={ref['column']!r}")
+    if view_sql:
+        quote_ = '"""' if '"""' not in view_sql else "'''"
+        data = f"duckdb.sql({quote_}\n{view_sql}\n{quote_})"
+        imports = ["import duckdb", "from swissarmygrid import stats"]
+    else:
+        data = table
+        imports = ["from swissarmygrid import stats"]
+    subject = args.get("column") or args.get("target") or (args.get("columns") or ["result"])[0]
+    variable = f"{_name_part(table)}_{analysis}_{_name_part(subject)}"
+    call = f"{variable} = stats.{analysis}(\n    {data},\n    " + ",\n    ".join(parts) + ",\n)"
+    return f"{call}\n{variable}", imports

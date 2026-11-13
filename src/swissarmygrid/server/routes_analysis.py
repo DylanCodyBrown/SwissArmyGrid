@@ -13,11 +13,15 @@
                               value's rate against the rest and its odds ratio with a 95% range
   POST /grids/{id}/predictors {"target", "candidates", "buckets"} -> each candidate tested together with
                               the target, ranked by Cramér's V; correlations; pairs that say the same
+  POST /grids/{id}/analysis-code {"analysis", "body"} -> {"code", "imports"}: the analysis as Python for
+                              the notebook (the steps as checked SQL, then the swissarmygrid.stats call)
 
 Both read; the agent may run them (cell values come back, so its tools mark them as data).
 """
 
 from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -39,39 +43,44 @@ def routes(grids: GridService, analysis: Analysis) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
-    async def outliers(request: Request) -> Response:
-        try:
-            grid, info = grids.find(request.path_params["grid_id"])
-            body = await read_json(request)
-            if not isinstance(body, dict):
-                raise ValueError('Send {"column": name, "look": "amount"}.')
-            return json_response(await analysis.outliers(grid, info, body, actor(request)))
-        except Exception as error:
-            return error_response(error)
+    def one(name: str, example: str) -> Callable[[Request], Awaitable[Response]]:
+        async def handle(request: Request) -> Response:
+            try:
+                grid, info = grids.find(request.path_params["grid_id"])
+                body = await read_json(request)
+                if not isinstance(body, dict):
+                    raise ValueError(f"Send {example}.")
+                return json_response(await analysis.run(name, grid, info, body, actor(request)))
+            except Exception as error:
+                return error_response(error)
 
-    async def odds(request: Request) -> Response:
-        try:
-            grid, info = grids.find(request.path_params["grid_id"])
-            body = await read_json(request)
-            if not isinstance(body, dict):
-                raise ValueError('Send {"column": name}, with "outcome" for odds ratios.')
-            return json_response(await analysis.odds(grid, info, body, actor(request)))
-        except Exception as error:
-            return error_response(error)
+        return handle
 
-    async def predictors(request: Request) -> Response:
+    async def code(request: Request) -> Response:
+        """The analysis as notebook Python (the page puts it in the notebook; not the agent's)."""
+        if actor(request) == "agent":
+            return Response("The notebook is the user's.", status_code=403)
         try:
             grid, info = grids.find(request.path_params["grid_id"])
             body = await read_json(request)
-            if not isinstance(body, dict):
-                raise ValueError('Send {"target": name}.')
-            return json_response(await analysis.predictors(grid, info, body, actor(request)))
+            if not isinstance(body, dict) or not isinstance(body.get("body"), dict):
+                raise ValueError('Send {"analysis": "odds", "body": {...the analysis request...}}.')
+            return json_response(await analysis.code(str(body.get("analysis")), grid, info, body["body"]))
         except Exception as error:
             return error_response(error)
 
     return [
         Route("/grids/{grid_id}/fit-test", fit_test, methods=["POST"]),
-        Route("/grids/{grid_id}/outliers", outliers, methods=["POST"]),
-        Route("/grids/{grid_id}/odds", odds, methods=["POST"]),
-        Route("/grids/{grid_id}/predictors", predictors, methods=["POST"]),
+        Route(
+            "/grids/{grid_id}/outliers",
+            one("outliers", '{"column": name, "look": "amount"}'),
+            methods=["POST"],
+        ),
+        Route(
+            "/grids/{grid_id}/odds",
+            one("odds", '{"column": name}, with "outcome" for odds ratios'),
+            methods=["POST"],
+        ),
+        Route("/grids/{grid_id}/predictors", one("predictors", '{"target": name}'), methods=["POST"]),
+        Route("/grids/{grid_id}/analysis-code", code, methods=["POST"]),
     ]

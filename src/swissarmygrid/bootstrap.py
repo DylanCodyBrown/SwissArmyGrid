@@ -175,7 +175,7 @@ def bootstrap(
         datasets=datasets,
         grids=GridService(ws, recipes, processes),
         profiles=Profiles(ws),
-        analysis=Analysis(ws),
+        analysis=Analysis(ws, verifier),
         sql=SqlBox(ws, datasets, table_reader),
         exports=Exports(ws, export_writer, tickets, now=lambda: datetime.now(UTC)),
         codes=CodeService(ws, verifier),

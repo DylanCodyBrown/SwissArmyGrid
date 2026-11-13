@@ -346,3 +346,61 @@ def test_find_predictors_ranks_flags_redundancy_and_skips_identifiers(
     assert by["region"]["strength"] == "moderate" and by["size"]["strength"] == "weak"
     assert late["redundant"] == [{"keep": "region", "drop": "office", "v": pytest.approx(1.0)}]
     assert by["office"]["same_as"] == "region"
+
+
+def same(a: Any, b: Any) -> bool:
+    """Equal, with numbers equal to 1e-9: sums in another order can differ in the last digit."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b, strict=True))
+    if isinstance(a, float) and isinstance(b, float):
+        return a == pytest.approx(b, rel=1e-9, abs=1e-12)
+    return bool(a == b)
+
+
+def test_the_notebook_code_gives_the_windows_numbers(client: TestClient, orders_grid: str) -> None:
+    """The code the page puts in the notebook: the grid's steps as checked SQL, then the same
+    swissarmygrid.stats call. Run on the analyst's own DataFrame, it matches the window."""
+    client.post(
+        f"/grids/{orders_grid}/step-ops",
+        json={
+            "op": "add",
+            "step": {"kind": "filter", "params": {"column": "size", "op": "eq", "value": "large"}},
+        },
+        headers=AUTH,
+    )
+    asks = {
+        "odds": {"column": "region", "outcome": {"column": "late", "values": ["late"]}},
+        "predictors": {"target": "late"},
+        "outliers": {"column": "amount", "by": "region"},
+        "fit_test": {"columns": ["region"], "expected": "even"},
+    }
+    routes = {"odds": "odds", "predictors": "predictors", "outliers": "outliers", "fit_test": "fit-test"}
+    namespace: dict[str, Any] = {"orders": orders().to_pandas()}
+    for analysis, body in asks.items():
+        window = client.post(f"/grids/{orders_grid}/{routes[analysis]}", json=body, headers=AUTH).json()
+        made = client.post(
+            f"/grids/{orders_grid}/analysis-code", json={"analysis": analysis, "body": body}, headers=AUTH
+        )
+        assert made.status_code == 200, made.text
+        code = made.json()["code"]
+        assert "duckdb.sql(" in code and "'large'" in code  # the filter step travels with it
+        exec("\n".join([*made.json()["imports"], code]), namespace)  # noqa: S102 (our own generated code)
+        variable = code.splitlines()[-1]
+        assert same(namespace[variable], window), analysis
+    refused = client.post(
+        f"/grids/{orders_grid}/analysis-code", json={"analysis": "odds", "body": {}}, headers=AGENT
+    )
+    assert refused.status_code == 403
+
+
+def test_stats_works_on_a_plain_dataframe() -> None:
+    from swissarmygrid import stats
+
+    frame = orders().to_pandas()
+    result = stats.odds(frame, column="region", outcome={"column": "late", "values": ["late"]})
+    assert result["values"][0]["value"] == "West" and result["values"][0]["clear"]
+    ranked = stats.predictors(frame, target="amount", candidates=["units", "region"])
+    assert [c["column"] for c in ranked["candidates"]] == ["units", "region"]
+    assert stats.chi_square_p(3.841458820694124, 1) == pytest.approx(0.05)
