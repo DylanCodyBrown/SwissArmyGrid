@@ -287,7 +287,9 @@ export function mountRail(host: RailHost): Rail {
           pressed: blade.pinned,
           title: blade.pinned ? `Unpin ${blade.name}` : `Pin ${blade.name} as a favourite (listed first)`,
         }),
-        h("span", { class: `blade-kind ${blade.kind}` }, kindLabel(blade.kind)),
+        blade.connection
+          ? h("span", { class: `blade-kind ${blade.connection === "database" ? "sql" : "other"}` }, blade.connection === "database" ? "Database" : "File")
+          : h("span", { class: `blade-kind ${blade.kind}` }, kindLabel(blade.kind)),
         h(
           "span",
           { class: "blade-text" },
@@ -312,14 +314,17 @@ export function mountRail(host: RailHost): Rail {
       h(
         "div",
         { class: "rail-head" },
-        h("h2", { id: "blades-title" }, "Blades"),
+        h("h2", { id: "blades-title" }, "Connections and blades"),
         button("Import blades", () => chooseBladeFiles(() => void loadBlades()), { icon: "import", iconOnly: true, class: "ghost", title: "Import .blade.py files or a zip (you review them first)" }),
         button("Export every blade", () => void exportBlades(), { icon: "export", iconOnly: true, class: "ghost", title: "Download every blade as a zip of .blade.py files" }),
         button("Blade folders", () => void editBladeFolders(() => void loadBlades()), { icon: "folder", iconOnly: true, class: "ghost", title: "Folders searched for .blade.py files" }),
         button("Packs", () => void openPacks(() => void loadBlades()), { icon: "group", iconOnly: true, class: "ghost", title: "Packs: blades and tangs from your team's Claude Code marketplace" }),
         button("New blade", () => void newBlade(), { icon: "plus", class: "ghost" }),
       ),
-      blades.length ? h("div", {}, bladeSearch, bladeTags, bladeList) : h("p", { class: "empty" }, "No blades yet. Any code that loads from outside Python can be one. Import a .blade.py file, or add a blade folder."),
+      // The list always shows (its Connections heading has Add connection); the search only once there is something to search.
+      blades.length
+        ? h("div", {}, bladeSearch, bladeTags, bladeList)
+        : h("div", {}, bladeList, h("p", { class: "empty" }, "No blades yet. Any code that loads from outside Python can be one. Import a .blade.py file, or add a blade folder.")),
     );
     renderBladeList();
   }

@@ -4322,3 +4322,272 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   white-space: nowrap;
 }
 
+/* ===== THE WORKBENCH (workbench.html: workbenchPage.ts, workbenchNotebook.ts, workbenchScript.ts) ===== */
+.workbench-page {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.wb-layout {
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+}
+
+.wb-layout > .cat-rail {
+  flex: none;
+  width: 320px;
+  overflow: auto;
+}
+
+.wb-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.wb-toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 16px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.wb-toolbar .ribbon-tools {
+  padding: 3px 4px;
+}
+
+.wb-toolbar .btn {
+  border-color: transparent;
+  background: transparent;
+}
+
+.wb-toolbar .btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.wb-toolbar select {
+  max-width: 280px;
+}
+
+.wb-state {
+  color: var(--muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.wb-state.busy,
+.wb-state.starting {
+  color: var(--warn);
+}
+
+.wb-state.idle {
+  color: var(--ok);
+}
+
+.wb-tabs {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 2px;
+  min-height: 34px;
+  padding: 4px 8px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-doc {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.wb-doc-body {
+  min-height: 100%;
+}
+
+.wb-doc-body.kind-blade,
+.wb-doc-body.kind-table {
+  padding: 16px 20px;
+}
+
+.wb-welcome {
+  max-width: 720px;
+  margin: 10vh auto 0;
+  padding: 0 20px;
+}
+
+.wb-recent {
+  list-style: none;
+  padding: 0;
+}
+
+.wb-cells {
+  display: grid;
+  gap: 10px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 14px 20px 40vh;
+}
+
+.wb-cell {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.wb-cell.selected {
+  border-left-color: var(--accent);
+}
+
+.wb-cell.running {
+  border-left-color: var(--warn);
+}
+
+.wb-cell.kind-sql .wb-cell-head {
+  background: var(--accent-soft);
+}
+
+.wb-cell-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+}
+
+.wb-cell-head .spacer,
+.wb-console-head .spacer {
+  flex: 1;
+}
+
+.wb-count {
+  min-width: 3.5em;
+  color: var(--muted);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.85em;
+}
+
+.wb-editor {
+  min-height: 22px;
+  padding: 4px 0;
+}
+
+.wb-cell.kind-markdown.rendered .wb-editor {
+  display: none;
+}
+
+.wb-outputs:empty {
+  display: none;
+}
+
+.wb-outputs {
+  padding: 6px 10px 8px;
+  border-top: 1px dashed var(--border);
+  overflow-x: auto;
+}
+
+.wb-stream,
+.wb-text,
+.wb-error {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.wb-stream.stderr {
+  color: var(--warn);
+}
+
+.wb-error {
+  color: var(--error);
+}
+
+.wb-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.wb-html {
+  display: block;
+  width: 100%;
+  height: 120px;
+  border: 0;
+}
+
+.wb-plotly {
+  height: 420px;
+}
+
+.wb-script {
+  display: grid;
+  grid-template-rows: minmax(160px, 3fr) minmax(140px, 2fr);
+  height: 100%;
+}
+
+.wb-script-editor {
+  min-height: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-console {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+}
+
+.wb-console-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-console-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 10px;
+}
+
+.wb-console-entry {
+  margin-bottom: 8px;
+}
+
+.wb-console-code {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.wb-console-entry .wb-outputs {
+  border-top: 0;
+  padding: 2px 0 0;
+}
+
+.wb-console-input {
+  margin: 6px 10px 8px;
+}
+
+.tab-workbench .icon-svg:last-child {
+  width: 12px;
+  height: 12px;
+  opacity: 0.6;
+}
+

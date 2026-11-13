@@ -72,18 +72,25 @@ export function chooseFile(options: ChooseOptions): Promise<string | null> {
       }
     };
 
+    // Only the newest listing is drawn: a path typed while the first folder is still being read would
+    // otherwise be replaced by that first answer when it arrives late.
+    let asked = 0;
     const go = async (path: string | null): Promise<void> => {
       const query = new URLSearchParams();
       if (path) query.set("path", path);
       if (options.suffixes?.length) query.set("suffixes", options.suffixes.join(","));
       status.textContent = "Reading the folder…";
+      const mine = ++asked;
+      let found: Listing;
       try {
-        shown = await api<Listing>(`/folders?${query}`);
+        found = await api<Listing>(`/folders?${query}`);
       } catch (e) {
-        status.textContent = (e as Error).message;
+        if (mine === asked) status.textContent = (e as Error).message;
         return;
       }
-      const at = shown;
+      if (mine !== asked) return;
+      shown = found;
+      const at = found;
       where.value = at.path;
       clear(roots, ...at.roots.map((r) => h("option", { value: r, selected: r === at.path }, r === at.home ? `Home (${r})` : r)));
       const rows = [

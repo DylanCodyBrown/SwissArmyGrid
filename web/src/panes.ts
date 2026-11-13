@@ -30,7 +30,7 @@
  *          [PREVIEW BANNER] per pane -> state.setPreview(null)
  *          [EMPTY STATE]    -> read-only, when no grid is open
  */
-import { api, useGrid } from "./api";
+import { api, token, useGrid } from "./api";
 import { button, clear, h, icon, recall, remember, toast } from "./dom";
 import { createGridView, setActiveView, type GridView } from "./gridView";
 import { openMenuButton } from "./openMenu";
@@ -463,6 +463,23 @@ function render(): void {
       icon("crown"),
       h("span", { class: "tab-label" }, "ERD"),
     ),
+    // The Workbench tab: notebooks and scripts, always in a window of their own (code never sits in
+    // the grid page, so it can go on another screen); this opens it, or brings it forward.
+    h(
+      "div",
+      {
+        class: "tab-item tab-app tab-workbench",
+        role: "tab",
+        tabindex: "-1",
+        "aria-selected": "false",
+        title: "The Workbench: notebooks and Python scripts with your connections and blades, in its own window",
+        onclick: () => openWorkbench(),
+        onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter") openWorkbench(); },
+      },
+      icon("code"),
+      h("span", { class: "tab-label" }, "Workbench"),
+      icon("popout"),
+    ),
     ...order.map((id) => {
       const selected = id === activeId && view === "grid";
       const inSplit = split?.includes(id) ?? false;
@@ -575,4 +592,10 @@ function onTabKey(event: KeyboardEvent, id: string): void {
   else if (event.key === "End") go(order.length - 1);
   else if (event.key === "Enter" || event.key === " ") void activateGrid(id);
   else if (event.key === "Delete") void closeGrid(id);
+}
+
+/** Open the Workbench in its own window, or bring it forward (one window, by name). */
+export function openWorkbench(): void {
+  const opened = window.open(`/workbench#token=${encodeURIComponent(token)}`, "swissarmygrid-workbench");
+  opened?.focus();
 }
