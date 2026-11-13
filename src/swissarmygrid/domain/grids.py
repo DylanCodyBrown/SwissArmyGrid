@@ -41,6 +41,7 @@ def view_key(info: DatasetInfo, steps: list[Step], settings: ViewSettings, upto:
         {
             "d": info.name,
             "v": info.version,
+            "n": info.serial,
             "s": [s.to_json() | {"id": ""} for s in steps],
             "o": settings.to_json(),
             "u": upto,

@@ -62,6 +62,9 @@ class DatasetInfo:
     nbytes: int
     # The SELECT that built it (a "+" tab's table), kept so its tab can show and re-run it.
     query: str | None = None
+    # Which load of the store this is: no two loads share one, so a table closed and opened again
+    # under its old name (version 1 once more) is never taken for the table it replaced.
+    serial: int = 0
 
     @property
     def table(self) -> str:

@@ -15,6 +15,7 @@ against file access (database.py). CSV, tab-separated text, JSON, Parquet, Arrow
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import os
 import re
@@ -172,6 +173,8 @@ class DatasetStore:
         self.max_total_bytes = max_total_bytes
         self.max_datasets = max_datasets
         self._datasets: dict[str, DatasetInfo] = {}
+        # Every load's own number (DatasetInfo.serial), which the caches kept by view key rely on.
+        self._serial = itertools.count(1)
         # Pushes are serialized so a table, its version and the budget change together.
         self._lock = threading.Lock()
 
@@ -240,6 +243,7 @@ class DatasetStore:
                 source_kind=source_kind if source_kind in SOURCE_KINDS else "unknown",
                 nbytes=size,
                 query=query,
+                serial=next(self._serial),
             )
             self._datasets[name] = info
             return info
