@@ -26,6 +26,7 @@
  * ?panel=steps opens only the steps panel (the pop-out window), and ?panel=keys only the Key
  * Finder; both follow the same server state through the WebSocket, so edits show in every window.
  */
+import { mountContextMenus } from "./cellMenu";
 import { api, connect, gridId, onNotice, openedWith, token, type Notice } from "./api";
 import { mountSnapshots } from "./snapshot";
 import { handleAgentNotice, loadApprovals } from "./agentAccess";
@@ -136,6 +137,7 @@ async function startSingle(): Promise<void> {
   });
   onNotice(onLiveNotice);
   mountSnapshots();
+  mountContextMenus();
   if (keysWindow) {
     // The Key Finder window: the finder alone, full width, titled for this grid.
     document.title = "SwissArmyGrid · Key Finder";
@@ -202,6 +204,7 @@ async function start(): Promise<void> {
   onSplitCreated((left, right) => openCompareDialog(left, right));
   onNotice(onLiveNotice);
   mountSnapshots();
+  mountContextMenus();
   mountOpenMenu();
   // This page shows every grid as a tab, so a push while it is open adds a tab, not a window.
   // Each (re)connect fetches the agent's requests already waiting: one made before the socket was

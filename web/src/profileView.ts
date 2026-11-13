@@ -10,6 +10,8 @@
  */
 import { api, download, grid, query } from "./api";
 import { button, clear, formatCount, h, openDialog, toast } from "./dom";
+import { profileCards, tableProfileCards } from "./analysisCards";
+import { sendCards } from "./analyzeMenu";
 import { formatTemporal } from "./gridView";
 import { state } from "./state";
 
@@ -139,7 +141,10 @@ export function openColumnProfile(column: string): void {
   for (const c of state.previewColumns()) picker.append(h("option", { value: c.name, selected: c.name === column }, c.name));
   const slot = h("div");
   body.append(h("div", { class: "code-toolbar", style: { marginBottom: "10px" } }, picker, h("span", { class: "hint" }, "Click a value to add a filter step.")), slot);
-  foot.append(button("Close", close, { class: "primary" }));
+  foot.append(
+    button("Send to Sandbox", () => void profileToSandbox(picker.value), { icon: "image", title: "This profile, as a note and a chart, in the Sandbox" }),
+    button("Close", close, { class: "primary" }),
+  );
   const show = async (name: string): Promise<void> => {
     (body.closest("dialog")?.querySelector(".dialog-head h2") as HTMLElement | null)?.replaceChildren(`Profile of ${name}`);
     clear(slot);
@@ -148,12 +153,24 @@ export function openColumnProfile(column: string): void {
   void show(column);
 }
 
+/** A column's profile in the Sandbox: its numbers and most common values, and its histogram. */
+export async function profileToSandbox(column: string): Promise<void> {
+  try {
+    const p = await api<Profile>(`${grid}/profile${query({ column, upto: state.previewUpto })}`);
+    await sendCards(profileCards(p, state.info?.dataset ?? ""));
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
 export async function openTableProfile(): Promise<void> {
   const { dialog, body, foot, close } = openDialog("Profile of the whole view", true);
   dialog.classList.add("profile-window");
   body.append(h("p", { class: "hint" }, "Profiling every column…"));
+  let profiled: { rows: number; duplicate_rows: number; columns: Record<string, unknown>[] } | null = null;
   try {
     const result = await api<{ rows: number; duplicate_rows: number; columns: Record<string, unknown>[] }>(`${grid}/profile${query({ upto: state.previewUpto })}`);
+    profiled = result;
     const head = ["Column", "Type", "Blank", "Blank %", "Distinct", "Min", "Max"];
     clear(
       body,
@@ -189,6 +206,7 @@ export async function openTableProfile(): Promise<void> {
     clear(body, h("p", { class: "status-error" }, (e as Error).message));
   }
   foot.append(
+    button("Send to Sandbox", () => void (profiled ? sendCards(tableProfileCards(profiled, state.info?.dataset ?? "")) : undefined), { icon: "image", title: "This profile, as a table, in the Sandbox" }),
     button(
       "Export profile (CSV)",
       () =>

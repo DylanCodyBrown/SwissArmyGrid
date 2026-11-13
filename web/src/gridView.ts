@@ -166,6 +166,13 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
           onmouseenter: () => {
             if (dragging === "columns") selection.selectColumns(name, "extend");
           },
+          // Right-click: the column's menu (cellMenu.ts), the column selected first unless it already is.
+          oncontextmenu: (event: MouseEvent) => {
+            if (!headerMenu) return;
+            event.preventDefault();
+            if (!selection.hasColumn(name)) selection.selectColumns(name, "replace");
+            headerMenu(name, event);
+          },
         },
         h(
           "div",
@@ -513,6 +520,17 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
         if (Date.now() - lastPointerDown < 400 || shiftHeld || event.rowIndex == null) return;
         const column = typeof event.column === "string" ? event.column : event.column?.getColId();
         if (column && column !== ROWNUM && column !== MARKER && column !== FILLER) selection.selectCells(event.rowIndex, column, false);
+      },
+      // Right-click: the cell's menu (cellMenu.ts). The cell is selected and focused first unless it is
+      // already in the selection, so Keep these, Exclude these and View value act on what was clicked.
+      preventDefaultOnContextMenu: true,
+      onCellContextMenu: (event) => {
+        const column = event.column.getColId();
+        if (!cellMenu || [MARKER, FILLER, ROWNUM].includes(column) || event.rowIndex == null) return;
+        if (!selection.hasCell(event.rowIndex, column)) selection.selectCells(event.rowIndex, column, false);
+        gridApi?.setFocusedCell(event.rowIndex, column);
+        const mouse = event.event as MouseEvent | null;
+        cellMenu({ row: event.rowIndex, column, data: (event.data ?? {}) as Record<string, unknown>, x: mouse?.clientX ?? 0, y: mouse?.clientY ?? 0 });
       },
       onCellDoubleClicked: (event) => {
         const column = event.column.getColId();
@@ -976,6 +994,27 @@ let active: GridView | null = null;
 
 /** The active grid's selection (a live binding: it changes when another grid becomes active). */
 export let selection = new GridSelection();
+
+// ===== right-click menus: the grid says where; cellMenu.ts says what =====
+
+export interface CellClick {
+  row: number;
+  column: string;
+  data: Record<string, unknown>;
+  x: number;
+  y: number;
+}
+
+let cellMenu: ((click: CellClick) => void) | null = null;
+let headerMenu: ((column: string, event: MouseEvent) => void) | null = null;
+
+export function onCellMenu(listener: (click: CellClick) => void): void {
+  cellMenu = listener;
+}
+
+export function onHeaderMenu(listener: (column: string, event: MouseEvent) => void): void {
+  headerMenu = listener;
+}
 
 export function setActiveView(view: GridView): void {
   active = view;

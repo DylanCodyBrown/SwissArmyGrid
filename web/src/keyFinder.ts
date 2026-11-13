@@ -19,6 +19,8 @@
  *          [RESULT ROW]      click -> showSample(pair)  (shared values, and values the target lacks)
  *          [SHOW ALL]        -> expands the table past the first 25 pairs
  */
+import { mdTable, type SandboxCard } from "./analysisCards";
+import { sendCards } from "./analyzeMenu";
 import { api, grid, gridId, token } from "./api";
 import { button, clear, formatCount, h, icon, toast } from "./dom";
 import { isKnownPair, loadRelationships } from "./relationships";
@@ -86,6 +88,22 @@ export function openKeyFinderWindow(): void {
 }
 
 const pct = (share: number): string => `${(Math.round(share * 1000) / 10).toLocaleString()}%`;
+
+/** The Key Finder's pairs as a Sandbox note: which columns share values, and how much of each side. */
+function keyFinderCards(result: Result): SandboxCard[] {
+  const share = (v: number): string => `${Math.round(100 * v)}%`;
+  const markdown = [
+    `# Likely join columns for ${result.source}`,
+    `**${formatCount(result.pair_count)} column pair${result.pair_count === 1 ? "" : "s"} share values** with ${result.targets.map((t) => `\`${t.dataset}\``).join(", ") || "no other grid"}.`,
+    "",
+    mdTable(
+      [`${result.source} column`, "Table", "Column", "Relationship", `Found from ${result.source}`, "Found from the other", "Shared values"],
+      result.pairs.slice(0, 15).map((p) => [p.source_column, p.target_dataset, p.target_column, p.relationship, share(p.source_found), share(p.target_found), p.shared]),
+      [false, false, false, false, true, true, true],
+    ),
+  ].join("\n");
+  return [{ kind: "note", title: `Join columns for ${result.source}`, body: markdown, size: { w: 12, h: Math.min(16, 5 + Math.min(15, result.pairs.length)) } }];
+}
 
 export async function renderKeyFinder(body: HTMLElement): Promise<void> {
   await loadRelationships();
@@ -164,6 +182,7 @@ export async function renderKeyFinder(body: HTMLElement): Promise<void> {
           )
         : h("p", {}, "No column shares any value with the chosen grid(s)."),
       result.pairs.length > shown.length ? button(`Show all ${formatCount(result.pairs.length)}`, () => { showAll = true; draw(); }, { class: "small" }) : null,
+      result.pairs.length ? button("Send to Sandbox", () => void sendCards(keyFinderCards(result)), { icon: "image", class: "small", title: "These column pairs, as a table, in the Sandbox" }) : null,
       skippedHere.length || skippedThere.length
         ? h(
             "details",

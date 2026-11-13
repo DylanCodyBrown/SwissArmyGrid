@@ -3895,3 +3895,25 @@ body.popout .app-row {
     padding: 2px 4px;
   }
 }
+
+/* The right-click menus (cellMenu.ts): the .menu card, labelled, with rules between groups. */
+.context-menu {
+  min-width: 220px;
+}
+
+.menu-label {
+  padding: 4px 10px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.menu-rule {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}

@@ -19,7 +19,10 @@
  *          [COPY]         -> copies the current layer (pretty JSON or the text)
  *          [KIND BADGE]   -> read-only, from detect(value)
  */
+import { valueCards } from "./analysisCards";
+import { sendCards } from "./analyzeMenu";
 import { button, clear, formatCount, h, openDialog, toast } from "./dom";
+import { state } from "./state";
 
 type Kind = "object" | "array" | "table" | "markdown" | "text" | "number" | "boolean" | "blank" | "short";
 interface Layer {
@@ -76,6 +79,7 @@ export function openValueViewer(title: string, value: unknown): void {
   };
 
   foot.append(
+    button("Send to Sandbox", () => void sendCards(valueCards(current().value, layers.map((l) => l.label).join(" › "), state.info?.dataset ?? "")), { icon: "image", title: "This value, as a note, in the Sandbox" }),
     button("Copy", () => {
       const v = current().value;
       const text = typeof v === "string" ? v : JSON.stringify(v, null, 2);

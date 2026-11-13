@@ -90,11 +90,19 @@ export function resultButtons(actions: ResultActions): HTMLButtonElement[] {
   return out;
 }
 
-async function toSandbox(actions: ResultActions): Promise<void> {
+/** Add cards to the Sandbox, filed with the grid in front; says what arrived. */
+export async function sendCards(cards: SandboxCard[]): Promise<void> {
   try {
-    const cards = actions.cards();
     for (const card of cards) await api(`${grid}/cards`, "POST", card);
     toast(`In the Sandbox: ${cards.length === 1 ? "a note" : "a note and its chart"}.`);
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+async function toSandbox(actions: ResultActions): Promise<void> {
+  try {
+    await sendCards(actions.cards());
   } catch (e) {
     toast((e as Error).message, "error");
   }

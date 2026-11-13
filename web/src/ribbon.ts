@@ -221,7 +221,7 @@ async function keepColumns(keep: string[]): Promise<void> {
 }
 
 /** Keep (or exclude) rows whose value in the column is one of the selected cells' values. */
-async function filterByCells(keep: boolean): Promise<void> {
+export async function filterByCells(keep: boolean): Promise<void> {
   const cells = targetCells();
   if (typeof cells === "string") return;
   const column = viewColumns().find((c) => c.name === cells.column);
