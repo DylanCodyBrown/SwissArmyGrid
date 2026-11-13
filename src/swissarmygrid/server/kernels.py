@@ -1,0 +1,205 @@
+"""IPython kernels for the Workbench (jupyter_client, approved 2026-11-13): one per open notebook or script,
+started on the user's first Run, in the Python they chose. Each kernel runs as its own process on this
+computer; jupyter_client tells it this server's process id, so it ends when the server does.
+
+`execute` yields the run's outputs as they arrive, as nbformat's own output records (stream,
+execute_result, display_data, error), then a last {"done": ...}. One run at a time per kernel: a second
+waits for the first (as Jupyter queues cells).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any
+
+from jupyter_client.kernelspec import KernelSpec
+from jupyter_client.manager import AsyncKernelManager
+
+_START_SECONDS: float = 60.0
+_IDLE_POLL_SECONDS: float = 0.5
+# Run quietly once a kernel is ready: the package (sag.*, the %%sql cells, tables as grids) when that
+# Python has it. A Python without it still runs code; the Workbench says how to add it.
+_SETUP = "try:\n    import swissarmygrid as sag\nexcept ImportError:\n    pass\n"
+
+
+class KernelError(ValueError):
+    """A kernel that cannot start or run (the message says why and what to do)."""
+
+
+def check_python(python: str) -> dict[str, Any]:
+    """Whether a Python can run a kernel: its version, and whether it has ipykernel and swissarmygrid."""
+    path = Path(python).expanduser()
+    if not path.is_file():
+        raise KernelError(f"{python} is not a Python on this computer.")
+    probe = (
+        "import sys, importlib.util as u;"
+        "print(sys.version.split()[0]);"
+        "print(bool(u.find_spec('ipykernel')));"
+        "print(bool(u.find_spec('swissarmygrid')))"
+    )
+    try:
+        done = subprocess.run(  # noqa: S603 (a Python the user chose, asked three fixed questions)
+            [str(path), "-c", probe], capture_output=True, text=True, timeout=30, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise KernelError(f"{python} did not answer: {error}") from None
+    lines = done.stdout.split()
+    if done.returncode != 0 or len(lines) != 3:
+        raise KernelError(f"{python} is not a Python that runs: {done.stderr.strip()[-300:]}")
+    return {
+        "python": str(path),
+        "version": lines[0],
+        "ipykernel": lines[1] == "True",
+        "swissarmygrid": lines[2] == "True",
+    }
+
+
+def candidates(folders: list[str]) -> list[str]:
+    """Pythons worth offering: this server's own, then a project's .venv beside recent files."""
+    found = [sys.executable]
+    for folder in folders:
+        for parent in [Path(folder), *Path(folder).parents][:4]:
+            for rel in ("Scripts/python.exe", "bin/python"):
+                candidate = parent / ".venv" / rel
+                if candidate.is_file() and str(candidate) not in found:
+                    found.append(str(candidate))
+    return found[:12]
+
+
+class Kernel:
+    def __init__(self, manager: AsyncKernelManager, python: str, sockets: str | None = None) -> None:
+        self.manager = manager
+        self.client = manager.client()
+        self.python = python
+        self._sockets = sockets  # the private folder of its local sockets, removed when it ends
+        self._lock = asyncio.Lock()
+
+    async def ready(self) -> None:
+        self.client.start_channels()
+        try:
+            await self.client.wait_for_ready(timeout=_START_SECONDS)
+        except RuntimeError as error:
+            raise KernelError(f"The kernel did not start: {error}") from None
+        async for _ in self.execute(_SETUP, silent=True):
+            pass
+
+    async def execute(self, code: str, silent: bool = False) -> AsyncIterator[dict[str, Any]]:
+        async with self._lock:
+            msg_id = self.client.execute(code, silent=silent, store_history=not silent, allow_stdin=False)
+            count: int | None = None
+            ok = True
+            while True:
+                try:
+                    msg = await self.client.get_iopub_msg(timeout=_IDLE_POLL_SECONDS)
+                except Exception:  # queue.Empty: nothing yet; is the kernel still alive?
+                    if not await self.manager.is_alive():
+                        yield {"done": {"ok": False, "dead": True, "execution_count": count}}
+                        return
+                    continue
+                if msg.get("parent_header", {}).get("msg_id") != msg_id:
+                    continue
+                kind, content = msg["msg_type"], msg["content"]
+                if kind == "status" and content.get("execution_state") == "idle":
+                    break
+                if kind == "execute_input":
+                    count = content.get("execution_count")
+                elif kind == "stream":
+                    yield {"output_type": "stream", "name": content["name"], "text": content["text"]}
+                elif kind in ("execute_result", "display_data"):
+                    record = {
+                        "output_type": kind,
+                        "data": content.get("data", {}),
+                        "metadata": content.get("metadata", {}),
+                    }
+                    if kind == "execute_result":
+                        record["execution_count"] = content.get("execution_count")
+                    yield record
+                elif kind == "error":
+                    ok = False
+                    yield {
+                        "output_type": "error",
+                        "ename": content.get("ename", ""),
+                        "evalue": content.get("evalue", ""),
+                        "traceback": content.get("traceback", []),
+                    }
+                elif kind == "clear_output":
+                    yield {"clear": True}
+            yield {"done": {"ok": ok, "execution_count": count}}
+
+    async def interrupt(self) -> None:
+        await self.manager.interrupt_kernel()
+
+    async def restart(self) -> None:
+        await self.manager.restart_kernel(now=True)
+        self.client.stop_channels()
+        self.client = self.manager.client()
+        await self.ready()
+
+    async def shutdown(self) -> None:
+        self.client.stop_channels()
+        try:
+            await self.manager.shutdown_kernel(now=True)
+        except Exception:  # noqa: S110 (already gone)
+            pass
+        if self._sockets:
+            shutil.rmtree(self._sockets, ignore_errors=True)
+
+
+async def start(python: str, folder: str | None, environ: dict[str, str]) -> Kernel:
+    """A kernel in `python`, its working folder `folder` (the document's), ready to run."""
+    found = check_python(python)
+    if not found["ipykernel"]:
+        raise KernelError(
+            f"{python} has no ipykernel, which runs the Workbench's code. Install it there: "
+            f"uv pip install --python {python} ipykernel"
+        )
+    manager = AsyncKernelManager()
+    sockets: str | None = None
+    if sys.platform != "win32":
+        # Local files (Unix sockets), not network ports: only this user reaches the kernel. They are
+        # named by a full path in a private folder (a relative name would be read from the kernel's
+        # working folder, the document's, and the server's own: two places). Windows has no such
+        # transport; there its ports listen on 127.0.0.1 and every message is signed.
+        sockets = tempfile.mkdtemp(prefix="swissarmygrid-kernel-")
+        manager.transport = "ipc"
+        manager.ip = os.path.join(sockets, "kernel")
+    manager._kernel_spec = KernelSpec(  # one kernel's command: this Python, no kernelspec file needed
+        argv=[found["python"], "-m", "ipykernel_launcher", "-f", "{connection_file}"],
+        display_name="Python",
+        language="python",
+        env={},
+    )
+    cwd = folder if folder and os.path.isdir(folder) else str(Path.home())
+    try:
+        await manager.start_kernel(cwd=cwd, env=environ)
+    except Exception as error:
+        if sockets:
+            shutil.rmtree(sockets, ignore_errors=True)
+        raise KernelError(f"The kernel did not start: {error}") from None
+    kernel = Kernel(manager, found["python"], sockets)
+    try:
+        await kernel.ready()
+    except Exception:
+        await kernel.shutdown()
+        raise
+    return kernel
+
+
+class Launcher:
+    """The Workbench's kernels port (services/workbench.py)."""
+
+    async def start(self, python: str, folder: str | None, environ: dict[str, str]) -> Kernel:
+        return await start(python, folder, environ)
+
+    def check_python(self, python: str) -> dict[str, Any]:
+        return check_python(python)
+
+    def candidates(self, folders: list[str]) -> list[str]:
+        return candidates(folders)

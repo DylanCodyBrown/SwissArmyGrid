@@ -57,7 +57,8 @@ def payload(
         "kind": blade.kind,
         "code": blade.code,
         "variable": blade.variable,
-        "secrets": store.saved_secrets(blade),
+        # A draft's typed passwords (the Add connection form's Test, nothing saved) over the saved ones.
+        "secrets": store.saved_secrets(blade) | dict((extra or {}).get("secrets", {})),
         "catalog": {"language": blade.catalog_language, "command": blade.catalog_command},
         "vault_mapping": blade.vault_mapping,
         "vaults": [
@@ -169,7 +170,7 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
             return _analysis(value, job)
         try:
             if job["mode"] == "test":
-                return {"ok": True, "type": f"{type(value).__module__}.{type(value).__qualname__}"}
+                return _tested(value)
             catalog = job["catalog"]
             columns, rows = run_catalog(
                 value, names, catalog["language"], catalog["command"], hidden, job["label"]
@@ -183,6 +184,23 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
             if secret and len(secret) >= 3:
                 message = message.replace(secret, "****")
         return {"error": message, "missing_module": error.missing_module}
+
+
+def _tested(value: Any) -> dict[str, Any]:
+    """A test's answer: what the code made. A path must be there (making a Path always works)."""
+    import os
+    from pathlib import Path
+
+    made = {"ok": True, "type": f"{type(value).__module__}.{type(value).__qualname__}"}
+    if isinstance(value, os.PathLike):
+        path = Path(value).expanduser()
+        if path.is_dir():
+            files = [p for p in path.iterdir() if p.is_file()]
+            return made | {"found": f"a folder of {len(files)} file{'' if len(files) == 1 else 's'}"}
+        if path.is_file():
+            return made | {"found": f"a file of {path.stat().st_size:,} bytes"}
+        return {"error": f"{path} is not there: check the path (and that this computer can reach it)."}
+    return made
 
 
 def _analysis(function: Any, job: dict[str, Any]) -> dict[str, Any]:

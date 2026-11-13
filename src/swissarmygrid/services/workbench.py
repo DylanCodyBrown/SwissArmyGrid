@@ -1,0 +1,180 @@
+"""The Workbench (Plans/workbench-and-connections.plan.md): notebooks and scripts, opened and saved on
+the user's click, and the IPython kernels that run them. The user's alone: the agent is refused at the
+door (milestone 9, an agent's code sandbox, stays unbuilt)."""
+
+from __future__ import annotations
+
+import secrets as tokens
+from collections.abc import AsyncIterator, Callable, Mapping
+from typing import Any, Protocol
+
+from swissarmygrid.domain import notebooks as rules
+from swissarmygrid.services.workspace import Conflict, NotFound, Workspace
+
+MAX_KERNELS: int = 12
+
+
+class Documents(Protocol):
+    default_folder: Any
+
+    def read(self, path: str) -> tuple[str, str, float]: ...
+
+    def modified(self, path: str) -> float | None: ...
+
+    def write(self, path: str, text: str) -> tuple[str, float]: ...
+
+    def recent(self) -> list[dict[str, Any]]: ...
+
+    def remember(self, path: str, when: float) -> None: ...
+
+
+class Kernel(Protocol):
+    python: str
+
+    def execute(self, code: str, silent: bool = False) -> AsyncIterator[dict[str, Any]]: ...
+
+    async def interrupt(self) -> None: ...
+
+    async def restart(self) -> None: ...
+
+    async def shutdown(self) -> None: ...
+
+
+class Kernels(Protocol):
+    async def start(self, python: str, folder: str | None, environ: dict[str, str]) -> Kernel: ...
+
+    def check_python(self, python: str) -> dict[str, Any]: ...
+
+    def candidates(self, folders: list[str]) -> list[str]: ...
+
+
+class Workbench:
+    def __init__(
+        self,
+        ws: Workspace,
+        documents: Documents,
+        kernels: Kernels,
+        environ: Mapping[str, str],
+        now: Callable[[], float],
+        folder_of: Callable[[str], str],
+    ) -> None:
+        self.ws = ws
+        self._documents = documents
+        self._kernels = kernels
+        self._environ = environ
+        self._now = now
+        self._folder_of = folder_of  # a file's folder (pathlib lives in the adapters)
+        self._running: dict[str, Kernel] = {}
+
+    # ===== files =====
+
+    def home(self) -> dict[str, Any]:
+        """Where Save as starts, and the recent files."""
+        return {"folder": str(self._documents.default_folder), "recent": self._documents.recent()}
+
+    def open(self, path: Any) -> dict[str, Any]:
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError('Send {"path": "C:\\\\...\\\\analysis.ipynb"}.')
+        kind = rules.kind_of(path)
+        try:
+            text, full, modified = self._documents.read(path)
+        except FileNotFoundError as error:
+            raise NotFound(str(error)) from None
+        self._documents.remember(full, self._now())
+        self.ws.audit.write("user", "open_document", full)
+        if kind == "notebook":
+            cells = [c.to_json() for c in rules.read_notebook(text)]
+            return {"path": full, "kind": kind, "modified": modified, "cells": cells}
+        return {"path": full, "kind": kind, "modified": modified, "text": text}
+
+    def save(self, body: Any) -> dict[str, Any]:
+        """Save a notebook's cells or a script's text. A file changed on disk since it was opened is not
+        overwritten unless the body says to (`"force": true`)."""
+        if not isinstance(body, dict) or not isinstance(body.get("path"), str):
+            raise ValueError('Send {"path": "...", "cells": [...]} or {"path": "...", "text": "..."}.')
+        path = body["path"]
+        kind = rules.kind_of(path)
+        if kind == "notebook":
+            text = rules.write_notebook(rules.read_cells(body.get("cells")))
+        else:
+            script = body.get("text")
+            if not isinstance(script, str) or len(script) > rules.MAX_CELL_CHARS * 5:
+                raise ValueError("Send the script's text (at most five million characters).")
+            text = script
+        opened = body.get("modified")
+        on_disk = self._documents.modified(path)
+        if (
+            on_disk is not None
+            and isinstance(opened, int | float)
+            and on_disk > opened + 0.001
+            and not body.get("force")
+        ):
+            raise Conflict(f"{path} changed on disk since it was opened here. Save anyway to replace it.")
+        try:
+            full, modified = self._documents.write(path, text)
+        except FileNotFoundError as error:
+            raise NotFound(str(error)) from None
+        self._documents.remember(full, self._now())
+        self.ws.audit.write("user", "save_document", full)
+        return {"path": full, "modified": modified}
+
+    # ===== kernels =====
+
+    def pythons(self) -> dict[str, Any]:
+        """The Pythons a kernel can run in: this server's own first, then projects' environments."""
+        folders = [self._folder_of(r["path"]) for r in self._documents.recent()]
+        found = []
+        for python in self._kernels.candidates(folders):
+            try:
+                found.append(self._kernels.check_python(python))
+            except ValueError:  # not a Python that runs here: left out
+                continue
+        return {"pythons": found}
+
+    async def start(self, body: Any) -> dict[str, Any]:
+        """A kernel for one document, in the Python chosen (this server's own when none is)."""
+        if not isinstance(body, dict):
+            body = {}
+        if len(self._running) >= MAX_KERNELS:
+            raise Conflict(f"{MAX_KERNELS} kernels are running: close a notebook or script first.")
+        python = body.get("python") or self.pythons()["pythons"][0]["python"]
+        path = body.get("path")
+        folder = self._folder_of(path) if isinstance(path, str) and path else None
+        kernel = await self._kernels.start(str(python), folder, dict(self._environ))
+        kernel_id = tokens.token_hex(6)
+        self._running[kernel_id] = kernel
+        self.ws.audit.write("user", "start_kernel", str(python))
+        return {"kernel": kernel_id, "python": kernel.python}
+
+    def _kernel(self, kernel_id: str) -> Kernel:
+        kernel = self._running.get(kernel_id)
+        if kernel is None:
+            raise NotFound("That kernel is not running (the server restarted, or it was closed). Run again.")
+        return kernel
+
+    def execute(self, kernel_id: str, body: Any) -> AsyncIterator[dict[str, Any]]:
+        if not isinstance(body, dict) or not isinstance(body.get("code"), str):
+            raise ValueError('Send {"code": "..."}.')
+        if body.get("kind") == "sql":
+            connection = body.get("connection")
+            code = rules.code_of(
+                rules.Cell("sql", body["code"], connection if isinstance(connection, str) else None)
+            )
+        else:
+            code = body["code"]
+        return self._kernel(kernel_id).execute(code)
+
+    async def interrupt(self, kernel_id: str) -> None:
+        await self._kernel(kernel_id).interrupt()
+
+    async def restart(self, kernel_id: str) -> None:
+        await self._kernel(kernel_id).restart()
+
+    async def stop(self, kernel_id: str) -> None:
+        kernel = self._running.pop(kernel_id, None)
+        if kernel is not None:
+            await kernel.shutdown()
+
+    async def stop_all(self) -> None:
+        for kernel_id in list(self._running):
+            await self.stop(kernel_id)

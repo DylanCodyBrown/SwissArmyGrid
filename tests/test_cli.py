@@ -177,6 +177,21 @@ NOT_COMMANDS = {
     "/blades/import": "as /blades",
     "/blades/{}/pin": "as /blades",
     "/blades/{}/export": "as /blades",
+    "/connections": "connections are blades the user keeps apart: refused to the agent, as /blades",
+    "/connections/types": "as /connections: the Add connection window's forms",
+    "/connections/test": "as /connections: running the form's code is the user's click",
+    "/connections/{}": "as /connections",
+    "/folders": "the page's file chooser: the user's own folders, refused to the agent",
+    "/workbench/home": "the Workbench (notebooks, scripts, kernels) is the user's own: refused to the agent",
+    "/workbench": "the Workbench page itself, opened from the grid page's tab",
+    "/workbench/open": "as /workbench/home",
+    "/workbench/save": "as /workbench/home",
+    "/workbench/pythons": "as /workbench/home",
+    "/workbench/kernels": "as /workbench/home: the agent never runs code in the user's Python",
+    "/workbench/kernels/{}/execute": "as /workbench/kernels",
+    "/workbench/kernels/{}/interrupt": "as /workbench/kernels",
+    "/workbench/kernels/{}/restart": "as /workbench/kernels",
+    "/workbench/kernels/{}": "as /workbench/kernels",
 }
 
 

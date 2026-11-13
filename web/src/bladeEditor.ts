@@ -37,6 +37,8 @@ export interface BladeSummary {
   source: "saved" | "folder" | "pack";
   pack?: string | null; // the pack's label (sales@team-blades 1a2b3c), for a pack blade
   path: string | null;
+  /** A database or file blade is a connection, listed apart (connectionsWindow.ts). */
+  connection?: "database" | "file" | null;
 }
 
 interface CatalogCommand {
@@ -180,8 +182,8 @@ export function templates(): Promise<Template[]> {
 }
 
 /** The line a blade drops into a script: `conn = sag.blade("Warehouse")`. */
-export function bladeLine(blade: { name: string; kind: BladeKind; variable: string | null }): string {
-  const call = `sag.blade(${JSON.stringify(blade.name)})`;
+export function bladeLine(blade: { name: string; kind: BladeKind; variable: string | null; connection?: string | null }): string {
+  const call = `sag.${blade.connection ? "connection" : "blade"}(${JSON.stringify(blade.name)})`;
   return blade.kind === "vault" || blade.kind === "secret" || !blade.variable ? call : `${blade.variable} = ${call}`;
 }
 

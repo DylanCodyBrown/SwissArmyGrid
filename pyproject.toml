@@ -16,6 +16,10 @@ dependencies = []
 [project.optional-dependencies]
 server = [
     "duckdb>=1.2",
+    # The Workbench's notebooks and scripts run in an IPython kernel (the owner approved both,
+    # 2026-11-13): jupyter_client starts and talks to it; ipykernel is the kernel in this Python.
+    "ipykernel>=6.29",
+    "jupyter_client>=8.6",
     # Blades' secrets (passwords, keys) live in the operating system's vault: Windows Credential
     # Manager, macOS Keychain, the Secret Service on Linux. Never in a blade's file.
     "keyring>=25",
@@ -113,6 +117,9 @@ select = ["E", "F", "W", "I", "UP", "B", "S", "RUF"]
 "src/swissarmygrid/services/grids.py" = ["S608"]
 "src/swissarmygrid/services/agent.py" = ["S608"]
 "src/swissarmygrid/services/export.py" = ["S608"]
+# The SQL cell names a connection's files and sheets as DuckDB views: names through _quote(), paths
+# through _literal(); the cell's own SQL is the user's, run as they wrote it.
+"src/swissarmygrid/client/sql_cell.py" = ["S608"]
 # Developer scripts: they run fixed local tools (git, npm, uv, VS Code) with our own arguments,
 # set up sys.path before importing, and hold long command lines.
 "tools/**" = ["S603", "S607", "S110", "E402", "E501"]

@@ -3,7 +3,8 @@
 When the cursor is inside a string that reads as SQL (a SELECT, FROM, JOIN...), or in a `%%sql` cell,
 Tab offers the loaded catalogs' names: `ord<Tab>` gives tables (and columns) starting so, and
 `orders.cu<Tab>` the columns of orders starting with cu (or `sales.ord<Tab>` the tables of sales).
-Columns of the tables the query already names come first.
+Columns of the tables the query already names come first. A `%%sql Warehouse` cell offers only that
+connection's names: its catalog, or, for a file connection open in this Python, its own tables.
 
 Installed by itself when swissarmygrid is imported in Jupyter or IPython (SWISSARMYGRID_COMPLETE=0
 turns it off), or by hand with `sag.complete()`. It asks the running server and never starts one: with
@@ -38,7 +39,7 @@ _catalogs: tuple[float, list[str]] = (0.0, [])
 def sql_before(text: str) -> str | None:
     """The SQL written so far when the cursor (the end of `text`) is inside SQL, else None: a `%%sql`
     cell, or an open string literal (triple-quoted or on this line) that holds a SQL word."""
-    if text.lstrip().startswith(("%%sql", "%sql")):
+    if text.lstrip().startswith(("%%sql", "%sql", "%%sag")):
         return text
     opened: str | None = None
     start = 0
@@ -98,15 +99,55 @@ def _search(catalog: str, text: str) -> dict[str, Any]:
     return found if isinstance(found, dict) else {}
 
 
+def _cell_connection(sql: str) -> str | None:
+    """The connection a `%%sql` cell names on its first line (or the %sql_connect one), if any."""
+    first = sql.lstrip().split("\n", 1)[0]
+    if not first.startswith(("%%sql", "%%sag")) or first.startswith("%%sql_"):
+        return None
+    from swissarmygrid.client import sql_cell  # only for a %%sql cell
+
+    try:
+        named = sql_cell.parse_line(first.split(None, 1)[1] if " " in first.strip() else "").name
+    except sql_cell.SqlCellError:
+        return None
+    return named or (sql_cell._default[0] if sql_cell._default else None)
+
+
+def _local(name: str, token: str) -> list[str] | None:
+    """A file or table connection open in this Python: its own tables and columns (None: not open)."""
+    from swissarmygrid.client import sql_cell  # only for a %%sql cell
+
+    found = sql_cell._connections.get(name.casefold())
+    if found is None or found.kind == "database":
+        return None
+    head, dot, tail = token.rpartition(".")
+    out: list[str] = []
+    for table, cols in sql_cell.columns(found).items():
+        if dot and table.lower().endswith(head.lower()):
+            out += [f"{head}.{c}" for c in cols if c.lower().startswith(tail.lower())]
+        elif not dot:
+            out += [table] if table.lower().startswith(token.lower()) else []
+            out += [c for c in cols if c.lower().startswith(token.lower())]
+    return list(dict.fromkeys(out))[:_MAX_SUGGESTIONS]
+
+
 def suggestions(token: str, sql: str) -> list[str]:
-    """What `token` can become, from every loaded catalog."""
+    """What `token` can become, from every loaded catalog (in a `%%sql <connection>` cell, from that
+    connection's names only)."""
     if not token or len(token) > 200:
         return []
+    catalogs = _catalog_names()
+    connection = _cell_connection(sql)
+    if connection:
+        local = _local(connection, token)
+        if local is not None:
+            return local
+        catalogs = [c for c in catalogs if c.casefold() == connection.casefold()] or catalogs
     named = {n.split(".")[-1].lower() for n in _NAMED.findall(sql)}
     first: list[str] = []
     rest: list[str] = []
     head, dot, tail = token.rpartition(".")
-    for catalog in _catalog_names():
+    for catalog in catalogs:
         found = _search(catalog, token)
         if dot:
             owner, start = head.split(".")[-1].lower(), tail.lower()

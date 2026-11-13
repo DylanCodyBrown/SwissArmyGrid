@@ -32,6 +32,7 @@ from swissarmygrid.domain.blades import (
     install_command,
     pip_name,
 )
+from swissarmygrid.domain.connections import connection_kind
 from swissarmygrid.domain.datasets import DatasetInfo
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.services.catalogs import CatalogService
@@ -136,6 +137,8 @@ class BladeService:
             "has_catalog": blade.has_catalog,
             "catalog_loaded": blade.name.casefold() in loaded,
             "template": blade.template,
+            # A database or file blade is a connection: listed apart (services/connections.py).
+            "connection": connection_kind(blade.kind, blade.template),
             "secrets": self._blades.secret_status(blade),
             "vaults": [v.name for v in vaults],
             "typed": typed,
@@ -280,6 +283,18 @@ class BladeService:
     async def test(self, blade: Blade, body: Any) -> dict[str, Any]:
         """Run it in a child process: does it work?"""
         return await self._run_blade(blade, "test", self._typed_values(blade, body))
+
+    async def test_draft(self, data: Any) -> dict[str, Any]:
+        """Run code not saved yet (the Add connection form's Test) with the passwords typed into the form
+        (`data["secrets"]`), in a child process. Nothing is saved, the passwords included."""
+        blade = rules.parse_blade(data)
+        typed = data.get("secrets") if isinstance(data, dict) else None
+        if typed is not None and (
+            not isinstance(typed, dict) or not all(isinstance(v, str) for v in typed.values())
+        ):
+            raise ValueError('Send the typed passwords as {"secrets": {"name": "value"}}.')
+        values = {k: v for k, v in (typed or {}).items() if v}
+        return await self._run_blade(blade, "test", self._typed_values(blade, data), {"secrets": values})
 
     # ===== analysis blades: the user's own analyses in the Analyze menu =====
 

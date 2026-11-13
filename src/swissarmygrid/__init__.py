@@ -30,10 +30,12 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from swissarmygrid.client.blades_client import blade, blades, load
+    from swissarmygrid.client.blades_client import blade as connection
     from swissarmygrid.client.completion import complete
     from swissarmygrid.client.paste_client import paste
     from swissarmygrid.client.push_client import DatasetTooLargeError, ServerNotRunningError, push
     from swissarmygrid.client.sandbox_client import sandbox
+    from swissarmygrid.client.sql_cell import sql
     from swissarmygrid.client.watcher import start as watch
     from swissarmygrid.client.watcher import stop as unwatch
 
@@ -45,10 +47,12 @@ __all__ = [
     "blade",
     "blades",
     "complete",
+    "connection",
     "load",
     "paste",
     "push",
     "sandbox",
+    "sql",
     "unwatch",
     "watch",
 ]
@@ -59,6 +63,9 @@ _LAZY: dict[str, tuple[str, str]] = {
     "load": ("swissarmygrid.client.blades_client", "load"),
     "blade": ("swissarmygrid.client.blades_client", "blade"),
     "blades": ("swissarmygrid.client.blades_client", "blades"),
+    # A connection (a database or file, added in the app's Connections) is run the way a blade is.
+    "connection": ("swissarmygrid.client.blades_client", "blade"),
+    "sql": ("swissarmygrid.client.sql_cell", "sql"),
     "sandbox": ("swissarmygrid.client.sandbox_client", "sandbox"),
     "paste": ("swissarmygrid.client.paste_client", "paste"),
     "complete": ("swissarmygrid.client.completion", "complete"),
@@ -90,8 +97,11 @@ if os.environ.get("SWISSARMYGRID_WATCH", "") == "1" or "IPython" in sys.modules:
     from swissarmygrid.client.watcher import autostart
 
     autostart()
-# Catalog completion inside SQL strings: only where IPython completes (Jupyter, the IPython terminal).
+# Catalog completion inside SQL strings, and SQL cells on a connection: only in Jupyter and IPython.
 if "IPython" in sys.modules:
     from swissarmygrid.client.completion import autostart as complete_on_tab
+    from swissarmygrid.client.sql_cell import autostart as sql_cells
 
     complete_on_tab()
+    # %%sql <connection> cells (and %%sag, %sql_connect, %sql_connections): SWISSARMYGRID_SQL_CELL=0 is off.
+    sql_cells()

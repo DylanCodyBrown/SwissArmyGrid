@@ -316,3 +316,14 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   `conn.sql("SELECT * FROM ord` gave order_lines and orders, on `pd.read_sql("""\nSELECT orders.cu`
   gave orders.customer_id, and on `x = ord` (not SQL) nothing. IPython 9 still runs
   `Completer.custom_matchers` (the first matcher API), which ipykernel uses for Jupyter too.
+- (2026-11-13) Connections and the SQL cell (Plans/workbench-and-connections.plan.md). The Connections
+  window in Chromium: a CSV connection added through Browse… (the server lists the folder; a browser's
+  own picker hides the path), named after the file, Test said "a file of 27 bytes" before saving, and
+  the saved one listed under Files with its `sag.connection` and `%%sql` lines. A draft's typed password
+  reaches the test run and never its error text; a missing path fails the test ("is not there"). The
+  SQL cell in real IPython 9.18.1 against a real server: `%%sql Shop -> totals` on a SQLite connection
+  gave the DataFrame and kept it; `%sql_connect` on a CSV connection, then a bare `%%sql`, read the file
+  through DuckDB; a bad column stopped the cell with one line (`UsageError: Shop: OperationalError: no
+  such column: nope`); Tab in the cell gave the CSV's own column. DuckDB lists a registered DataFrame as
+  a temporary view in main, so one query finds files, sheets and tables alike.
+

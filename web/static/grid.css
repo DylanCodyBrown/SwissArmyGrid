@@ -4171,3 +4171,154 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
 .analysis-results.stale > :not(.stale-note) {
   opacity: 0.5;
 }
+
+/* ===== CONNECTIONS (connectionsWindow.ts) and the file chooser (fileChooser.ts) ===== */
+.connection-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.connection-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.connection-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.connection-text code {
+  overflow-wrap: anywhere;
+}
+
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.connection-types {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.connection-type {
+  justify-content: flex-start;
+  white-space: normal;
+  text-align: left;
+}
+
+.connection-fields .field.wide {
+  grid-column: 1 / -1;
+}
+
+.connection-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px 14px;
+  margin: 10px 0;
+}
+
+.connection-fields .field-row {
+  display: flex;
+  gap: 6px;
+}
+
+.connection-fields .field-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.connection-passwords {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.connection-code {
+  width: 100%;
+  white-space: pre;
+}
+
+.connection-result .status-ok {
+  color: var(--ok);
+}
+
+.blade-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding: 2px 4px;
+  color: var(--muted);
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.file-chooser .file-path {
+  display: flex;
+  gap: 6px;
+}
+
+.file-chooser .file-path input {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  height: min(420px, 55vh);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.file-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.file-row:hover,
+.file-row:focus-visible {
+  background: var(--row-hover);
+}
+
+.file-row.folder .file-name {
+  font-weight: 600;
+}
+
+.file-row.muted {
+  color: var(--muted);
+  cursor: default;
+}
+
+.file-meta {
+  color: var(--muted);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+

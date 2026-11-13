@@ -129,6 +129,8 @@ class Settings:
     state_dir: Path = field(default_factory=_state_dir)
     # Exports requested by an agent (MCP) land only here, never as a browser download.
     export_dir: Path = field(default_factory=lambda: _state_dir() / "exports")
+    # Where the Workbench's Save as starts (made on the first save there): the user's own folder.
+    workbench_dir: Path = field(default_factory=lambda: Path.home() / "SwissArmyGrid")
     # Claude Code's folder: installed plugins that carry blades and tangs (packs) are read from here.
     claude_dir: Path = field(default_factory=_claude_dir)
 

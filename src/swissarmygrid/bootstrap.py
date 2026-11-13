@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -26,6 +28,7 @@ from swissarmygrid.adapters.catalogs import CatalogStore
 from swissarmygrid.adapters.codegen import Verifier
 from swissarmygrid.adapters.database import PriorityWorkers, duckdb_grammar, open_database
 from swissarmygrid.adapters.datasets import DatasetStore
+from swissarmygrid.adapters.folders import listing as folder_listing
 from swissarmygrid.adapters.live_updates import LiveUpdates
 from swissarmygrid.adapters.packs import PackFolders
 from swissarmygrid.adapters.state_files import (
@@ -37,18 +40,22 @@ from swissarmygrid.adapters.state_files import (
     is_own_file,
 )
 from swissarmygrid.adapters.views import ViewEngine
+from swissarmygrid.adapters.workbench import Documents
 from swissarmygrid.domain.blades import Blade
 from swissarmygrid.domain.grids import GridRegistry
 from swissarmygrid.server import blade_runner
 from swissarmygrid.server.blade_templates import TEMPLATES
+from swissarmygrid.server.kernels import Launcher
 from swissarmygrid.services.agent import AgentService, Approvals, ExportTickets
 from swissarmygrid.services.analysis import Analysis
 from swissarmygrid.services.blades import BladeService
 from swissarmygrid.services.catalogs import CatalogService
 from swissarmygrid.services.charts import Cards
 from swissarmygrid.services.codegen import CodeService
+from swissarmygrid.services.connections import ConnectionService
 from swissarmygrid.services.datasets import DatasetService
 from swissarmygrid.services.export import Exports
+from swissarmygrid.services.folders import Folders
 from swissarmygrid.services.grids import GridService
 from swissarmygrid.services.handoff import Handoff
 from swissarmygrid.services.packs import Packs
@@ -60,6 +67,7 @@ from swissarmygrid.services.snapshots import Snapshots
 from swissarmygrid.services.sql import SqlBox
 from swissarmygrid.services.tieout import TieOut
 from swissarmygrid.services.timeseries import TimeSeries
+from swissarmygrid.services.workbench import Workbench
 from swissarmygrid.services.workspace import Addresses, Workspace
 from swissarmygrid.settings import Settings
 
@@ -86,6 +94,9 @@ class Services:
     sessions: Sessions
     catalogs: CatalogService
     blades: BladeService
+    connections: ConnectionService
+    folders: Folders
+    workbench: Workbench
     handoff: Handoff
     models: Models
     finder: Finder
@@ -168,6 +179,17 @@ def bootstrap(
     catalogs = CatalogService(
         ws, CatalogStore(connection, settings.max_catalogs, settings.max_catalog_rows), table_reader
     )
+    blades = BladeService(
+        ws,
+        blade_store,
+        catalogs,
+        TEMPLATES,
+        blade_run.needed,
+        run_blade,
+        blade_runner.install_packages,
+        python=sys.executable,
+        environ=os.environ,
+    )
     # Tangs come from the person's own folder and the shared folders, which are the blade folders:
     # one team folder carries blades and tangs alike.
     compares = Compares(ws)
@@ -195,16 +217,16 @@ def bootstrap(
         agent=AgentService(ws, Approvals(live), tickets, blade_store, TEMPLATES, blade_run.needed),
         sessions=Sessions(processes, store, live),
         catalogs=catalogs,
-        blades=BladeService(
+        blades=blades,
+        connections=ConnectionService(blades, TEMPLATES),
+        folders=Folders(folder_listing),
+        workbench=Workbench(
             ws,
-            blade_store,
-            catalogs,
-            TEMPLATES,
-            blade_run.needed,
-            run_blade,
-            blade_runner.install_packages,
-            python=sys.executable,
-            environ=os.environ,
+            Documents(state_dir / "recent.json", settings.workbench_dir),
+            Launcher(),
+            os.environ,
+            now=time.time,
+            folder_of=lambda path: str(Path(path).expanduser().parent),
         ),
         handoff=Handoff(ws, verifier),
         models=models,

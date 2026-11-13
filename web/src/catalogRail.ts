@@ -10,6 +10,7 @@
  */
 import { api, query } from "./api";
 import { type BladeSummary, bladeLine, kindLabel, runBlade } from "./bladeEditor";
+import { openConnections } from "./connectionsWindow";
 import { chooseBladeFiles, editBladeFolders, exportBlades, importBlades, openPacks } from "./bladeLibrary";
 import { button, clear, formatCount, h, recall, remember, showMenu, toast } from "./dom";
 import { toPython } from "./toPython";
@@ -252,7 +253,19 @@ export function mountRail(host: RailHost): Rail {
     bladeTags.hidden = allTags.size === 0;
     const shown = blades.filter(bladeMatches).sort((a, b) => Number(b.pinned) - Number(a.pinned));
     clear(bladeList);
-    for (const blade of shown) {
+    // Connections (databases and files) first, under their own heading; then the other blades.
+    const connections = shown.filter((b) => b.connection);
+    const others = shown.filter((b) => !b.connection);
+    const heading = (text: string, extra: HTMLElement | null = null): HTMLElement => h("li", { class: "blade-group" }, h("span", {}, text), extra);
+    if (connections.length || !blades.some((b) => b.connection)) {
+      bladeList.append(heading("Connections", button("Add connection", () => void openConnections().then(() => void loadBlades()), { icon: "plus", iconOnly: true, class: "ghost", title: "Add a database or file connection with a form" })));
+    }
+    let othersHeading = false;
+    for (const blade of [...connections, ...others]) {
+      if (!blade.connection && !othersHeading) {
+        bladeList.append(heading("Blades"));
+        othersHeading = true;
+      }
       const line = bladeLine(blade);
       const item = h(
         "li",
@@ -286,7 +299,7 @@ export function mountRail(host: RailHost): Rail {
         blade.has_catalog
           ? button("Refresh catalog", () => void refresh(blade.name), { icon: "play", iconOnly: true, class: "ghost", title: `Refresh ${blade.name}'s catalog` })
           : null,
-        button("Copy the sag.blade line", () => copy(line, "the line"), { icon: "copy", iconOnly: true, class: "ghost", title: line }),
+        button(blade.connection ? "Copy the sag.connection line" : "Copy the sag.blade line", () => copy(line, "the line"), { icon: "copy", iconOnly: true, class: "ghost", title: line }),
       );
       bladeList.append(item);
     }

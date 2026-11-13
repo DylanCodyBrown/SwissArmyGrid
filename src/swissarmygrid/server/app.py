@@ -13,6 +13,9 @@ and does nothing but read the request, call the use case and shape the answer:
   routes_cards.py          side-panel charts and notes (plan section 11)
   routes_catalog.py        catalogs (a source's names and types)
   routes_blades.py         blades (saved code that loads): the user's alone
+  routes_connections.py    connections (database and file blades, seen apart): the user's alone
+  routes_folders.py        the page's file chooser: a folder's contents, the user's alone
+  routes_workbench.py      the Workbench: notebooks, scripts and their kernels, the user's alone
   routes_handoff.py        code handed to the user's own Python (To Python, sag.paste())
   routes_relationships.py  the relationship model, the Key Finder, comparing two grids
   routes_processes.py      Python sessions offering tables: the Open list
@@ -43,7 +46,9 @@ from swissarmygrid.server import (
     routes_blades,
     routes_cards,
     routes_catalog,
+    routes_connections,
     routes_datasets,
+    routes_folders,
     routes_grids,
     routes_handoff,
     routes_packs,
@@ -53,6 +58,7 @@ from swissarmygrid.server import (
     routes_snapshots,
     routes_tieout,
     routes_timeseries,
+    routes_workbench,
 )
 from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, LocalOnlyGuard
 from swissarmygrid.settings import Settings
@@ -106,6 +112,10 @@ def create_app(
         # Blades and the catalog explorer, in a tab of its own (plan decision 18).
         return FileResponse(settings.web_root / "catalog.html", headers={"Cache-Control": "no-store"})
 
+    async def workbench_page(request: Request) -> Response:
+        # Notebooks and scripts, always in a window of their own (the grid page's Workbench tab opens it).
+        return FileResponse(settings.web_root / "workbench.html", headers={"Cache-Control": "no-store"})
+
     async def drop_silent_sessions() -> None:
         # A notebook that closes or crashes just stops reporting; the list notices within a few
         # seconds and tells the pages, so a dead session never lingers in the Open dialog.
@@ -118,6 +128,7 @@ def create_app(
         pruner = asyncio.create_task(drop_silent_sessions())
         yield
         pruner.cancel()
+        await ctx.workbench.stop_all()  # no kernel outlives the server
         workers.close()
 
     app = Starlette(
@@ -131,6 +142,9 @@ def create_app(
             *routes_cards.routes(ctx.cards),
             *routes_catalog.routes(ctx.catalogs),
             *routes_blades.routes(ctx.blades),
+            *routes_connections.routes(ctx.connections, ctx.blades),
+            *routes_folders.routes(ctx.folders),
+            *routes_workbench.routes(ctx.workbench),
             *routes_handoff.routes(ctx.handoff),
             *routes_relationships.routes(ctx.models, ctx.finder, ctx.keys, ctx.compares),
             *routes_tieout.routes(ctx.tie_out),
@@ -141,6 +155,7 @@ def create_app(
             Route("/g/{grid_id}", grid_page),
             Route("/workspace", workspace_page),
             Route("/catalog", catalog_page),
+            Route("/workbench", workbench_page),
             Mount("/static", StaticFiles(directory=settings.web_root, check_dir=False)),
         ],
         middleware=[Middleware(LocalOnlyGuard, port=port, token=token)],

@@ -93,6 +93,11 @@ What a grid page does:
   that need outside maps or pictures say so instead.
 - **Agent door (MCP):** the agent sees what the page shows; its exports wait for the user's
   Allow. Settings lists its activity and has a copyable prompt that installs the MCP in any agent.
+- **Connections** (the Application row's **Connections**): your databases and files. Add one with a
+  form per type (SQL Server, PostgreSQL, Snowflake... 21 databases; a CSV, workbook, Parquet or JSON
+  file, or a folder of them), its password kept in the system keyring, **Test connection** before
+  saving. Then `conn = sag.connection("Warehouse")` in any Python, or a whole SQL cell on it:
+  `%%sql Warehouse` in Jupyter or IPython.
 - **Blades and the catalog** (its own tab, from **Blades and catalog** in the Application row): a **blade** is any
   Python that reaches outside Python to load something (a database connection, a CSV or workbook,
   an API, a vault). Save it once, then `conn = sag.blade("Warehouse")` in any Python. Starters for
@@ -212,6 +217,40 @@ Or the demo data:
 
 Open the printed URL, including the `#token=` part. In VS Code: Ctrl+Shift+P, then
 **Simple Browser: Show**, then paste it.
+
+## Connections and SQL cells
+
+A **connection** is a database or a file you reach: added in the app (**Connections** in the Application
+row) with a form for its type, the Python it makes shown underneath. Its password goes to the system
+keyring; **Test connection** runs the form before anything is saved. Connections are kept with the
+blades (so folders, packs, the catalog and Refresh work the same) but listed apart.
+
+```python
+import swissarmygrid as sag
+
+conn = sag.connection("Warehouse")  # runs it here: the database connection, or the file's path
+sag.sql("Warehouse", "SELECT TOP 10 * FROM sales.orders")  # a DataFrame
+```
+
+In Jupyter and IPython a whole cell can be SQL on a connection, like the SQL Server extension's
+connection picker:
+
+```
+%%sql Warehouse -> late
+SELECT * FROM sales.orders WHERE shipped > due
+```
+
+- `%sql_connect Warehouse` makes it the default (a bare `%%sql` uses it); `%sql_connections` lists them.
+- `-> name` keeps the result as a variable; `--grid` opens it as a grid.
+- **A database** runs the cell in its own SQL: any DB-API connection, DuckDB, BigQuery, ClickHouse,
+  Spark and SQLAlchemy engines. A statement with no rows (UPDATE, INSERT) is committed and says how
+  many rows changed.
+- **A file** runs it in DuckDB in your Python: a CSV, Parquet or JSON file is a table named after the
+  file; a workbook's sheets are tables named after the sheets (read again when the file is saved); a
+  folder's files are tables. A blade that makes a DataFrame can be queried by its variable's name.
+- Tab in the cell offers that connection's tables and columns. An error stops the cell with one line.
+  `%%sql` is taken only where no other extension (JupySQL) has it; `%%sag` always works.
+  `SWISSARMYGRID_SQL_CELL=0` turns the cells off.
 
 ## Blades and the catalog
 
