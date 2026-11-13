@@ -10,11 +10,27 @@
  */
 import { api } from "./api";
 
+/** One join, as the server writes it (domain/relationships.py Relationship.to_json). */
+export interface Join {
+  from: string;
+  from_columns: string[];
+  to: string;
+  to_columns: string[];
+  kind: string;
+  note?: string;
+  active?: boolean; // false: a second path between two tables (only one filters)
+  evidence?: string; // why it is trusted, from when it was found
+}
+
+/** The current relationships; saved, they are a tang (with its tags, author and time). */
 export interface RelationshipModel {
   name: string;
   description: string;
-  tables: Record<string, { primary_key?: string[]; source?: string }>;
-  relationships: { from: string; from_columns: string[]; to: string; to_columns: string[]; kind: string; note?: string }[];
+  tags?: string[];
+  author?: string;
+  saved_at?: string;
+  tables: Record<string, { primary_key?: string[]; source?: string; columns?: [string, string][] }>;
+  relationships: Join[];
 }
 
 let model: RelationshipModel = { name: "current", description: "", tables: {}, relationships: [] };

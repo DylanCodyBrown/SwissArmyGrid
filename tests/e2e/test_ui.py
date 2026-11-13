@@ -1605,7 +1605,7 @@ def test_relationships_mark_keys_and_draw_an_erd(browser: Browser, server: dict[
     expect(page.locator(".ag-header-cell[col-id='cust'] .sag-header-key")).to_have_count(0)
     page.locator(".ribbon .ribbon-group").first.get_by_role("button", name="Relationships").click()
     dialog = page.locator("dialog")
-    expect(dialog).to_contain_text("No shared models found")  # the package ships no models
+    expect(dialog).to_contain_text("No tangs yet")  # the package ships no tangs
     expect(dialog).to_contain_text("rel_orders")
     dialog.get_by_role("button", name="Draw ERD").click()
     expect(page.locator(".workspace")).to_have_attribute("data-view", "agent")

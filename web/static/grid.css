@@ -3054,3 +3054,88 @@ body.popout .app-row {
     flex: 1 1 100% !important;
   }
 }
+
+/* ===== The Relationships window: tangs, the finder, the joins in use (relationshipsDialog.ts) ===== */
+.rel-section {
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rel-section h3 {
+  margin: 0 0 8px;
+}
+
+.tang-list,
+.suggestion-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tang-item,
+.suggestion {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.suggestion.known {
+  opacity: 0.75;
+}
+
+.tang-text {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tang-where {
+  margin-left: 8px;
+}
+
+.tang-where.shared {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.confidence {
+  position: relative;
+  max-width: 260px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+
+.confidence span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--share, 0%);
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.rel-table tr.run-holds td:nth-child(5) {
+  color: var(--ok);
+}
+
+.rel-run tr.run-holds td:nth-child(2) {
+  color: var(--ok);
+}
+
+.rel-table tr.run-orphans td:nth-child(5),
+.rel-run tr.run-orphans td:nth-child(2) {
+  color: var(--warn);
+}
+
+.rel-table tr.run-broken td:nth-child(5),
+.rel-run tr.run-broken td:nth-child(2) {
+  color: var(--error);
+}
