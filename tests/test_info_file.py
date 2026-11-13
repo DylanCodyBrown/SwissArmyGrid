@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from swissarmygrid.server.info_file import info_file_path, remove_info_file, write_info_file
+from swissarmygrid.adapters.state_files import info_file_path, remove_info_file, write_info_file
 
 
 def test_write_then_remove(tmp_path: Path) -> None:

@@ -6,14 +6,16 @@ concrete adapters. Nothing here imports an adapter, so a test can pass a fake.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 from swissarmygrid.domain.codegen import Outcome, Pasted
 from swissarmygrid.domain.datasets import Column, DatasetInfo
 from swissarmygrid.domain.grids import Window
 from swissarmygrid.domain.steps import CompiledView, Step, ViewSettings
+
+T = TypeVar("T")
 
 # Worker priorities: lower runs first.
 INTERACTIVE: int = 0  # grid windows and counts
@@ -132,3 +134,82 @@ class CodeVerifier(Protocol):
         expected_names: list[str],
         expected: list[list[Any]],
     ) -> Outcome: ...
+
+
+class Table(Protocol):
+    """Rows on their way into the store (an Arrow table). The service layer only passes it on."""
+
+    @property
+    def num_rows(self) -> int: ...
+
+
+class Datasets(Protocol):
+    """The open datasets: each one a table in the locked database (adapters/datasets.py)."""
+
+    @property
+    def used_bytes(self) -> int: ...
+
+    @property
+    def max_total_bytes(self) -> int: ...
+
+    @property
+    def max_datasets(self) -> int: ...
+
+    def replace(self, name: str, table: Any, source_kind: str, query: str | None = None) -> DatasetInfo: ...
+
+    def close(self, name: str) -> bool: ...
+
+    def get(self, name: str) -> DatasetInfo | None: ...
+
+    def all(self) -> list[DatasetInfo]: ...
+
+    def cursor(self) -> Any:
+        """A new session with the engine (a `SqlSession`; `Any` here because the engine's own cursor
+        has a wider `execute` than the protocol spells out)."""
+        ...
+
+
+class Jobs(Protocol):
+    """The worker pool: run `fn(*args)` off the event loop; a lower priority number runs first."""
+
+    async def run(self, priority: int, fn: Callable[..., T], *args: Any) -> T: ...
+
+
+class Audit(Protocol):
+    """The audit log: who did what to which dataset, never a cell value."""
+
+    def write(
+        self,
+        actor: str,
+        action: str,
+        dataset: str | None = None,
+        query: str | None = None,
+        rows: int | None = None,
+        **details: Any,
+    ) -> None: ...
+
+    def tail(self, limit: int = 200, actor: str | None = None) -> list[dict[str, Any]]: ...
+
+
+class Notifier(Protocol):
+    """The open pages and VS Code windows: tell them, and ask what they show."""
+
+    async def broadcast(self, message: dict[str, Any]) -> None: ...
+
+    async def dataset_updated(self, dataset: str, version: int) -> None: ...
+
+    def shown_or_opening(self, grid: str) -> bool: ...
+
+    async def ask_opener(self, url: str) -> bool: ...
+
+    def page_open(self) -> bool: ...
+
+
+class Recipes(Protocol):
+    """Saved recipes: a dataset name's steps and settings, with no rows."""
+
+    def save(self, dataset: str, steps: list[Step], settings: ViewSettings) -> str: ...
+
+    def load(self, dataset: str) -> tuple[list[Step], ViewSettings] | None: ...
+
+    def delete(self, dataset: str) -> bool: ...

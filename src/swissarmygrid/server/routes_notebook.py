@@ -26,14 +26,8 @@ from starlette.responses import FileResponse, RedirectResponse, Response, Stream
 from starlette.routing import BaseRoute, Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from swissarmygrid.server.context import (
-    Context,
-    actor,
-    error_response,
-    json_response,
-    read_json,
-    read_json_object,
-)
+from swissarmygrid.bootstrap import Services as Context
+from swissarmygrid.server.http import actor, error_response, json_response, read_json, read_json_object
 from swissarmygrid.server.notebook import BASE_URL, DEFAULT_NOTEBOOK, NotebookControl, NotebookError
 from swissarmygrid.services.codegen import generate_code
 from swissarmygrid.services.ports import BACKGROUND

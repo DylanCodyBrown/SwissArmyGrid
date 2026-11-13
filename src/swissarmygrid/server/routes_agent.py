@@ -36,6 +36,7 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.adapters.blade_run import needed
 from swissarmygrid.adapters.blades import parse_blade
+from swissarmygrid.bootstrap import Services as Context
 from swissarmygrid.domain import blades as blade_code
 from swissarmygrid.domain.blades import BladeCodeError, write_blade
 from swissarmygrid.domain.datasets import DatasetInfo, quote
@@ -44,14 +45,7 @@ from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import filter_condition
 from swissarmygrid.server.blade_templates import TEMPLATES
-from swissarmygrid.server.context import (
-    Context,
-    actor,
-    error_response,
-    json_response,
-    read_json,
-    read_json_object,
-)
+from swissarmygrid.server.http import actor, error_response, json_response, read_json, read_json_object
 from swissarmygrid.services.ports import AGENT
 from swissarmygrid.services.profile import profile_column, profile_table
 from swissarmygrid.settings import EXCEL_MAX_ROWS

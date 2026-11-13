@@ -29,8 +29,9 @@ from collections.abc import Callable
 import uvicorn
 
 from swissarmygrid import __version__
+from swissarmygrid.adapters.live_updates import LiveUpdates
+from swissarmygrid.adapters.state_files import info_file_path, remove_info_file, write_info_file
 from swissarmygrid.server.app import create_app
-from swissarmygrid.server.info_file import info_file_path, remove_info_file, write_info_file
 from swissarmygrid.server.lifecycle import (
     AlreadyRunningError,
     AlreadyStartingError,
@@ -42,7 +43,6 @@ from swissarmygrid.server.lifecycle import (
     request_stop,
     running_server,
 )
-from swissarmygrid.server.live_updates import LiveUpdates
 from swissarmygrid.server.routes_processes import QuietHeartbeats
 from swissarmygrid.settings import Settings
 

@@ -32,10 +32,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from swissarmygrid.bootstrap import Services as Context
 from swissarmygrid.domain.datasets import Column, DatasetInfo
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.relationships import CompareSpec, differences, mapping_sql
-from swissarmygrid.server.context import Context, actor, error_response, json_response, query_int, read_json
+from swissarmygrid.server.http import actor, error_response, json_response, query_int, read_json
 from swissarmygrid.services.ports import INTERACTIVE
 from swissarmygrid.services.relationships import counts, focus_positions, rows_at
 

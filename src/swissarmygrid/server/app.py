@@ -1,4 +1,5 @@
-"""The web app: builds the services (Context) and mounts every route behind the guard.
+"""The web app: asks the composition root (bootstrap.py) for the services and mounts every route
+behind the guard.
 
 Route modules, one per area, like ASP.NET controllers:
   routes_datasets.py   push, list, close, load a file, paste; health and shutdown
@@ -13,13 +14,12 @@ Route modules, one per area, like ASP.NET controllers:
   routes_snapshots.py  a PNG of the page the user sees, drawn by the page, for an agent
 plus here: the WebSocket for live updates, the grid page shell and its static files.
 
-All DuckDB work runs on the priority worker pool (engine/workers.py), never on the event loop.
+All DuckDB work runs on the priority worker pool (adapters/database.py), never on the event loop.
 """
 
 from __future__ import annotations
 
 import asyncio
-import secrets
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
@@ -31,14 +31,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from swissarmygrid.adapters.blades import BladeStore
-from swissarmygrid.adapters.catalogs import CatalogStore
-from swissarmygrid.adapters.codegen import Verifier
-from swissarmygrid.adapters.database import PriorityWorkers, duckdb_grammar, open_database
-from swissarmygrid.adapters.datasets import DatasetStore
-from swissarmygrid.adapters.views import ViewEngine
-from swissarmygrid.domain.grids import GridRegistry
-from swissarmygrid.engine.audit import AuditLog
+from swissarmygrid.bootstrap import bootstrap
 from swissarmygrid.server import (
     routes_agent,
     routes_cards,
@@ -53,10 +46,6 @@ from swissarmygrid.server import (
     routes_processes,
     routes_snapshots,
 )
-from swissarmygrid.server.context import Context
-from swissarmygrid.server.live_updates import LiveUpdates
-from swissarmygrid.server.notebook import NotebookServer
-from swissarmygrid.server.processes import ProcessRegistry
 from swissarmygrid.server.security import WEBSOCKET_SUBPROTOCOL, LocalOnlyGuard
 from swissarmygrid.settings import Settings
 
@@ -72,35 +61,8 @@ def create_app(
     audit_log: bool = True,
 ) -> Starlette:
     """Build the app for a server listening on 127.0.0.1:`port` that accepts `token`."""
-    settings = settings or Settings()
-    connection = open_database(settings.duckdb_memory_limit)
-    workers = PriorityWorkers(settings.worker_threads)
-    ctx = Context(
-        port=port,
-        token=token,
-        settings=settings,
-        store=DatasetStore(
-            connection, settings.max_dataset_bytes, settings.max_total_bytes, settings.max_datasets
-        ),
-        # Derived view tables may use a quarter of the data budget; they are evicted freely.
-        views=ViewEngine(connection, settings.max_total_bytes // 4),
-        grids=GridRegistry(settings.max_grids),
-        live=LiveUpdates(),
-        workers=workers,
-        audit=AuditLog(settings.state_dir / "audit.log" if audit_log else None),
-        on_shutdown=on_shutdown or (lambda: None),
-        processes=ProcessRegistry(),
-        catalogs=CatalogStore(connection, settings.max_catalogs, settings.max_catalog_rows),
-        blades=BladeStore(
-            settings.blades_dir,
-            folders_file=settings.state_dir / "blade_folders.json",
-            pins_file=settings.state_dir / "blade_pins.json",
-        ),
-        notebook=NotebookServer(settings.state_dir / "notebooks"),
-        notebook_cookie=secrets.token_urlsafe(32),
-        grammar=duckdb_grammar(),
-        verifier=Verifier(settings.duckdb_memory_limit),
-    )
+    ctx = bootstrap(port, token, settings, on_shutdown, audit_log)
+    settings, workers = ctx.settings, ctx.workers
 
     tickets = routes_agent.ExportTickets()  # the agent exports the user approved, not yet written
     relationships = routes_models.Relationships()  # the current keys and joins (a shared model)

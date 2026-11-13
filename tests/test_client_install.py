@@ -12,9 +12,9 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+from swissarmygrid.adapters import live_updates
+from swissarmygrid.adapters.live_updates import LiveUpdates
 from swissarmygrid.client import push_client
-from swissarmygrid.server import live_updates
-from swissarmygrid.server.live_updates import LiveUpdates
 
 ROOT = Path(__file__).resolve().parents[1]
 

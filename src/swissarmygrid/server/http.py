@@ -1,17 +1,14 @@
-"""The services every route shares, and the helpers that shape responses.
+"""What every route module shares for speaking HTTP: reading a request (bodies with a cap, JSON, who
+is asking) and shaping the answer (cell values as JSON, and each error as its status and plain words).
 
-`Context` is the composition root, the way a C# app registers its singletons in one place:
-the dataset store, the view engine, the grid registry, live updates, the worker pool, the audit
-log and the settings. Route modules (routes_*.py) take a Context and return their routes, so
-each one reads like a controller over these services.
+The use cases know nothing of this: they take plain values and raise plain errors, and this file is
+where an error becomes a status code.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, TypeVar
@@ -22,30 +19,19 @@ import sqlglot
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
-from swissarmygrid.adapters.blades import BladeStore
-from swissarmygrid.adapters.catalogs import CatalogStore
-from swissarmygrid.adapters.database import PriorityWorkers
-from swissarmygrid.adapters.datasets import DatasetStore
-from swissarmygrid.adapters.views import ViewEngine
 from swissarmygrid.domain.blades import BladeError
 from swissarmygrid.domain.catalogs import CatalogError
 from swissarmygrid.domain.datasets import (
     DatasetError,
-    DatasetInfo,
     DatasetLimitError,
     DatasetTooLargeError,
     mib,
 )
 from swissarmygrid.domain.export import ExportError
-from swissarmygrid.domain.grids import Grid, GridLimitError, GridRegistry, StaleRequestError
-from swissarmygrid.domain.sql_guard import SqlGrammar, SqlRefused
-from swissarmygrid.domain.steps import CompiledView, StepError
-from swissarmygrid.engine.audit import AuditLog
-from swissarmygrid.server.live_updates import LiveUpdates
-from swissarmygrid.server.notebook import NotebookServer
-from swissarmygrid.server.processes import ProcessRegistry
-from swissarmygrid.services.ports import CodeVerifier
-from swissarmygrid.settings import Settings
+from swissarmygrid.domain.grids import GridLimitError, StaleRequestError
+from swissarmygrid.domain.sql_guard import SqlRefused
+from swissarmygrid.domain.steps import StepError
+from swissarmygrid.services.workspace import Conflict, Refused, TimedOut
 
 T = TypeVar("T")
 
@@ -53,85 +39,6 @@ T = TypeVar("T")
 _JS_SAFE_INTEGER: int = 2**53 - 1
 # The largest JSON body a control request may send (steps, a query, a selection, a model).
 MAX_JSON_BODY_BYTES: int = 64 * 1024 * 1024
-
-
-@dataclass
-class Context:
-    port: int
-    token: str
-    settings: Settings
-    store: DatasetStore
-    views: ViewEngine
-    grids: GridRegistry
-    live: LiveUpdates
-    workers: PriorityWorkers
-    audit: AuditLog
-    on_shutdown: Callable[[], None]
-    # The Python sessions offering tables to the Open list (processes.py).
-    processes: ProcessRegistry
-    # Source databases' names and types (adapters/catalogs.py) and the saved blades (adapters/blades.py).
-    catalogs: CatalogStore
-    blades: BladeStore
-    # The notebook (marimo), started on first use, and the cookie its frame is let in with.
-    notebook: NotebookServer
-    notebook_cookie: str
-    # DuckDB's own reading of SQL text, which the guard checks every query against.
-    grammar: SqlGrammar
-    # Runs copied code to check it against the grid (adapters/codegen.py).
-    verifier: CodeVerifier
-
-    def grid_url(self, grid: Grid, with_token: bool = True) -> str:
-        """The grid's page. The fragment carries the token to the page without ever sending it to
-        the server. `with_token=False` for an agent: the token is the user's credential (a request
-        with it and no X-Actor is the user's), so an agent gets the address only."""
-        address = f"http://127.0.0.1:{self.port}/g/{grid.id}"
-        return f"{address}#token={self.token}" if with_token else address
-
-    def workspace_url(self, grid: Grid | None = None, with_token: bool = True) -> str:
-        """The tabbed workspace (one window, a tab per grid), opened on `grid` when given."""
-        address = f"http://127.0.0.1:{self.port}/workspace"
-        if not with_token:
-            return address + (f"#grid={grid.id}" if grid else "")
-        focus = f"&grid={grid.id}" if grid else ""
-        return f"{address}#token={self.token}{focus}"
-
-    def grid_and_info(self, grid_id: str) -> tuple[Grid, DatasetInfo]:
-        grid = self.grids.get(grid_id)
-        info = self.store.get(grid.dataset) if grid else None
-        if grid is None or info is None:
-            raise LookupError("No such grid; it may have been closed or the server restarted.")
-        return grid, info
-
-    async def grid_query(
-        self,
-        grid: Grid,
-        gen: int | None,
-        priority: int,
-        fn: Callable[[duckdb.DuckDBPyConnection], T],
-        client: str = "",
-    ) -> T:
-        """Run `fn(cursor)` on a worker for `grid`, honouring request generations: an older gen
-        is refused, and a newer one interrupts any older query still running."""
-        cursor = self.store.cursor()
-        ticket = grid.admit(gen, cursor, client)
-
-        def job() -> T:
-            if grid.is_stale(gen, client):
-                raise StaleRequestError()
-            return fn(cursor)
-
-        try:
-            return await self.workers.run(priority, job)
-        except duckdb.InterruptException as error:
-            # Interrupted because a newer gen arrived: stale. Otherwise (a timeout) pass it on.
-            if grid.is_stale(gen, client):
-                raise StaleRequestError() from error
-            raise
-        finally:
-            grid.release(ticket)
-
-    def compiled(self, cursor: duckdb.DuckDBPyConnection, grid: Grid, info: DatasetInfo) -> CompiledView:
-        return self.views.compile(cursor, info, grid.steps, grid.settings)
 
 
 def jsonable(value: Any) -> Any:
@@ -193,7 +100,13 @@ def json_response(content: Any, status_code: int = 200, max_bytes: int | None = 
 def error_response(error: Exception) -> Response:
     """Map the engine's error types to HTTP status codes with plain-language messages."""
     status = 500
-    if isinstance(error, DatasetTooLargeError | BodyTooLargeError):
+    if isinstance(error, Refused):
+        status = 403
+    elif isinstance(error, TimedOut):
+        status = 408
+    elif isinstance(error, Conflict):
+        status = 409
+    elif isinstance(error, DatasetTooLargeError | BodyTooLargeError):
         status = 413
     elif isinstance(error, DatasetLimitError | GridLimitError | StaleRequestError):
         status = 409

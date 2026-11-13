@@ -25,11 +25,12 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from swissarmygrid.bootstrap import Services as Context
 from swissarmygrid.domain.charts import ChartError, altair_code, validate, vega_lite
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import Step, type_family
-from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
+from swissarmygrid.server.http import actor, error_response, json_response, read_json
 from swissarmygrid.services.charts import aggregate
 from swissarmygrid.services.ports import BACKGROUND
 

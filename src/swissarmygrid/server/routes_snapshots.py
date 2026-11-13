@@ -25,9 +25,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.server.context import (
+from swissarmygrid.bootstrap import Services as Context
+from swissarmygrid.server.http import (
     BodyTooLargeError,
-    Context,
     actor,
     error_response,
     json_response,

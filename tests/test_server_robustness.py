@@ -63,7 +63,7 @@ def test_an_agent_cannot_stop_the_server(tmp_path: Path) -> None:
 
 
 def test_json_bodies_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("swissarmygrid.server.context.MAX_JSON_BODY_BYTES", 1024)
+    monkeypatch.setattr("swissarmygrid.server.http.MAX_JSON_BODY_BYTES", 1024)
     with make_client(tmp_path) as c:
         gid = grid_id(push(c, "clients", TABLE))
         big = b'{"steps": [], "pad": "' + b"x" * 4096 + b'"}'
@@ -99,8 +99,8 @@ def test_a_page_that_stops_reading_never_holds_up_a_broadcast(monkeypatch: pytes
     import json as json_module
     import time
 
-    from swissarmygrid.server import live_updates
-    from swissarmygrid.server.live_updates import LiveUpdates
+    from swissarmygrid.adapters import live_updates
+    from swissarmygrid.adapters.live_updates import LiveUpdates
 
     monkeypatch.setattr(live_updates, "SEND_TIMEOUT_SECONDS", 0.2)
     live = LiveUpdates()
@@ -127,7 +127,7 @@ def test_jsonable_keeps_its_meaning_on_the_fast_path() -> None:
     from decimal import Decimal
     from uuid import UUID
 
-    from swissarmygrid.server.context import jsonable
+    from swissarmygrid.server.http import jsonable
 
     rows = [
         [1, 2**53 - 1, 2**53, -(2**60), 1.5, float("nan"), float("inf"), None, True, "x"],

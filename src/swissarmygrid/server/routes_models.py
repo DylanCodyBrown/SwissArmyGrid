@@ -29,8 +29,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+from swissarmygrid.bootstrap import Services as Context
 from swissarmygrid.domain.relationships import Model, merge, mermaid_erd, parse_model
-from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
+from swissarmygrid.server.http import actor, error_response, json_response, read_json
 
 
 def library_folders(ctx: Context) -> list[Path]:

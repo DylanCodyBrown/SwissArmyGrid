@@ -18,7 +18,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.server.context import Context, actor, error_response, json_response, read_json
+from swissarmygrid.bootstrap import Services as Context
+from swissarmygrid.server.http import actor, error_response, json_response, read_json
 
 MAX_WAIT_SECONDS: float = 30.0
 _QUIET_PREFIX = "/processes/"

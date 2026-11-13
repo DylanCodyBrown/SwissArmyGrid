@@ -48,6 +48,7 @@ from starlette.routing import BaseRoute, Route
 from swissarmygrid.adapters.blade_run import needed
 from swissarmygrid.adapters.blades import VaultUnavailableError
 from swissarmygrid.adapters.datasets import arrow_stream_to_table, split_json_to_arrow
+from swissarmygrid.bootstrap import Services as Context
 from swissarmygrid.domain import blades as blade_code
 from swissarmygrid.domain.blades import (
     Blade,
@@ -62,8 +63,7 @@ from swissarmygrid.domain.blades import file_name as portable_file_name
 from swissarmygrid.domain.catalogs import CatalogInfo, select_sql
 from swissarmygrid.server import blade_runner
 from swissarmygrid.server.blade_templates import TEMPLATES
-from swissarmygrid.server.context import (
-    Context,
+from swissarmygrid.server.http import (
     actor,
     error_response,
     json_response,
