@@ -157,6 +157,23 @@ relation, not the user's variable, so they were marked verified anyway.
   `SELECT *` shows one column fewer than the grid. A list of dicts, a file or the clipboard has no
   variable DuckDB can read; the copy expects a DataFrame of that name and says so.
 
+## Steel and Swiss army knife red (2026-11-13, the owner's request; confirm or change)
+
+"Design the default theme in the app to be steel and Swiss army knife red." The light and dark themes
+(and so "system", the default) are now brushed-steel greys with one red: `#c8102e` in light (5.9:1 on
+white, white text on it 5.9:1), `#ff6b73` in dark (with dark text on red buttons).
+
+- **Red is the brand and the main action:** the table's title, the open tab's top edge, primary and
+  pressed buttons, the first chart series, and a thin marker line on the active row and column.
+- **Steel is everything else:** surfaces, borders, the focus ring (dark steel in light, light steel in
+  dark, so it never reads as an error), and where you are in the grid (steel fill, red line).
+- **Errors keep a deeper red of their own** (`#a3141f`), always with words or an icon; danger buttons are
+  outlined, primary ones solid.
+- The tab bar has a slight brushed-steel gradient (`--steel-sheen`); the high contrast themes stay flat
+  and unchanged. No cross, flag or other mark: colours only.
+- **Open:** keep the old blue as a "Classic" theme in Settings if anyone misses it; the user guide's
+  screenshots still show blue.
+
 ## Fill in your values (2026-11-12, the owner's request; confirm or change)
 
 "Have blades auto detect ... the variables that are defined inside of the blades, so when somebody imports

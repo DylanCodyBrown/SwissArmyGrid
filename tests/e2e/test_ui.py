@@ -974,7 +974,7 @@ def test_themes_apply_and_screenshot(
         background
         in {
             "light": ("rgb(255, 255, 255)",),
-            "dark": ("rgb(15, 20, 25)",),
+            "dark": ("rgb(18, 21, 24)",),
             "hc-light": ("rgb(255, 255, 255)",),
             "hc-dark": ("rgb(0, 0, 0)",),
         }[theme]
