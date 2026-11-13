@@ -194,9 +194,10 @@ function withRawValues(spec: Record<string, unknown>): Record<string, unknown> {
 export async function drawChart(
   element: HTMLElement,
   spec: Record<string, unknown>,
-  options: { onSelect?: (value: unknown, y2?: unknown) => void; zoomable?: boolean; height?: number; large?: boolean; fontScale?: number } = {},
+  options: { onSelect?: (value: unknown, y2?: unknown) => void; zoomable?: boolean; height?: number; large?: boolean; fontScale?: number; own?: boolean } = {},
 ): Promise<Drawn> {
   installPatterns();
+  if (options.own) return drawOwn(element, spec, options.height);
   let copy: Record<string, unknown> = withRawValues(withPatterns(structuredClone(spec)));
   // The server names the Vega-Lite 5 schema (Altair's, for the code it exports); the page draws
   // with its own Vega-Lite, which warned in the console for every chart about the version.
@@ -229,6 +230,11 @@ export async function drawChart(
       else options.onSelect?.(datum[RAW_X]);
     });
   }
+  return pictured(result);
+}
+
+/** A drawn chart with its SVG and PNG pictures (the markdown export, Export HTML). */
+function pictured(result: Result): Drawn {
   // Exports carry the pattern definitions inside the SVG, so they render anywhere.
   const toSvg = async (): Promise<string> => (await result.view.toSVG()).replace(/(<svg[^>]*>)/, `$1<defs>${patternDefs()}</defs>`);
   const toPng = async (): Promise<string> => {
@@ -247,4 +253,16 @@ export async function drawChart(
     return canvas.toDataURL("image/png");
   };
   return { result, toSvg, toPng };
+}
+
+/** A whole Vega-Lite spec from the analyst's own Python (an Altair chart): drawn as it is, in the theme,
+ * filling its card. Its data is inline (the server refuses a url), so nothing is fetched. */
+async function drawOwn(element: HTMLElement, spec: Record<string, unknown>, height?: number): Promise<Drawn> {
+  const copy = structuredClone(spec);
+  delete copy.$schema;
+  const single = "mark" in copy || "layer" in copy;
+  if (single && element.clientWidth) copy.width = Math.max(120, element.clientWidth - 40);
+  if (single && height) copy.height = height;
+  const result = await embed(element, copy as never, { actions: false, renderer: "svg", config: themeConfig(1, false) as never, tooltip: { theme: "custom" } });
+  return pictured(result);
 }

@@ -37,7 +37,7 @@ import { PAPERS, fitPages, makeMovable, moveCard, paginate, printPages, type Pap
 import { effectiveTheme, onThemeChange, setTheme, themeChoice } from "./theme";
 import type { Drawn } from "./lazy/charts";
 
-type CardKind = "chart" | "note" | "table" | "diagram" | "graphviz" | "plotly" | "echarts" | "image";
+type CardKind = "chart" | "note" | "table" | "diagram" | "graphviz" | "plotly" | "echarts" | "vegalite" | "image";
 
 interface Card {
   id: string;
@@ -55,8 +55,9 @@ interface Card {
   error?: string;
   pinned: boolean;
   created_by: string;
-  grid: string; // the grid the card is drawn on (the sandbox shows every table's cards)
-  dataset: string;
+  grid: string | null; // the grid the card is drawn on; null for a card of no table (Python, a note)
+  dataset: string | null;
+  origin?: string; // a card of no table: "Python", "Agent" or "Sandbox"
   size?: { w: number; h: number }; // columns of 12, rows of ROW_HEIGHT; else the kind's default
   new_page?: boolean; // in Page view (and the PDF), this card starts a new page
 }
@@ -74,6 +75,7 @@ const DEFAULT_SIZE: Record<CardKind, { w: number; h: number }> = {
   graphviz: { w: 6, h: 10 },
   plotly: { w: 6, h: 10 },
   echarts: { w: 6, h: 10 },
+  vegalite: { w: 6, h: 10 },
   image: { w: 6, h: 10 },
 };
 const KIND_NAMES: Record<CardKind, string> = {
@@ -84,6 +86,7 @@ const KIND_NAMES: Record<CardKind, string> = {
   graphviz: "Graph",
   plotly: "Plotly figure",
   echarts: "ECharts chart",
+  vegalite: "Vega-Lite chart",
   image: "Image",
 };
 
@@ -516,7 +519,7 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
     ]), { icon: "more", iconOnly: true, class: "ghost" }),
     h("span", { class: "danger-gap" }, button("Remove", () => void api(`/cards/${card.id}`, "DELETE").then(() => render()), { icon: "trash", iconOnly: true, class: "ghost" })),
   );
-  const header = h("div", { class: "card-header" }, h("h3", {}, card.title || (card.kind === "chart" ? chartTitle(card) : KIND_NAMES[card.kind])), h("span", { class: "badge card-table", title: `Drawn on ${card.dataset}` }, card.dataset), actions);
+  const header = h("div", { class: "card-header" }, h("h3", {}, card.title || (card.kind === "chart" ? chartTitle(card) : KIND_NAMES[card.kind])), h("span", { class: "badge card-table", title: card.dataset ? `Drawn on ${card.dataset}` : `From ${card.origin ?? "the Sandbox"}: belongs to no table` }, card.dataset ?? card.origin ?? "Sandbox"), actions);
   const element = h(
     "article",
     { class: `card card-${card.kind} ${card.pinned ? "pinned" : ""} ${card.new_page ? "new-page" : ""}`, "aria-label": card.title || KIND_NAMES[card.kind] },
@@ -557,6 +560,22 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
       try {
         if (drawnFigure) return drawnFigure.resize();
         drawnFigure = card.kind === "plotly" ? await (await plotly()).drawPlotly(slot, card.body ?? "", dark) : (await echarts()).drawECharts(slot, card.body ?? "", dark);
+      } catch (e) {
+        failed(slot, e);
+      }
+    });
+  } else if (card.kind === "vegalite") {
+    const slot = h("div", { class: "chart", role: "img", "aria-label": card.title || "Vega-Lite chart" });
+    content.append(slot);
+    let own: Drawn | null = null;
+    pictures.set(card.id, async () => (own ? own.toPng() : null));
+    fitDrawing(slot, async (width, height) => {
+      try {
+        if (own) {
+          await own.result.view.width(Math.max(120, width - 40)).height(Math.max(120, height - 40)).runAsync();
+          return;
+        }
+        own = await (await charts()).drawChart(slot, JSON.parse(card.body ?? "{}") as Record<string, unknown>, { own: true, height: Math.max(120, height - 40) });
       } catch (e) {
         failed(slot, e);
       }
@@ -642,7 +661,7 @@ async function crossFilter(card: Card, value: unknown, y2?: unknown): Promise<vo
     await api(`/cards/${card.id}/select`, "POST", cell ? { value, y: y2 } : { value });
     toast(`Filtered the grid to ${String(spec?.x?.field)} = ${shown(value)}${cell ? ` and ${String(spec?.y?.field)} = ${shown(y2)}` : ""}.`);
     // The card's own table gets the filter step, whichever table is in front.
-    const owner = contextOf(card.grid)?.state ?? state;
+    const owner = (card.grid ? contextOf(card.grid)?.state : undefined) ?? state;
     // A new generation before load() redraws the panels, so their requests are not stale (409).
     owner.gen += 1;
     await owner.load();
@@ -674,7 +693,7 @@ async function exportHtml(card: Card, drawn: Drawn | null): Promise<void> {
   if (!drawn) return;
   const svg = await drawn.toSvg();
   const title = card.title || chartTitle(card);
-  const page = `<!doctype html><meta charset="utf-8"><title>${title.replace(/</g, "&lt;")}</title><body style="font-family:Segoe UI,sans-serif;background:#fff;margin:24px">${svg}<p style="color:#57606a">From SwissArmyGrid, dataset ${card.dataset.replace(/</g, "&lt;")}, ${new Date().toISOString()}</p></body>`;
+  const page = `<!doctype html><meta charset="utf-8"><title>${title.replace(/</g, "&lt;")}</title><body style="font-family:Segoe UI,sans-serif;background:#fff;margin:24px">${svg}<p style="color:#57606a">From SwissArmyGrid, dataset ${(card.dataset ?? "").replace(/</g, "&lt;")}, ${new Date().toISOString()}</p></body>`;
   saveBlob(new Blob([page], { type: "text/html" }), `${title.replace(/[^A-Za-z0-9_-]+/g, "_") || "chart"}.html`);
 }
 
@@ -761,7 +780,7 @@ function noteDialog(existing?: Card): void {
     h("p", { class: "hint" }, existing ? "Changes show for everyone looking at the Sandbox." : `The note is filed with ${state.info?.dataset ?? "the table in front"}.`),
   );
   const save = (): Promise<unknown> =>
-    existing ? api(`/cards/${existing.id}`, "PATCH", { title: title.value, body: text.value }) : api(`${grid}/cards`, "POST", { kind: "note", title: title.value, body: text.value });
+    existing ? api(`/cards/${existing.id}`, "PATCH", { title: title.value, body: text.value }) : api("/cards", "POST", { kind: "note", title: title.value, body: text.value });
   foot.append(button("Cancel", close), button(existing ? "Save" : "Add note", () => void save().then(() => { close(); void render(); }).catch((e: Error) => toast(e.message, "error")), { class: "primary" }));
 }
 

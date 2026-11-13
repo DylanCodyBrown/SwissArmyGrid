@@ -129,10 +129,11 @@ src/swissarmygrid/
 
   client/push_client.py  push(), ensure_server()
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
+  client/sandbox_client.py sag.sandbox: a figure, picture, table or text as a Sandbox card (duck-typed)
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (107 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (108 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);

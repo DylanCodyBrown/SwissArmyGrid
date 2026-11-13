@@ -812,25 +812,83 @@ _CARD_FIELDS = (
         "json",
     ),
     opt("sql", "A table card's SELECT (it runs over `grid`): a query result kept in the sandbox."),
+    opt("size", '{"w": 2-12 columns, "h": 3-30 rows of 40px}.', "json"),
 )
+
+# What each card kind takes (sandbox_formats): the agent's whole drawing vocabulary in one answer.
+_FORMATS: dict[str, Any] = {
+    "board": "12 columns wide, rows of 40px; size {w: 2-12, h: 3-30}. Cards go in order; sandbox_update "
+    "moves (before) and resizes them. Page view prints them as letter or landscape pages.",
+    "kinds": {
+        "chart": {
+            "needs": "grid",
+            "spec": '{"mark": "bar", "x": {"field": "region"}, "y": {"aggregate": "count"}}',
+            "note": "Computed on the grid's view, redrawn when its steps change; clicking filters.",
+        },
+        "table": {
+            "needs": "grid for sql",
+            "sql": "SELECT region, sum(amount) FROM t GROUP BY 1",
+            "or": "columns and rows of its own (no grid), first 100 rows",
+        },
+        "note": {
+            "body": "Markdown: headings, lists, tables, code, quotes. A Sandbox note is resizable like a text box."
+        },
+        "diagram": {"body": "Mermaid text: flowchart LR\n  A --> B"},
+        "graphviz": {"body": "DOT text: digraph { a -> b }"},
+        "plotly": {
+            "body": '{"data": [{"type": "bar", "x": ["a"], "y": [1]}], "layout": {}}',
+            "note": 'No map traces. Colours may be "theme:accent" to follow the theme.',
+        },
+        "echarts": {
+            "body": '{"xAxis": {"data": ["a"]}, "yAxis": {}, "series": [{"type": "bar", "data": [1]}]}',
+            "note": "No images, links or graphic layer; tooltips as text.",
+        },
+        "image": {"body": "data:image/png;base64,...", "or": "file: a PNG, JPEG, GIF, WebP or SVG you saved"},
+        "vegalite": {"note": "From the user's own Python (Altair) only; the agent draws with chart."},
+    },
+    "data": "Read tables with the table tools (columns, profiles, agent_query); a chart card computes on "
+    "the grid itself, so big data never passes through you. Use key to replace a card you made before.",
+}
+
+
+@command("sandbox_formats", "What each Sandbox card kind takes, with an example, and how sizing works.")
+def card_formats(a: dict[str, Any]) -> Any:
+    return _FORMATS
 
 
 @command(
     "sandbox_add",
-    "Add a card to the Sandbox: kind chart (spec), note (markdown body), table (sql: a saved query), "
-    "diagram (Mermaid body), graphviz (DOT body), plotly or echarts (figure JSON body), image (data URL body).",
-    req("grid", "Grid id."),
-    req("kind", "chart, note, table, diagram, graphviz, plotly, echarts or image."),
+    "Add a Sandbox card (sandbox_formats lists the kinds). Without grid it belongs to no table.",
+    opt("grid", "Grid id: needed for chart and for table sql."),
+    opt("kind", "chart, note, table, diagram, graphviz, plotly, echarts or image."),
     *_CARD_FIELDS,
+    opt("file", "A file on this computer: a picture, .md, .mmd or .dot (kind from its name)."),
+    opt("columns", "A table card's own column names.", "json"),
+    opt("rows", "A table card's own rows: lists, one value per column.", "json"),
+    opt("key", "Names the card: adding the same key again replaces it in place."),
 )
 def add_card(a: dict[str, Any]) -> Any:
-    body = {k: a[k] for k in ("kind", "title", "body", "spec", "sql") if a.get(k) is not None}
-    return api.call("POST", f"/grids/{_q(a['grid'])}/cards", body)
+    body = {
+        k: a[k]
+        for k in ("kind", "title", "body", "spec", "sql", "size", "columns", "rows", "key")
+        if a.get(k) is not None
+    }
+    if a.get("file"):
+        from swissarmygrid.client.sandbox_client import card_for
+
+        body = card_for(Path(a["file"]).expanduser(), a.get("kind")) | {
+            k: v for k, v in body.items() if k != "kind"
+        }
+    if "kind" not in body:
+        raise CommandError("Name the kind, or give a file.")
+    body.setdefault("title", "")
+    path = f"/grids/{_q(a['grid'])}/cards" if a.get("grid") else "/cards"
+    return api.call("POST", path, body)
 
 
 @command(
     "sandbox_update",
-    "Change a card's title, body, spec or sql, pin it, move it (before another card) or start a page with it.",
+    "Change a card's title, body, spec, sql or size, pin it, move it (before a card) or start a page.",
     req("card", "Card id."),
     *_CARD_FIELDS,
     opt("pinned", "Pin it to the top.", "bool"),
@@ -838,7 +896,11 @@ def add_card(a: dict[str, Any]) -> Any:
     opt("new_page", "In Page view (and the PDF), start a new page with this card.", "bool"),
 )
 def update_card(a: dict[str, Any]) -> Any:
-    body = {k: a[k] for k in ("title", "body", "spec", "sql", "pinned", "new_page") if a.get(k) is not None}
+    body = {
+        k: a[k]
+        for k in ("title", "body", "spec", "sql", "size", "pinned", "new_page")
+        if a.get(k) is not None
+    }
     if a.get("before"):
         body["before"] = None if a["before"] == "end" else a["before"]
     return api.call("PATCH", f"/cards/{_q(a['card'])}", body)

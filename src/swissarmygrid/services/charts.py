@@ -8,6 +8,10 @@ The specification itself (what a chart may say, its query text, Vega-Lite) is th
 A card records its source (dataset, version, steps) and redraws whenever its grid's view changes,
 because charts are computed on request from the grid's current steps. Agent-made cards are tagged
 so the page can mark them.
+
+A card may also belong to no table (`add_free`): a note, a figure, a picture or a table of rows sent
+from Python (`sag.sandbox`), the agent or the Sandbox's own Add note. It stays when grids close. A
+`key` names a card, so sending the same key again replaces that card's content in its place.
 """
 
 from __future__ import annotations
@@ -24,19 +28,35 @@ from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import Step, type_family
 from swissarmygrid.services.ports import BACKGROUND, SqlSession
-from swissarmygrid.services.workspace import NotFound, Workspace
+from swissarmygrid.services.workspace import NotFound, Refused, Workspace
 
 _TABLE_CARD_ROWS: int = 100
+_TABLE_CARD_COLUMNS: int = 50
+_CELL_CHARACTERS: int = 1_000
+_ORIGINS: dict[str, str] = {"python": "Python", "agent": "Agent", "user": "Sandbox"}
 # A diagram is Mermaid text (an ERD from GET /relationships/erd, or any flowchart), drawn by the page.
 # Graphviz is DOT text; Plotly and ECharts are a figure as JSON text; an image is a data: URL. The page
 # draws each (web/src/lazy/), so the server only checks that the text is there and not too big.
-_KINDS: tuple[str, ...] = ("chart", "note", "table", "diagram", "graphviz", "plotly", "echarts", "image")
+# A vegalite card is a whole Vega-Lite spec with its data inline (an Altair chart's to_dict()): the user's
+# own Python's or the page's, never the agent's (Vega compiles its expressions; the agent has `chart`).
+_KINDS: tuple[str, ...] = (
+    "chart",
+    "note",
+    "table",
+    "diagram",
+    "graphviz",
+    "plotly",
+    "echarts",
+    "vegalite",
+    "image",
+)
 _BODY_LIMITS: dict[str, int] = {
     "note": 20_000,
     "diagram": 50_000,
     "graphviz": 100_000,
     "plotly": 2_000_000,
     "echarts": 2_000_000,
+    "vegalite": 2_000_000,
     "image": 8_000_000,
 }
 _BODY_WORDS: dict[str, str] = {
@@ -45,6 +65,7 @@ _BODY_WORDS: dict[str, str] = {
     "graphviz": "Graphviz (DOT) text",
     "plotly": 'a Plotly figure as JSON text ({"data": [...], "layout": {...}})',
     "echarts": "an ECharts option as JSON text",
+    "vegalite": "a Vega-Lite spec as JSON text, its data inline",
     "image": "a data: URL of a PNG, JPEG, GIF, WebP or SVG picture",
 }
 Card = dict[str, Any]
@@ -137,21 +158,28 @@ def check_card(body: Any) -> Card:
         limit = _BODY_LIMITS[kind]
         if not isinstance(text, str) or (kind != "note" and not text.strip()) or len(text) > limit:
             raise ValueError(f"A {kind} card's body is {_BODY_WORDS[kind]}, at most {limit:,} characters.")
-        if kind in ("plotly", "echarts"):
+        if kind in ("plotly", "echarts", "vegalite"):
             try:
                 figure = json.loads(text)
             except ValueError as error:
                 raise ValueError(f"A {kind} card's body is not JSON: {error}") from error
             if not isinstance(figure, dict):
                 raise ValueError(f"A {kind} card's body is one JSON object.")
+            if kind == "vegalite" and _fetches(figure):
+                raise ValueError(
+                    "A vegalite card draws only data inside it (data.values or datasets): no url or href."
+                )
         if kind == "image" and not text.startswith("data:image/"):
             raise ValueError("An image card's body is a data:image/... URL.")
         out["body"] = text
     elif kind == "table":
         sql = body.get("sql")
-        if not isinstance(sql, str):
-            raise ValueError("A table card needs sql.")
-        out["sql"] = sql
+        if isinstance(sql, str):
+            out["sql"] = sql
+        elif "rows" in body:
+            out |= _fixed_rows(body)
+        else:
+            raise ValueError("A table card needs sql (a SELECT over its grid), or columns and rows.")
     else:
         out["spec"] = body.get("spec")
     size = body.get("size")
@@ -167,6 +195,54 @@ def check_card(body: Any) -> Card:
             raise ValueError('size is {"w": 2 to 12 columns, "h": 3 to 30 rows}.')
         out["size"] = {"w": size["w"], "h": size["h"]}
     return out
+
+
+def _fetches(spec: Any) -> bool:
+    """A Vega-Lite spec that would load or link anything: a url (data, an image mark) or an href."""
+    if isinstance(spec, dict):
+        return any(k in ("url", "href") or _fetches(v) for k, v in spec.items())
+    if isinstance(spec, list):
+        return any(_fetches(v) for v in spec)
+    return False
+
+
+def _not_the_agents(card: Card, who: str) -> None:
+    if card["kind"] == "vegalite" and who == "agent":
+        raise Refused("A vegalite card comes from your own Python or the page; the agent draws with chart.")
+
+
+def _fixed_rows(body: dict[str, Any]) -> Card:
+    """A table card's own rows (from Python or the agent): the first 100, cells as JSON values."""
+    columns, rows = body.get("columns"), body.get("rows")
+    if (
+        not isinstance(columns, list)
+        or not columns
+        or len(columns) > _TABLE_CARD_COLUMNS
+        or not all(isinstance(c, str) and len(c) <= 200 for c in columns)
+    ):
+        raise ValueError(f"A table card's columns are 1 to {_TABLE_CARD_COLUMNS} names.")
+    if not isinstance(rows, list) or not all(isinstance(r, list) and len(r) == len(columns) for r in rows):
+        raise ValueError("A table card's rows are lists, one value per column.")
+    kept = rows[:_TABLE_CARD_ROWS]
+    for row in kept:
+        for value in row:
+            if value is not None and not isinstance(value, (str, int, float, bool)):
+                raise ValueError("A table card's cells are text, numbers, true/false or null.")
+            if isinstance(value, str) and len(value) > _CELL_CHARACTERS:
+                raise ValueError(f"A table card's cells are at most {_CELL_CHARACTERS:,} characters.")
+    capped = len(rows) > _TABLE_CARD_ROWS or bool(body.get("capped"))
+    return {"columns": list(columns), "rows": [list(r) for r in kept], "capped": capped}
+
+
+def _key(body: Any) -> str | None:
+    key = body.get("key") if isinstance(body, dict) else None
+    if key is None:
+        return None
+    if not isinstance(key, str) or not key.strip() or len(key) > 100:
+        raise ValueError(
+            "key is text, at most 100 characters: it names the card, so sending it again replaces it."
+        )
+    return key
 
 
 def _place(card: Card) -> tuple[bool, float]:
@@ -235,8 +311,8 @@ class Cards:
     async def everything(self) -> dict[str, Any]:
         """The Analysis Sandbox: one list for every table. Each card is still drawn on its own
         grid's view; a card whose grid was closed drops out."""
-        shown: list[Card] = []
-        for grid_id in dict.fromkeys(c["grid"] for c in self._cards.values()):
+        shown: list[Card] = [dict(c) for c in self._cards.values() if c["grid"] is None]
+        for grid_id in dict.fromkeys(c["grid"] for c in self._cards.values() if c["grid"] is not None):
             grid = self.ws.grids.get(grid_id)
             if grid is None:
                 continue
@@ -256,24 +332,52 @@ class Cards:
         await self.ws.grid_query(grid, None, BACKGROUND, check)
 
     async def add(self, grid: Grid, info: DatasetInfo, body: Any, who: str) -> dict[str, Any]:
-        ws = self.ws
         card = check_card(body)
+        _not_the_agents(card, who)
         if card["kind"] == "chart":
             await self._check_chart(grid, info, card["spec"])
-        card |= {
-            "id": secrets.token_hex(4),
-            "grid": grid.id,
-            "dataset": info.name,
-            "pinned": False,
-            "new_page": False,
-            "created_by": who,
-            "created": time.time(),
-            "order": max((c.get("order", 0.0) for c in self._cards.values()), default=0.0) + 1.0,
-        }
-        self._cards[card["id"]] = card
-        await ws.live.broadcast({"type": "cards_updated", "grid": grid.id})
-        ws.audit.write(who, "add_card", info.name, kind=card["kind"])
-        return {"card": card["id"]}
+        return await self._keep(card, _key(body), grid.id, info.name, who, who)
+
+    async def add_free(self, body: Any, who: str) -> dict[str, Any]:
+        """A card that belongs to no table: any kind but a chart or a table's query, which need a
+        grid's view. `"origin": "python"` marks one sent by sag.sandbox."""
+        card = check_card(body)
+        _not_the_agents(card, who)
+        if card["kind"] == "chart" or "sql" in card:
+            raise ValueError("A chart or a table's query is drawn on a grid: POST /grids/{id}/cards.")
+        origin = "python" if isinstance(body, dict) and body.get("origin") == "python" else who
+        return await self._keep(card, _key(body), None, None, who, origin)
+
+    async def _keep(
+        self, card: Card, key: str | None, grid: str | None, dataset: str | None, who: str, origin: str
+    ) -> dict[str, Any]:
+        ws = self.ws
+        same = next((c for c in self._cards.values() if key is not None and c.get("key") == key), None)
+        if same is not None:  # the same key again: new content in the old card's place and size
+            for field in ("spec", "body", "sql", "columns", "rows", "capped"):
+                same.pop(field, None)
+            same.update(card | {"grid": grid, "dataset": dataset, "updated": time.time()})
+            same.setdefault("size", card.get("size"))
+            card = same
+        else:
+            card |= {
+                "id": secrets.token_hex(4),
+                "key": key,
+                "grid": grid,
+                "dataset": dataset,
+                "origin": _ORIGINS.get(origin, "Sandbox"),
+                "pinned": False,
+                "new_page": False,
+                "created_by": who,
+                "created": time.time(),
+                "order": max((c.get("order", 0.0) for c in self._cards.values()), default=0.0) + 1.0,
+            }
+            self._cards[card["id"]] = card
+        await ws.live.broadcast({"type": "cards_updated", "grid": grid})
+        ws.audit.write(
+            who, "add_card", dataset or card["origin"], kind=card["kind"], replaced=same is not None
+        )
+        return {"card": card["id"], "replaced": same is not None}
 
     async def update(self, card: Card, body: Any, who: str) -> dict[str, Any]:
         """Change title, spec, body, sql, pinned, new_page (it starts a page in Page view), or its
@@ -281,12 +385,15 @@ class Cards:
         ws = self.ws
         if not isinstance(body, dict):
             raise ValueError("Send the fields to change.")
-        grid, info = ws.grid_and_info(card["grid"])
         placing = {"pinned", "new_page", "before"}
         if set(body) - placing:
             merged = check_card({**card, **{k: v for k, v in body.items() if k not in placing}})
+            _not_the_agents(merged, who)
             if merged["kind"] == "chart":
+                grid, info = ws.grid_and_info(card["grid"])
                 await self._check_chart(grid, info, merged["spec"])
+            elif card["grid"] is None and "sql" in merged:
+                raise ValueError("A card that belongs to no table has no query.")
             card.update(merged)
         if "pinned" in body:
             card["pinned"] = bool(body["pinned"])
@@ -295,7 +402,7 @@ class Cards:
         if "before" in body:
             self._move(card, body["before"])
         await ws.live.broadcast({"type": "cards_updated", "grid": card["grid"]})
-        ws.audit.write(who, "update_card", card["dataset"])
+        ws.audit.write(who, "update_card", card["dataset"] or card.get("origin"))
         return {"card": card["id"]}
 
     def _move(self, card: Card, before: Any) -> None:
@@ -316,7 +423,7 @@ class Cards:
         if card is None:
             return None
         await self.ws.live.broadcast({"type": "cards_updated", "grid": card["grid"]})
-        self.ws.audit.write(who, "remove_card", card["dataset"])
+        self.ws.audit.write(who, "remove_card", card["dataset"] or card.get("origin"))
         return {"removed": card["id"]}
 
     async def select(self, card: Card, grid: Grid, info: DatasetInfo, body: Any, who: str) -> dict[str, Any]:

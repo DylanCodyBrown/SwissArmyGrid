@@ -176,6 +176,13 @@ first, the server part once the Cosmic Python refactor has landed.
   through svgSafe (no scripts, handlers, animations, embedded HTML or outside links); Plotly refuses map
   traces (they fetch tiles) and keeps only inline layout images; ECharts drops images, links, the
   graphic layer and the data view, and draws tooltips as text.
+- **Done (server, 2026-11-13):** cards of no table (`POST /cards`: notes, figures, pictures, a table of
+  its own rows; badged Python, Agent or Sandbox; they stay when grids close; the Sandbox's Add note
+  makes one); `key` replaces a card in place, keeping its size and order; `sag.sandbox` (duck-typed,
+  standard library only); a `vegalite` card for Altair, **refused from the agent** (Vega compiles its
+  expressions and the page allows that; the agent has the checked `chart`), its data inline (any url or
+  href refused, so it fetches nothing); `sandbox_formats` and `sandbox_add` with `file`, `key`, `size`
+  and its own rows. Still to build: data-bound figures, saved dashboards, history.
 - **Next (server, after the refactor), the owner's follow-up:** "a sag command to push anything to the
   sandbox ... the script can push anything that is visual"; "the MCPs should be fully aware of what
   tools are available to build graphs and charts"; "an agent can push rendered markdown ... resizable

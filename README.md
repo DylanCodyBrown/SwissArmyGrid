@@ -231,6 +231,10 @@ sag.blades(search="orders-function-app")  # by name, description or tag
 sag.blades(tag="sales")
 ```
 
+`sag.sandbox(fig, "Title", key="monthly")` puts a matplotlib, seaborn, Plotly, Altair or graphviz
+figure, a picture, a DataFrame's first rows, Markdown text or a file in the Sandbox; the same `key`
+replaces the card in place when the cell runs again.
+
 - **Kinds:** SQL connection (with its dialect), other (any code), vault (Azure Key Vault, AWS,
   Google, HashiCorp, 1Password, a `.env` file, the operating system's vault: each secret mapped to an
   environment variable) and secret (variable names only; the values are typed each session).

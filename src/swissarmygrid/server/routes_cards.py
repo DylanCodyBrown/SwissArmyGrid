@@ -1,6 +1,9 @@
 """Side-panel cards: charts, notes and small result tables (plan section 11).
 
   GET    /cards                            every card of every open grid: the one Analysis Sandbox
+  POST   /cards                            a card of no table: note, diagram, graphviz, plotly, echarts,
+                                            image, or a table of its own {"columns", "rows"}; "key"
+                                            replaces the card sent with that key before
   GET    /grids/{id}/cards                 every card for the grid, charts computed on its view
   POST   /grids/{id}/cards                 {"kind": "chart"|"note"|"table"|"diagram", "title",
                                             "spec"|"body"|"sql"}
@@ -51,6 +54,12 @@ def routes(cards: Cards) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    async def add_free(request: Request) -> Response:
+        try:
+            return json_response(await cards.add_free(await read_json(request), actor(request)))
+        except Exception as error:
+            return error_response(error)
+
     async def update_card(request: Request) -> Response:
         try:
             card = cards.get(request.path_params["card_id"])
@@ -85,6 +94,7 @@ def routes(cards: Cards) -> list[BaseRoute]:
 
     return [
         Route("/cards", all_cards),
+        Route("/cards", add_free, methods=["POST"]),
         Route("/grids/{grid_id}/cards", list_cards),
         Route("/grids/{grid_id}/cards", add_card, methods=["POST"]),
         Route("/cards/{card_id}", update_card, methods=["PATCH"]),

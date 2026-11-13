@@ -12,7 +12,8 @@ export interface ExportCard {
   id: string;
   kind: string;
   title: string;
-  dataset: string;
+  dataset: string | null;
+  origin?: string;
   body?: string;
   columns?: string[];
   rows?: unknown[][];
@@ -25,7 +26,8 @@ function demote(markdown: string): string {
 }
 
 export async function sandboxMarkdown(cards: ExportCard[], picture: (id: string) => Promise<string | null>, when: Date): Promise<string> {
-  const tables = [...new Set(cards.map((c) => c.dataset))];
+  const from = (c: ExportCard): string => (c.dataset ? `the grid \`${c.dataset}\`` : `${c.origin ?? "the Sandbox"}`);
+  const tables = [...new Set(cards.map((c) => c.dataset ?? c.origin ?? "Sandbox"))];
   const out = [
     "# Sandbox",
     "",
@@ -34,7 +36,7 @@ export async function sandboxMarkdown(cards: ExportCard[], picture: (id: string)
   ];
   for (const card of cards) {
     const title = card.title || card.kind;
-    out.push("", "---", "", `## ${title}`, "", `*From the grid \`${card.dataset}\` (${card.kind}).*`, "");
+    out.push("", "---", "", `## ${title}`, "", `*From ${from(card)} (${card.kind}).*`, "");
     if (card.error) {
       out.push(`> This card could not be drawn: ${card.error}`);
     } else if (card.kind === "note") {

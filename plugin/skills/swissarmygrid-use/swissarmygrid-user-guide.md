@@ -201,7 +201,7 @@ The Compare row in the ribbon switches the mode.
 
 ## The Sandbox tab
 
-The Sandbox tab is the first tab. It is one dashboard for every table, where charts, notes, result tables, diagrams (Mermaid and Graphviz), Plotly and ECharts figures and images live. Each card names the table it is drawn on.
+The Sandbox tab is the first tab. It is one dashboard for every table, where charts, notes, result tables, diagrams (Mermaid and Graphviz), Plotly, ECharts and Vega-Lite figures and images live. Each card names the table it is drawn on; a card that belongs to no table (a note added here, or anything from Python) says where it came from, and stays when grids close.
 
 **Resize a card** by dragging the grip in its bottom right corner: it snaps to the dashboard's twelve columns and rows, and the chart inside redraws to fill it. With the grip focused, the arrow keys do the same (left and right for width, up and down for height); a double-click returns the card's usual size. Sizes are kept in this browser.
 
@@ -227,6 +227,24 @@ Anything that shows details can go to the Sandbox, as a readable note and, where
 - **Right-click a cell**: Send value to Sandbox, Send the row to Sandbox (each column and its value), Keep these, Exclude these, View value, Copy.
 - **Right-click a column header**: Profile to Sandbox (its numbers, most common values and a histogram), Distinct values to Sandbox, Profile, and the Analyze entries for that column.
 - **Send to Sandbox** also sits on the column profile, the whole-table profile, the value viewer and the Key Finder.
+
+### From Python: sag.sandbox
+
+`sag.sandbox(thing, "Title")` puts anything visual from your own Python in the Sandbox:
+
+```python
+sag.sandbox(fig)  # matplotlib or seaborn: a picture
+sag.sandbox(plotly_fig, "Sales by month")  # Plotly: drawn live, in the theme
+sag.sandbox(chart)  # Altair: drawn as Vega-Lite
+sag.sandbox(dot)  # a graphviz Digraph
+sag.sandbox(frame, "Top stores")  # a DataFrame or Arrow table: its first 100 rows
+sag.sandbox("## Findings\n- North leads")  # Markdown: a note
+sag.sandbox("chart.png")  # a file: a picture, .md, .mmd, .dot
+sag.sandbox(text, kind="mermaid")  # Mermaid, DOT or ECharts text
+sag.sandbox(fig, key="monthly", size=(8, 10))
+```
+
+`key=` names the card, so running the cell again replaces it where it is, at the size you gave it, instead of adding another. `size=(w, h)` is 2 to 12 columns by 3 to 30 rows. Nothing is drawn automatically: the script decides what is worth showing.
 
 ### How an agent sees the grids
 

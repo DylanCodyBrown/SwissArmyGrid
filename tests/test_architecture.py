@@ -39,6 +39,7 @@ CLIENT_MODULES = (
     "swissarmygrid.client",
     "swissarmygrid.client.push_client",
     "swissarmygrid.client.blades_client",
+    "swissarmygrid.client.sandbox_client",
     "swissarmygrid.client.watcher",
     "swissarmygrid.client.context_hook",
     "swissarmygrid.cli",
