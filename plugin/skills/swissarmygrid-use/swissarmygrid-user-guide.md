@@ -162,13 +162,15 @@ The Compare row in the ribbon switches the mode.
 - **Cross compare** keeps each grid on its own rows. Click a row on one side to filter the other side to that key.
 - **Stop compare** returns to two independent grids. The side-by-side view stays, with no keys.
 
-## The Agent tab
+## The Sandbox tab
 
-The Agent tab is the first tab. It holds the Analysis Sandbox, one for every table, where charts, notes and diagrams live. Each card names the table it is drawn on.
+The Sandbox tab is the first tab. It is one dashboard for every table, where charts, notes, result tables, diagrams (Mermaid and Graphviz), Plotly and ECharts figures and images live. Each card names the table it is drawn on.
+
+**Resize a card** by dragging the grip in its bottom right corner: it snaps to the dashboard's twelve columns and rows, and the chart inside redraws to fill it. With the grip focused, the arrow keys do the same (left and right for width, up and down for height); a double-click returns the card's usual size. Sizes are kept in this browser.
 
 To add a chart, press Add chart. Choose the table, the chart type, the column for the X axis, the aggregate (such as sum) and the column for the Y axis. To add a note, press Add note, give it a title and write its text in Markdown.
 
-![The Analysis Sandbox with a bar chart of summed quantity by product and a note with a title and a short list.](images/16-analysis-sandbox.png)
+![The Sandbox with a bar chart of summed quantity by product and a note with a title and a short list.](images/16-analysis-sandbox.png)
 
 Clicking a bar in a chart filters the grid to that value. Each card has a pin, a zoom button for a larger view, and a remove button.
 
@@ -184,13 +186,13 @@ Relationships, on the Table row, holds each table's primary key and the joins be
 - Splitting two tables that have a known join pre-ticks its columns in the key picker, with a crown.
 - The Key Finder marks known pairs with a crown.
 
-The window lists the shared models found in the library folders (the ones shipped with the package, `~/.swissarmygrid/models`, and any folder named in `SWISSARMYGRID_MODELS`); Apply sets one. Import a model file loads one from disk, Export downloads the current keys and joins as a file, and Draw ERD adds a copy of the diagram to the Analysis Sandbox. The ERD tab always shows the current one. Tables are matched by the names you pushed them with, so push with the names the model uses.
+The window lists the shared models found in the library folders (the ones shipped with the package, `~/.swissarmygrid/models`, and any folder named in `SWISSARMYGRID_MODELS`); Apply sets one. Import a model file loads one from disk, Export downloads the current keys and joins as a file, and Draw ERD adds a copy of the diagram to the Sandbox. The ERD tab always shows the current one. Tables are matched by the names you pushed them with, so push with the names the model uses.
 
 You can also ask an agent to work them out: it checks each key's uniqueness and each join's match rate, then sets them for you. To share a model, export it and put the file in a library folder: `~/.swissarmygrid/models` for yourself, or a shared folder that everyone names in `SWISSARMYGRID_MODELS`.
 
 ## The ERD tab
 
-The ERD tab sits right after the Agent tab and can't be closed. It draws the keys and joins between the open tables as an entity relationship diagram: one box per table holding only its key columns (PK for a primary key, FK for a column a join uses), with crow's-foot lines showing one-to-many and one-to-one joins. A line's label is the join's note, such as an outlier or a caveat about how it matches; joins without one carry no text. In a star schema the central table is drawn in the middle, with its spokes above and below it.
+The ERD tab sits right after the Sandbox tab and can't be closed. It draws the keys and joins between the open tables as an entity relationship diagram: one box per table holding only its key columns (PK for a primary key, FK for a column a join uses), with crow's-foot lines showing one-to-many and one-to-one joins. A line's label is the join's note, such as an outlier or a caveat about how it matches; joins without one carry no text. In a star schema the central table is drawn in the middle, with its spokes above and below it.
 
 ![The ERD tab with no relationships yet, offering to import a file or apply a model.](images/18-erd-empty.png)
 

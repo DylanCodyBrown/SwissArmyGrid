@@ -157,6 +157,30 @@ relation, not the user's variable, so they were marked verified anyway.
   `SELECT *` shows one column fewer than the grid. A list of dicts, a file or the clipboard has no
   variable DuckDB can read; the copy expects a DataFrame of that name and says so.
 
+## The Sandbox (2026-11-13, the owner's request; page part done, server part after the refactor)
+
+"The agent tab should be renamed to sandbox ... every single image output to land in the sandbox ...
+more visual analytics languages ... dynamically size those graphs ... like a container ... savable
+dashboards that ... open up with the workspace." The owner's choices: images come from Python (the
+agent's or the user's draws the figure and sends the picture; SwissArmyGrid never runs agent code, so
+no milestone 9); Plotly, Graphviz (DOT) and Apache ECharts besides Vega-Lite and Mermaid; the page part
+first, the server part once the Cosmic Python refactor has landed.
+
+- **Done (page):** the tab is Sandbox; a 12-column dashboard with 40px rows, each card resized from its
+  corner grip (or the arrow keys on it), what it draws refitted to the card; renderers for Plotly
+  4.2.0, ECharts 6.1.0 and Graphviz (@viz-js/viz 3.31.0), each loaded only when its first card draws;
+  image cards (inline PNG, JPEG, GIF, WebP or SVG in an <img>, which never runs or loads anything);
+  Plotly and ECharts take the theme's chart colours unless a figure sets its own.
+- **Safety:** the grid page now has a Content Security Policy: only its own scripts, no inline
+  handlers, nothing fetched from another host. Figures are cleaned besides: Graphviz and Mermaid SVG
+  through svgSafe (no scripts, handlers, animations, embedded HTML or outside links); Plotly refuses map
+  traces (they fetch tiles) and keeps only inline layout images; ECharts drops images, links, the
+  graphic layer and the data view, and draws tooltips as text.
+- **Next (server, after the refactor):** the new kinds and image cards in the cards routes, card sizes
+  kept on the server (now in the browser), `sag.show(fig)` from any Python (matplotlib, seaborn,
+  Plotly figures as JSON), MCP tools for the agent, and dashboards saved to disk that reopen with the
+  workspace.
+
 ## Steel and Swiss army knife red (2026-11-13, the owner's request; confirm or change)
 
 "Design the default theme in the app to be steel and Swiss army knife red." The light and dark themes

@@ -11,7 +11,7 @@
  * dragging a tab down onto the grid (its left or right half says which side it goes). Click into
  * a pane to make it active; "Close this side" leaves the other grid alone.
  *
- * The Agent tab comes first, always, and can't be closed: it shows the Analysis Sandbox full
+ * The Sandbox tab comes first, always, and can't be closed: it shows the Sandbox full
  * width (with a table picker) in place of the grids. Any grid tab goes back to the grids.
  *
  * The "+" after the last tab opens a draft tab: a new table from a query over the open tables
@@ -54,7 +54,7 @@ const agentViewListeners: (() => void)[] = [];
 let draft: { serial: number; name: string } | null = null;
 let draftSerial = 0;
 
-/** The Agent tab: the Analysis Sandbox full width, in place of the grids. */
+/** The Sandbox tab: the Sandbox full width, in place of the grids. */
 export function showAgentView(): void {
   setView("agent");
 }
@@ -437,7 +437,7 @@ function render(): void {
         role: "tab",
         tabindex: view === "agent" ? "0" : "-1",
         "aria-selected": String(view === "agent"),
-        title: "The Analysis Sandbox: charts, notes and result tables, for any table",
+        title: "The Sandbox: a dashboard of charts, notes, diagrams, figures and images, for any table",
         onclick: () => showAgentView(),
         onkeydown: (e: KeyboardEvent) => {
           if (e.key === "ArrowRight" && order[0]) {
@@ -446,8 +446,8 @@ function render(): void {
           }
         },
       },
-      icon("agent"),
-      h("span", { class: "tab-label" }, "Agent"),
+      icon("profile"),
+      h("span", { class: "tab-label" }, "Sandbox"),
     ),
     // The ERD tab: always second, never closed or moved.
     h(

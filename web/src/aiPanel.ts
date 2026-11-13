@@ -1,9 +1,15 @@
 /**
- * aiPanel.ts: the Analysis Sandbox: the charts, notes and result tables beside a table. [WIRE]
+ * aiPanel.ts: the Sandbox: a dashboard of charts, notes, result tables, diagrams and images. [WIRE]
  *
- * It lives in the Agent tab only: the first tab of the tab bar, always there, which shows this
- * panel full width (panes.ts). It is one sandbox for every table: each card names the table it is
- * drawn on (GET /cards), and Add chart picks the table. The grid tabs give the grids the full width.
+ * It lives in the Sandbox tab: the first tab of the tab bar, always there, which shows this panel
+ * full width (panes.ts). It is one sandbox for every table: each card names the table it is drawn on
+ * (GET /cards), and Add chart picks the table. The grid tabs give the grids the full width.
+ *
+ * A dashboard: cards sit on a 12-column grid and each one is resized from its corner (or with the
+ * arrow keys on that grip); what it draws fills it and redraws at the new size. Card kinds: Vega-Lite
+ * charts (from the table), Markdown notes, SQL result tables, Mermaid and Graphviz diagrams, Plotly
+ * and ECharts figures (JSON), and images (a picture from Python: matplotlib, seaborn and the like).
+ * Every renderer but Vega-Lite and Markdown loads only when its first card draws.
  * The column profile is a popup now (profileView.openColumnProfile), and the agent's activity is
  * listed in Settings (agentAccess.ts).
  *
@@ -21,7 +27,7 @@
  *          [CARD TABLE]      each card's table name -> read-only, from the card's grid
  */
 import { api, grid, gridId, gridPath, type ColumnInfo, type GridInfo, type Notice } from "./api";
-import { contextOf, gridList, onAgentView, viewingAgent } from "./panes";
+import { contextOf, gridList, onAgentView } from "./panes";
 import { button, clear, formatCount, h, icon, isDateType, isNumericType, openDialog, recall, remember, toast } from "./dom";
 import { renderMarkdown } from "./markdown";
 import { saveBlob } from "./profileView";
@@ -29,9 +35,11 @@ import { state } from "./state";
 import { effectiveTheme, onThemeChange } from "./theme";
 import type { Drawn } from "./lazy/charts";
 
+type CardKind = "chart" | "note" | "table" | "diagram" | "graphviz" | "plotly" | "echarts" | "image";
+
 interface Card {
   id: string;
-  kind: "chart" | "note" | "table" | "diagram";
+  kind: CardKind;
   title: string;
   spec?: Record<string, unknown>;
   body?: string;
@@ -47,6 +55,131 @@ interface Card {
   created_by: string;
   grid: string; // the grid the card is drawn on (the sandbox shows every table's cards)
   dataset: string;
+  size?: { w: number; h: number }; // columns of 12, rows of ROW_HEIGHT; else the kind's default
+}
+
+// ===== the dashboard grid =====
+
+const COLUMNS = 12;
+const ROW_HEIGHT = 40; // px per row unit (grid.css: .cards grid-auto-rows)
+const GAP = 12;
+const DEFAULT_SIZE: Record<CardKind, { w: number; h: number }> = {
+  chart: { w: 6, h: 9 },
+  note: { w: 4, h: 6 },
+  table: { w: 6, h: 8 },
+  diagram: { w: 6, h: 10 },
+  graphviz: { w: 6, h: 10 },
+  plotly: { w: 6, h: 10 },
+  echarts: { w: 6, h: 10 },
+  image: { w: 6, h: 10 },
+};
+const KIND_NAMES: Record<CardKind, string> = {
+  chart: "Chart",
+  note: "Note",
+  table: "Result",
+  diagram: "Diagram",
+  graphviz: "Graph",
+  plotly: "Plotly figure",
+  echarts: "ECharts chart",
+  image: "Image",
+};
+
+/** A card's size: what the viewer last set (kept in this browser until dashboards are saved on the
+ * server), else what the card carries, else its kind's default. */
+function sizeOf(card: Card): { w: number; h: number } {
+  const saved = recall(`sandbox.size.${card.id}`);
+  if (saved) {
+    const [w, h] = saved.split("x").map(Number);
+    if (w && h) return clampSize(w, h);
+  }
+  return card.size ? clampSize(card.size.w, card.size.h) : DEFAULT_SIZE[card.kind];
+}
+
+function clampSize(w: number, h: number): { w: number; h: number } {
+  return { w: Math.max(2, Math.min(COLUMNS, Math.round(w))), h: Math.max(3, Math.min(30, Math.round(h))) };
+}
+
+function applySize(element: HTMLElement, size: { w: number; h: number }): void {
+  element.style.gridColumn = `span ${size.w}`;
+  element.style.gridRow = `span ${size.h}`;
+  element.dataset.w = String(size.w);
+  element.dataset.h = String(size.h);
+}
+
+/** The corner grip: drag it (it snaps to the grid's columns and rows), or focus it and use the arrow
+ * keys (left and right for width, up and down for height); a double-click returns the kind's size. */
+function resizeGrip(card: Card, element: HTMLElement): HTMLElement {
+  const grip = h("button", {
+    type: "button",
+    class: "card-grip",
+    title: "Resize: drag, or use the arrow keys (double-click resets)",
+    "aria-label": `Resize ${card.title || KIND_NAMES[card.kind]}: arrow keys change width and height`,
+  });
+  const set = (size: { w: number; h: number }, save: boolean): void => {
+    applySize(element, size);
+    grip.setAttribute("aria-valuetext", `${size.w} of ${COLUMNS} columns wide, ${size.h} rows tall`);
+    if (save) remember(`sandbox.size.${card.id}`, `${size.w}x${size.h}`);
+  };
+  set(sizeOf(card), false);
+  grip.addEventListener("pointerdown", (down) => {
+    down.preventDefault();
+    grip.setPointerCapture(down.pointerId);
+    const list = element.parentElement!;
+    const column = (list.clientWidth - GAP * (COLUMNS - 1)) / COLUMNS;
+    const box = element.getBoundingClientRect();
+    element.classList.add("resizing");
+    const move = (event: PointerEvent): void => {
+      const w = (event.clientX - box.left + GAP) / (column + GAP);
+      const hh = (event.clientY - box.top + GAP) / (ROW_HEIGHT + GAP);
+      set(clampSize(w, hh), false);
+    };
+    const up = (): void => {
+      element.classList.remove("resizing");
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      set(clampSize(Number(element.dataset.w), Number(element.dataset.h)), true);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+  });
+  grip.addEventListener("keydown", (event) => {
+    const now = { w: Number(element.dataset.w), h: Number(element.dataset.h) };
+    const step: Record<string, [number, number]> = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
+    const [dw, dh] = step[event.key] ?? [0, 0];
+    if (!dw && !dh) return;
+    event.preventDefault();
+    set(clampSize(now.w + dw, now.h + dh), true);
+  });
+  grip.addEventListener("dblclick", () => {
+    try {
+      localStorage.removeItem(`swissarmygrid.sandbox.size.${card.id}`);
+    } catch {
+      // no storage: the size simply is not kept
+    }
+    set(card.size ? clampSize(card.size.w, card.size.h) : DEFAULT_SIZE[card.kind], false);
+  });
+  return grip;
+}
+
+/** Draw into `host` now and again whenever its size changes (after the resizing settles). */
+function fitDrawing(host: HTMLElement, draw: (width: number, height: number) => void | Promise<void>): void {
+  let last = "";
+  let timer = 0;
+  const observer = new ResizeObserver(() => {
+    if (!host.isConnected) {
+      observer.disconnect();
+      return;
+    }
+    const width = Math.round(host.clientWidth);
+    const height = Math.round(host.clientHeight);
+    const key = `${width}x${height}`;
+    if (!width || !height || key === last) return;
+    const first = last === "";
+    last = key;
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => void draw(width, height), first ? 0 : 150);
+  });
+  observer.observe(host);
 }
 
 let workspace: HTMLElement;
@@ -59,6 +192,18 @@ const diagrams = (): Promise<typeof import("./lazy/diagram")> => {
   diagramModule ??= import(/* external */ "/static/build/lazy/diagram.js" as string) as Promise<typeof import("./lazy/diagram")>;
   return diagramModule;
 };
+
+let plotlyModule: Promise<typeof import("./lazy/plotly")> | null = null;
+let echartsModule: Promise<typeof import("./lazy/echarts")> | null = null;
+let graphvizModule: Promise<typeof import("./lazy/graphviz")> | null = null;
+const plotly = (): Promise<typeof import("./lazy/plotly")> =>
+  (plotlyModule ??= import(/* external */ "/static/build/lazy/plotly.js" as string) as Promise<typeof import("./lazy/plotly")>);
+const echarts = (): Promise<typeof import("./lazy/echarts")> =>
+  (echartsModule ??= import(/* external */ "/static/build/lazy/echarts.js" as string) as Promise<typeof import("./lazy/echarts")>);
+const graphviz = (): Promise<typeof import("./lazy/graphviz")> =>
+  (graphvizModule ??= import(/* external */ "/static/build/lazy/graphviz.js" as string) as Promise<typeof import("./lazy/graphviz")>);
+// A picture from Python, inline: <img> never runs what an SVG carries and never loads from outside.
+const IMAGE_DATA = /^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
 
 const charts = (): Promise<typeof import("./lazy/charts")> => {
   chartsModule ??= import(/* external */ "/static/build/lazy/charts.js" as string) as Promise<typeof import("./lazy/charts")>;
@@ -197,14 +342,14 @@ async function render(): Promise<void> {
           iconOnly: true,
           class: "ghost",
         }),
-        mode === "collapsed" ? h("span", { class: "rail-label" }, "Analysis Sandbox") : null,
+        mode === "collapsed" ? h("span", { class: "rail-label" }, "Sandbox") : null,
       ),
     ),
     body,
   );
   if (mode === "collapsed") return;
   // The panel's title, centered and large like a table's name, above what it holds.
-  body.append(h("h1", { id: "ai-panel-title", class: "sandbox-title" }, "Analysis Sandbox"));
+  body.append(h("h1", { id: "ai-panel-title", class: "sandbox-title" }, "Sandbox"));
   await renderCards(body);
 }
 
@@ -232,8 +377,8 @@ async function renderCards(body: HTMLElement): Promise<void> {
         "div",
         { class: "empty-state" },
         icon("agent"),
-        h("strong", {}, "No charts or notes yet"),
-        h("span", {}, "Add one here, or ask the agent: it can add charts and notes beside this grid through the SwissArmyGrid MCP tools."),
+        h("strong", {}, "Nothing in the Sandbox yet"),
+        h("span", {}, "Add a chart or a note here, or ask the agent: it can add charts, notes, diagrams and figures through the SwissArmyGrid MCP tools. Resize any card from its corner."),
       ),
     );
     return;
@@ -264,11 +409,17 @@ function cardElement(card: Card): HTMLElement {
   );
   const element = h(
     "article",
-    { class: `card ${card.pinned ? "pinned" : ""}`, "aria-label": card.title || card.kind },
-    h("div", { class: "card-header" }, h("h3", {}, card.title || (card.kind === "note" ? "Note" : card.kind === "table" ? "Result" : card.kind === "diagram" ? "Diagram" : chartTitle(card))), h("span", { class: "badge card-table", title: `Drawn on ${card.dataset}` }, card.dataset), actions),
+    { class: `card card-${card.kind} ${card.pinned ? "pinned" : ""}`, "aria-label": card.title || KIND_NAMES[card.kind] },
+    h("div", { class: "card-header" }, h("h3", {}, card.title || (card.kind === "chart" ? chartTitle(card) : KIND_NAMES[card.kind])), h("span", { class: "badge card-table", title: `Drawn on ${card.dataset}` }, card.dataset), actions),
     content,
     foot,
   );
+  element.append(resizeGrip(card, element));
+  const dark = effectiveTheme() !== "light";
+  const failed = (slot: HTMLElement, e: unknown): void => {
+    slot.textContent = `This could not be drawn: ${(e as Error).message}`;
+    slot.classList.add("error-text");
+  };
   if (card.error) {
     content.append(h("p", { class: "error-text" }, `⚠ ${card.error}`));
   } else if (card.kind === "note") {
@@ -277,7 +428,27 @@ function cardElement(card: Card): HTMLElement {
     // Mermaid text (an ERD from the relationship model), drawn by the lazy Mermaid chunk.
     const slot = h("div", { class: "diagram", role: "img", "aria-label": card.title || "Diagram" });
     content.append(slot);
-    void diagrams().then((m) => m.drawDiagram(slot, card.body ?? "", effectiveTheme() !== "light"));
+    void diagrams().then((m) => m.drawDiagram(slot, card.body ?? "", dark));
+  } else if (card.kind === "graphviz") {
+    const slot = h("div", { class: "diagram", role: "img", "aria-label": card.title || "Graph" });
+    content.append(slot);
+    void graphviz().then((m) => m.drawGraphviz(slot, card.body ?? "", dark)).catch((e: unknown) => failed(slot, e));
+  } else if (card.kind === "plotly" || card.kind === "echarts") {
+    const slot = h("div", { class: "figure", role: "img", "aria-label": card.title || KIND_NAMES[card.kind] });
+    content.append(slot);
+    let drawnFigure: { resize: () => void } | null = null;
+    fitDrawing(slot, async () => {
+      try {
+        if (drawnFigure) return drawnFigure.resize();
+        drawnFigure = card.kind === "plotly" ? await (await plotly()).drawPlotly(slot, card.body ?? "", dark) : (await echarts()).drawECharts(slot, card.body ?? "", dark);
+      } catch (e) {
+        failed(slot, e);
+      }
+    });
+  } else if (card.kind === "image") {
+    const source = card.body ?? "";
+    if (IMAGE_DATA.test(source)) content.append(h("img", { class: "card-image", src: source, alt: card.title || "Image" }));
+    else content.append(h("p", { class: "error-text" }, "This image is not an inline PNG, JPEG, GIF, WebP or SVG picture."));
   } else if (card.kind === "table") {
     content.append(smallTable(card.columns ?? [], card.rows ?? []));
     if (card.capped) foot.textContent = "Showing the first 100 rows.";
@@ -287,13 +458,16 @@ function cardElement(card: Card): HTMLElement {
     const chart = h("div", { class: "chart", role: "img", "aria-label": `${chartTitle(card)}: ${card.points ?? 0} points.${clickable ? " Click a mark to filter the grid." : ""}` });
     content.append(chart);
     foot.textContent = [card.note, `${formatCount(card.points ?? 0)} points${clickable ? " · click a mark to filter" : ""}`].filter(Boolean).join(" · ");
-    void charts().then(async (m) => {
-      const max = workspace.dataset.panel === "max";
-      const roomy = max || viewingAgent(); // the Agent tab gives each chart a full-width, tall card
-      const room = workspace.getBoundingClientRect().height;
-      const maxHeight = Math.min(480, Math.max(320, Math.round(room * (workspace.dataset.layout === "bottom" ? 0.55 : 0.4))));
-      const height = Math.round((roomy ? maxHeight : workspace.dataset.layout === "bottom" ? 150 : 280) * (roomy ? 1 : panelZoom));
-      drawn = await m.drawChart(chart, card.vega_lite!, { onSelect: (value, y2) => void crossFilter(card, value, y2), height, fontScale: panelZoom, large: max });
+    // The chart fills its card and redraws when the card is resized.
+    fitDrawing(chart, async (_width, height) => {
+      const m = await charts();
+      drawn?.result.finalize();
+      drawn = await m.drawChart(chart, card.vega_lite!, {
+        onSelect: (value, y2) => void crossFilter(card, value, y2),
+        height: Math.max(120, height - 40), // room for the axis labels under the plot
+        fontScale: panelZoom,
+        large: workspace.dataset.panel === "max",
+      });
     });
   }
   return element;

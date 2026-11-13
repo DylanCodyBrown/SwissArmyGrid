@@ -87,7 +87,9 @@ def browser() -> Iterator[Browser]:
         # actions (milliseconds, 350 by default when headed).
         headed = os.environ.get("SAG_HEADED") == "1"
         slow = int(os.environ.get("SAG_SLOWMO", "350" if headed else "0"))
-        instance = p.chromium.launch(channel="msedge", headless=not headed, slow_mo=slow)
+        instance = p.chromium.launch(
+            executable_path="/opt/pw-browsers/chromium", headless=not headed, slow_mo=slow
+        )
         yield instance
         instance.close()
 
@@ -124,7 +126,7 @@ def open_steps(browser: Browser, grid_url: str) -> Page:
 
 
 def open_agent(page: Page) -> Locator:
-    """The Agent tab: the Agent panel lives only there."""
+    """The Sandbox tab (the first tab): the Sandbox lives only there."""
     page.locator(".tab-agent").click()
     return page.locator("#ai-panel")
 
@@ -1530,11 +1532,11 @@ def test_the_agent_tab_comes_first_and_holds_the_panel(browser: Browser, server:
     page = open_grid(browser, url)
     tabs = page.locator(".tabs-row .tab-item")
     # Always first, and it has no close button.
-    expect(tabs.first).to_have_text("Agent")
+    expect(tabs.first).to_have_text("Sandbox")
     expect(tabs.first.locator("svg")).to_be_visible()  # an icon, so it's easy to find
     assert tabs.first.get_by_role("button").count() == 0
     open_agent(page)
-    expect(page.locator("#ai-panel-title")).to_have_text("Analysis Sandbox")
+    expect(page.locator("#ai-panel-title")).to_have_text("Sandbox")
     expect(page.locator("#ai-panel .tabs")).to_have_count(0)  # one panel, no inner tabs
     expect(page.locator(".workspace")).to_have_attribute("data-view", "agent")
     # One sandbox for every table: no table picker.
@@ -2156,8 +2158,8 @@ def test_the_application_row_sits_above_the_ribbon_on_every_tab(browser: Browser
     table_row = page.locator(".ribbon .ribbon-group").first
     assert app.bounding_box()["y"] < table_row.bounding_box()["y"]  # type: ignore[index]
     expect(page.locator(".tabbar").get_by_role("button", name="Settings")).to_have_count(0)
-    # On the Agent tab the ribbon goes, the Application row stays.
-    page.get_by_role("tab", name="Agent").click()
+    # On the Sandbox tab the ribbon goes, the Application row stays.
+    page.get_by_role("tab", name="Sandbox").click()
     expect(page.locator(".ribbon")).to_be_hidden()
     expect(app.get_by_role("button", name="Settings")).to_be_visible()
     page.close()

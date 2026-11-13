@@ -52,8 +52,11 @@ What a grid page does:
 - **Tabs, split and compare:** every grid is a tab in one window (they wrap onto more rows, up
   to 50). Drag a tab onto another to see two side by side; the key picker opens with the Key
   Finder already run, and compare keeps both grids aligned row by row (outer, anti or cross).
-- **The Agent tab** (always first): the **Analysis Sandbox** (charts, notes and result tables;
-  charts open large with wheel zoom, and clicking a bar filters the grid). The cards fill the width of the screen.
+- **The Sandbox tab** (always first): a dashboard of cards for any table: Vega-Lite charts, notes,
+  result tables, Mermaid and Graphviz diagrams, Plotly and ECharts figures, and images. Every card
+  resizes from its corner on a 12-column grid, and what it draws fills it. Charts open large with
+  wheel zoom, and clicking a bar filters the grid. The page loads nothing from the internet: figures
+  that need outside maps or pictures say so instead.
 - **Agent door (MCP):** the agent sees what the page shows; its exports wait for the user's
   Allow. Settings lists its activity and has a copyable prompt that installs the MCP in any agent.
 - **Blades and the catalog** (its own tab, from **Blades and catalog** in the Application row): a **blade** is any

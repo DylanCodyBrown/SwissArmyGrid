@@ -1,6 +1,6 @@
 ---
 name: swissarmygrid-use
-description: How to use SwissArmyGrid once it's set up - the tabbed workspace, the ribbon's Table / Column / Cell tools, the steps strip and its Table Transformations tab, SQL in the notebook, column and table profiles, the Key Finder, side-by-side compare of two tables, the Agent tab's Analysis Sandbox, and what an agent may see (everything the page shows; exports wait for a click). Use when someone asks how to do something in the grid ("how do I compare two tables", "where did the profile go", "how do I launch Claude in the grid", "what can the agent see"), or wants a tour. For installing it, see the installers in the repository's installer/ folder (install.ps1 on Windows, install.sh elsewhere).
+description: How to use SwissArmyGrid once it's set up - the tabbed workspace, the ribbon's Table / Column / Cell tools, the steps strip and its Table Transformations tab, SQL in the notebook, column and table profiles, the Key Finder, side-by-side compare of two tables, the Sandbox tab (a dashboard of charts, notes, diagrams, figures and images), and what an agent may see (everything the page shows; exports wait for a click). Use when someone asks how to do something in the grid ("how do I compare two tables", "where did the profile go", "how do I launch Claude in the grid", "what can the agent see"), or wants a tour. For installing it, see the installers in the repository's installer/ folder (install.ps1 on Windows, install.sh elsewhere).
 ---
 
 # Use SwissArmyGrid

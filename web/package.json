@@ -3,16 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "build": "esbuild main=src/main.ts catalog=src/catalogPage.ts notebook=src/notebookPage.ts lazy/charts=src/lazy/charts.ts lazy/sqlEditor=src/lazy/sqlEditor.ts lazy/diagram=src/lazy/diagram.ts editor.worker=monaco-editor/editor/editor.worker.js --bundle --format=esm --target=es2022 --outdir=static/build --external:/static/build/* --loader:.ttf=file --sourcemap --minify",
-    "watch": "esbuild main=src/main.ts catalog=src/catalogPage.ts notebook=src/notebookPage.ts lazy/charts=src/lazy/charts.ts lazy/sqlEditor=src/lazy/sqlEditor.ts lazy/diagram=src/lazy/diagram.ts editor.worker=monaco-editor/editor/editor.worker.js --bundle --format=esm --target=es2022 --outdir=static/build --external:/static/build/* --loader:.ttf=file --sourcemap --watch",
+    "build": "esbuild main=src/main.ts catalog=src/catalogPage.ts notebook=src/notebookPage.ts lazy/charts=src/lazy/charts.ts lazy/sqlEditor=src/lazy/sqlEditor.ts lazy/diagram=src/lazy/diagram.ts lazy/plotly=src/lazy/plotly.ts lazy/echarts=src/lazy/echarts.ts lazy/graphviz=src/lazy/graphviz.ts editor.worker=monaco-editor/editor/editor.worker.js --bundle --format=esm --target=es2022 --outdir=static/build --external:/static/build/* --loader:.ttf=file --sourcemap --minify",
+    "watch": "esbuild main=src/main.ts catalog=src/catalogPage.ts notebook=src/notebookPage.ts lazy/charts=src/lazy/charts.ts lazy/sqlEditor=src/lazy/sqlEditor.ts lazy/diagram=src/lazy/diagram.ts lazy/plotly=src/lazy/plotly.ts lazy/echarts=src/lazy/echarts.ts lazy/graphviz=src/lazy/graphviz.ts editor.worker=monaco-editor/editor/editor.worker.js --bundle --format=esm --target=es2022 --outdir=static/build --external:/static/build/* --loader:.ttf=file --sourcemap --watch",
     "typecheck": "tsc --noEmit",
-    "build:release": "esbuild main=src/main.ts catalog=src/catalogPage.ts notebook=src/notebookPage.ts lazy/charts=src/lazy/charts.ts lazy/sqlEditor=src/lazy/sqlEditor.ts lazy/diagram=src/lazy/diagram.ts editor.worker=monaco-editor/editor/editor.worker.js --bundle --format=esm --target=es2022 --outdir=static/build --external:/static/build/* --loader:.ttf=file --minify"
+    "build:release": "esbuild main=src/main.ts catalog=src/catalogPage.ts notebook=src/notebookPage.ts lazy/charts=src/lazy/charts.ts lazy/sqlEditor=src/lazy/sqlEditor.ts lazy/diagram=src/lazy/diagram.ts lazy/plotly=src/lazy/plotly.ts lazy/echarts=src/lazy/echarts.ts lazy/graphviz=src/lazy/graphviz.ts editor.worker=monaco-editor/editor/editor.worker.js --bundle --format=esm --target=es2022 --outdir=static/build --external:/static/build/* --loader:.ttf=file --minify"
   },
   "dependencies": {
+    "@viz-js/viz": "3.31.0",
     "ag-grid-community": "36.2.0",
+    "echarts": "6.1.0",
     "html-to-image": "1.11.13",
     "mermaid": "11.4.1",
     "monaco-editor": "0.57.0",
+    "plotly.js-dist-min": "4.2.0",
     "vega": "6.4.0",
     "vega-embed": "7.3.0",
     "vega-lite": "6.5.0"
