@@ -1,4 +1,9 @@
-"""Relationship models: a data model's primary keys and joins, as a JSON file people can share.
+"""Relationships: a data model's primary keys and joins; tangs (saved, shared sets of them); and the
+finder that proposes them.
+
+A saved set of relationships is a **tang** (the owner's name: the part of a blade that anchors it into
+the handle, as a join anchors two tables), kept as a .tang file (below) that people share through the
+same folders as blades. The original model JSON (no marker) still reads.
 
 A model names tables by their dataset name in the grid (what `sag.push(df, "orders")` called
 them), so pushing the same tables again makes the model apply as-is:
@@ -32,6 +37,7 @@ for any table's key and for a relationship between the same tables on the same c
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass, field
@@ -43,7 +49,10 @@ from swissarmygrid.domain.grids import POS
 from swissarmygrid.domain.steps import quote, type_family
 
 KINDS: tuple[str, ...] = ("one-to-one", "one-to-many", "many-to-one", "many-to-many")
-_NAME = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+_NAME = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")  # a table: its dataset name
+_TANG_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_ .+#&()\-]{0,63}$")  # a tang may have spaces
+_TAG = re.compile(r"^[\w][\w .+#-]{0,39}$")
+MAX_TAGS = 20
 MAX_TABLES = 200
 MAX_RELATIONSHIPS = 500
 
@@ -58,6 +67,10 @@ class Relationship:
     # A comment about the join (an outlier, a caveat, how the views compare it); the ERD draws it
     # as the line's label. Column names belong in the boxes, not here.
     note: str = ""
+    # Of two joins between the same tables only one filters (Power BI keeps one path active).
+    active: bool = True
+    # Why it is trusted, from when it was found or last run: "99% of values found, 12 orphans".
+    evidence: str = ""
 
     def same_join(self, other: Relationship) -> bool:
         return (self.from_table, self.from_columns, self.to_table, self.to_columns) == (
@@ -75,6 +88,8 @@ class Relationship:
             "to_columns": list(self.to_columns),
             "kind": self.kind,
             **({"note": self.note} if self.note else {}),
+            **({"active": False} if not self.active else {}),
+            **({"evidence": self.evidence} if self.evidence else {}),
         }
 
 
@@ -85,16 +100,26 @@ class Model:
     keys: dict[str, tuple[str, ...]] = field(default_factory=dict)  # table -> primary key
     sources: dict[str, str] = field(default_factory=dict)  # table -> where it comes from
     relationships: tuple[Relationship, ...] = ()
+    tags: tuple[str, ...] = ()
+    # table -> its columns and types when saved: a run says when one has gone or changed type, and
+    # an ERD draws from the tang alone.
+    columns: dict[str, tuple[tuple[str, str], ...]] = field(default_factory=dict)
+    saved_at: str = ""  # ISO time of the last save, given by the caller (the domain reads no clock)
+    author: str = ""  # who saved it, as they wrote it; never read from the computer
 
     def to_json(self) -> dict[str, Any]:
-        tables = sorted(set(self.keys) | set(self.sources))
+        tables = sorted(set(self.keys) | set(self.sources) | set(self.columns))
         return {
             "name": self.name,
             "description": self.description,
+            **({"tags": list(self.tags)} if self.tags else {}),
+            **({"saved_at": self.saved_at} if self.saved_at else {}),
+            **({"author": self.author} if self.author else {}),
             "tables": {
                 t: {
                     **({"primary_key": list(self.keys[t])} if t in self.keys else {}),
                     **({"source": self.sources[t]} if t in self.sources else {}),
+                    **({"columns": [list(c) for c in self.columns[t]]} if t in self.columns else {}),
                 }
                 for t in tables
             },
@@ -140,11 +165,29 @@ def parse_model(raw: Any) -> Model:
     if not isinstance(raw, dict):
         raise ValueError('A model is {"name", "tables": {...}, "relationships": [...]}.')
     name = raw.get("name", "current")
-    if not isinstance(name, str) or not _NAME.fullmatch(name):
-        raise ValueError("name must be letters, digits, '_' or '-', up to 64 characters.")
+    if not isinstance(name, str) or not _TANG_NAME.fullmatch(name):
+        raise ValueError("name must be letters, digits, spaces, '_' or '-', up to 64 characters.")
     description = raw.get("description", "")
     if not isinstance(description, str) or len(description) > 2000:
         raise ValueError("description must be text, at most 2,000 characters.")
+    tags = raw.get("tags", [])
+    if (
+        not isinstance(tags, list)
+        or len(tags) > MAX_TAGS
+        or not all(isinstance(t, str) and _TAG.fullmatch(t) for t in tags)
+    ):
+        raise ValueError(
+            f"tags must be a list of words (letters, digits, spaces, . + # -), at most {MAX_TAGS}."
+        )
+    saved_at, author = raw.get("saved_at", ""), raw.get("author", "")
+    if (
+        not isinstance(saved_at, str)
+        or len(saved_at) > 40
+        or not isinstance(author, str)
+        or len(author) > 100
+    ):
+        raise ValueError("saved_at and author must be short text.")
+    columns: dict[str, tuple[tuple[str, str], ...]] = {}
     tables = raw.get("tables", {})
     if not isinstance(tables, dict) or len(tables) > MAX_TABLES:
         raise ValueError(f"tables maps dataset names to {{primary_key, source}}, at most {MAX_TABLES}.")
@@ -160,6 +203,20 @@ def parse_model(raw: Any) -> Model:
             if not isinstance(spec["source"], str) or len(spec["source"]) > 500:
                 raise ValueError(f"tables.{table}.source must be text.")
             sources[table] = spec["source"]
+        if "columns" in spec:
+            listed = spec["columns"]
+            if (
+                not isinstance(listed, list)
+                or len(listed) > 2000
+                or not all(
+                    isinstance(c, list)
+                    and len(c) == 2
+                    and all(isinstance(x, str) and 0 < len(x) <= 200 for x in c)
+                    for c in listed
+                )
+            ):
+                raise ValueError(f'tables.{table}.columns must be [["column", "TYPE"], ...].')
+            columns[table] = tuple((c[0], c[1]) for c in listed)
     rels = raw.get("relationships", [])
     if not isinstance(rels, list) or len(rels) > MAX_RELATIONSHIPS:
         raise ValueError(f"relationships must be a list, at most {MAX_RELATIONSHIPS}.")
@@ -174,15 +231,23 @@ def parse_model(raw: Any) -> Model:
             _columns(r.get("to_columns"), f"relationships[{i}].to_columns"),
             r.get("kind", "many-to-one"),
             r.get("note", ""),
+            r.get("active", True),
+            r.get("evidence", ""),
         )
         if not isinstance(rel.note, str) or len(rel.note) > 200:
             raise ValueError(f"relationships[{i}].note must be text, at most 200 characters.")
+        if not isinstance(rel.active, bool):
+            raise ValueError(f"relationships[{i}].active must be true or false.")
+        if not isinstance(rel.evidence, str) or len(rel.evidence) > 300:
+            raise ValueError(f"relationships[{i}].evidence must be text, at most 300 characters.")
         if len(rel.from_columns) != len(rel.to_columns):
             raise ValueError(f"relationships[{i}] needs as many from_columns as to_columns.")
         if rel.kind not in KINDS:
             raise ValueError(f"relationships[{i}].kind must be one of {', '.join(KINDS)}.")
         out.append(rel)
-    return Model(name, description, keys, sources, tuple(out))
+    return Model(
+        name, description, keys, sources, tuple(out), tuple(dict.fromkeys(tags)), columns, saved_at, author
+    )
 
 
 def merge(base: Model, extra: Model) -> Model:
@@ -195,7 +260,26 @@ def merge(base: Model, extra: Model) -> Model:
         keys={**base.keys, **extra.keys},
         sources={**base.sources, **extra.sources},
         relationships=(*rels, *extra.relationships),
+        tags=tuple(dict.fromkeys((*base.tags, *extra.tags))),
+        columns={**base.columns, **extra.columns},
     )
+
+
+def conflicts(base: Model, extra: Model) -> list[str]:
+    """Where `extra` changes what `base` says about the same join or key (applied later, it wins):
+    plain sentences, so the window can say what changed hands."""
+    out: list[str] = []
+    for e in extra.relationships:
+        for b in base.relationships:
+            if b.same_join(e) and (b.kind, b.active) != (e.kind, e.active):
+                out.append(
+                    f"{e.from_table} -> {e.to_table}: {b.kind}{'' if b.active else ' (inactive)'} "
+                    f"becomes {e.kind}{'' if e.active else ' (inactive)'}"
+                )
+    for table, key in extra.keys.items():
+        if table in base.keys and base.keys[table] != key:
+            out.append(f"{table}'s key: {', '.join(base.keys[table])} becomes {', '.join(key)}")
+    return out
 
 
 _MERMAID_SAFE = re.compile(r"[^A-Za-z0-9_]")
@@ -579,3 +663,308 @@ def _same(a: Any, b: Any) -> bool:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, int | float | Decimal) and not isinstance(value, bool)
+
+
+# ===== the relationship finder: which joins hold between the open tables =====
+#
+# The hardest question in the work (the owner): how do these tables relate? The Key Finder already
+# counts, for every column pair of two tables, the shared distinct values (compared as normalized
+# text), each side's distinct count and whether each side is unique. The finder turns those counts
+# into suggestions a person accepts or rejects:
+#
+#   - The "one" side must be unique (a key). Both unique: one-to-one; else many-to-one.
+#   - Containment: at least MIN_CONTAINMENT of the "many" side's distinct values are found in the
+#     key (real keys have orphans: deleted accounts).
+#   - Name likeness: customer_id ~ customers, home_store ~ stores, order_date ~ date_key, cust_key ~
+#     customers. A key with few values (under SMALL_DOMAIN: status codes, months, categories) needs a
+#     name match, or every small number column would join it.
+#   - Coverage: the share of the key's values the other side uses. Two counters that both start at 1
+#     (order_id, cust_key) contain each other by accident but cover little; with no name match, a
+#     join needs real coverage.
+#   - Two-column keys: a table told apart only by a pair (order_lines: order_id, line_no) is joined
+#     from a table holding a pair with the same names (checked by the service with a query).
+#   - Implied joins are dropped: returns.order_id -> orders is already returns -> order_lines ->
+#     orders.
+#   - Two joins between the same tables (orders.order_date and ship_date to calendar): the first column
+#     of the table is active, the others inactive, as Power BI keeps one path.
+#
+# Scored on examples/sample_store.py's answer key: every true relationship, no decoy.
+
+MIN_CONTAINMENT: float = 0.8
+SMALL_DOMAIN: int = 50
+NAME_MATCH: float = 0.5
+MIN_COVERAGE: float = 0.5
+_SUFFIX = re.compile(r"_?(id|key|code|no|num|number|nbr|ref)$")
+_KEY_FAMILIES: frozenset[str] = frozenset({"integer", "text", "date", "timestamp", "other"})
+
+
+def key_family(duckdb_type: str) -> str:
+    """A column's type as the finder sees it: integer, float (never a key), text, date, timestamp,
+    boolean (never a key) or other. A DECIMAL with no places counts as an integer."""
+    t = duckdb_type.upper()
+    if t.startswith(("FLOAT", "DOUBLE", "REAL")):
+        return "float"
+    if t.startswith("DECIMAL"):
+        scale = re.search(r",\s*(\d+)\)", t)
+        return "integer" if scale and scale.group(1) == "0" else "float"
+    family = type_family(duckdb_type)
+    return "integer" if family == "number" else family
+
+
+def _stem(name: str) -> str:
+    lowered = name.lower()
+    return _SUFFIX.sub("", lowered) or lowered
+
+
+def _singular(table: str) -> str:
+    t = table.lower()
+    if t.endswith("ies"):
+        return t[:-3] + "y"
+    if t.endswith("s") and not t.endswith("ss"):
+        return t[:-1]
+    return t
+
+
+def name_likeness(source_column: str, target_table: str, target_column: str) -> float:
+    """How much a column's name says it points at a table's key: 1 the same name, 0.9 the same stem
+    or the table's name in it (customer_id -> customers), 0.6 a shortened stem (cust_key ->
+    customers), 0 nothing."""
+    a, b = source_column.lower(), target_column.lower()
+    if a == b:
+        return 1.0
+    sa, sb, table = _stem(a), _stem(b), _singular(target_table)
+    tokens = set(re.split(r"[_\W]+", a))
+    if sa in (sb, table) or table in tokens or sb in tokens:
+        return 0.9
+    if len(sa) >= 3 and (table.startswith(sa) or sb.startswith(sa)):
+        return 0.6
+    return 0.0
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """One column (or column set) of a table found in another table's key, with the counts."""
+
+    from_table: str
+    from_columns: tuple[str, ...]
+    to_table: str
+    to_columns: tuple[str, ...]
+    from_distinct: int
+    to_distinct: int
+    shared: int
+    from_unique: bool
+    to_unique: bool
+    from_position: int = 0  # the first column's place in its table (the first of two paths is active)
+    types: tuple[str, str] = ("", "")  # (from family, to family)
+
+
+@dataclass(frozen=True)
+class Suggestion:
+    relationship: Relationship
+    confidence: float
+    containment: float
+    coverage: float
+    name: float
+    orphans: int  # distinct values of the many side not found in the key
+    reasons: tuple[str, ...]
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **self.relationship.to_json(),
+            "confidence": self.confidence,
+            "containment": self.containment,
+            "coverage": self.coverage,
+            "name": self.name,
+            "orphans": self.orphans,
+            "reasons": list(self.reasons),
+        }
+
+
+def judge(c: Candidate) -> Suggestion | None:
+    """A candidate join as a suggestion, or None when it is too likely an accident."""
+    if not c.to_unique or not c.from_distinct or not c.to_distinct:
+        return None
+    if any(family not in _KEY_FAMILIES for family in c.types if family):
+        return None  # floats, booleans, lists: never a key
+    containment = c.shared / c.from_distinct
+    coverage = c.shared / c.to_distinct
+    if containment < MIN_CONTAINMENT:
+        return None
+    if len(c.from_columns) == 1:
+        name = name_likeness(c.from_columns[0], c.to_table, c.to_columns[0])
+    else:
+        name = min(name_likeness(f, c.to_table, t) for f, t in zip(c.from_columns, c.to_columns, strict=True))
+    one_to_one = c.from_unique
+    if c.to_distinct < SMALL_DOMAIN and name < NAME_MATCH:
+        return None  # a small number column inside a small key: an accident without a name
+    if name < NAME_MATCH and coverage < (0.9 if one_to_one else MIN_COVERAGE):
+        return None  # two counters from 1 contain each other but cover little
+    reasons = [f"{containment:.0%} of {c.from_table}.{', '.join(c.from_columns)} values are in {c.to_table}"]
+    reasons.append(f"{c.to_table}.{', '.join(c.to_columns)} is unique: one row per value")
+    if name >= NAME_MATCH:
+        reasons.append("the names match" if name == 1.0 else "the names point at it")
+    if c.types[0] and c.types[1] and c.types[0] != c.types[1]:
+        reasons.append(f"{c.types[0]} on one side, {c.types[1]} on the other")
+    orphans = c.from_distinct - c.shared
+    if orphans:
+        reasons.append(f"{orphans:,} values have no match (orphans)")
+    confidence = round(containment * (0.5 + 0.5 * max(name, min(coverage, 1.0))), 3)
+    kind = "one-to-one" if one_to_one else "many-to-one"
+    note = (
+        "text on one side, a number on the other" if {c.types[0], c.types[1]} == {"text", "integer"} else ""
+    )
+    rel = Relationship(c.from_table, c.from_columns, c.to_table, c.to_columns, kind, note)
+    return Suggestion(
+        rel, confidence, round(containment, 4), round(coverage, 4), name, orphans, tuple(reasons)
+    )
+
+
+def _implied(s: Suggestion, others: list[Suggestion]) -> bool:
+    """A.x -> C.y is implied when A.(..x..) -> B.(..x'..) and B.x' -> C.y are suggested too."""
+    r = s.relationship
+    for via in others:
+        v = via.relationship
+        if via is s or v.from_table != r.from_table or v.to_table == r.to_table:
+            continue
+        ok = True
+        for x, y in zip(r.from_columns, r.to_columns, strict=True):
+            if x not in v.from_columns:
+                ok = False
+                break
+            x_b = v.to_columns[v.from_columns.index(x)]
+            if not any(
+                o.relationship.from_table == v.to_table
+                and o.relationship.from_columns == (x_b,)
+                and o.relationship.to_table == r.to_table
+                and o.relationship.to_columns == (y,)
+                for o in others
+            ):
+                ok = False
+                break
+        if ok:
+            return True
+    return False
+
+
+def suggest(candidates: list[Candidate]) -> list[Suggestion]:
+    """The joins worth suggesting, most confident first: judged, implied ones dropped, and of two
+    joins between the same pair of tables all but the first column's marked inactive."""
+    judged = [s for s in (judge(c) for c in candidates) if s is not None]
+    kept = [s for s in judged if not _implied(s, judged)]
+    position = {(c.from_table, c.from_columns, c.to_table, c.to_columns): c.from_position for c in candidates}
+    seen: set[tuple[str, str]] = set()
+    marked: list[Suggestion] = []
+    for s in sorted(kept, key=lambda s: position.get(_key(s.relationship), 0)):
+        pair = (s.relationship.from_table, s.relationship.to_table)
+        if pair in seen:
+            r = s.relationship
+            s = Suggestion(
+                Relationship(
+                    r.from_table, r.from_columns, r.to_table, r.to_columns, r.kind,
+                    r.note or "a second path between these tables", active=False,
+                ),
+                s.confidence, s.containment, s.coverage, s.name, s.orphans,
+                (*s.reasons, "a second path between these tables: inactive, as only one can filter"),
+            )  # fmt: skip
+        seen.add(pair)
+        marked.append(s)
+    return sorted(
+        marked, key=lambda s: (-s.confidence, s.relationship.from_table, s.relationship.from_columns)
+    )
+
+
+def _key(r: Relationship) -> tuple[str, tuple[str, ...], str, tuple[str, ...]]:
+    return (r.from_table, r.from_columns, r.to_table, r.to_columns)
+
+
+def path_between(relationships: tuple[Relationship, ...], start: str, end: str) -> list[Relationship]:
+    """The shortest chain of joins from one table to another (either direction), [] when none."""
+    if start == end:
+        return []
+    links: dict[str, list[tuple[str, Relationship]]] = {}
+    for r in relationships:
+        links.setdefault(r.from_table, []).append((r.to_table, r))
+        links.setdefault(r.to_table, []).append((r.from_table, r))
+    came: dict[str, tuple[str, Relationship]] = {}
+    queue = [start]
+    seen = {start}
+    while queue:
+        table = queue.pop(0)
+        for nxt, r in links.get(table, []):
+            if nxt in seen:
+                continue
+            seen.add(nxt)
+            came[nxt] = (table, r)
+            if nxt == end:
+                chain: list[Relationship] = []
+                at = end
+                while at != start:
+                    prev, rel = came[at]
+                    chain.append(rel)
+                    at = prev
+                return chain[::-1]
+            queue.append(nxt)
+    return []
+
+
+# ===== tangs: a saved set of relationships, as one .tang file =====
+#
+# The owner named them: a tang is the part of a blade that anchors it into the handle, as a join
+# anchors two tables. A .tang file is JSON with a marker of its own first, so it is never taken for
+# another JSON file, and its own extension:
+#
+#     {
+#       "swissarmygrid": "tang", "format": 1,
+#       "name": "Sample store", "description": "...", "tags": ["sales"],
+#       "tables": {"orders": {"primary_key": ["order_id"], "columns": [["order_id", "BIGINT"], ...]}},
+#       "relationships": [{"from": "orders", "from_columns": ["customer_id"], "to": "customers",
+#                          "to_columns": ["cust_key"], "kind": "many-to-one", "active": true,
+#                          "note": "about 1% orphans"}]
+#     }
+#
+# The columns and their types are what the tables held when the tang was saved: running a tang
+# against the open tables says when a column has gone or changed type, and an ERD can be drawn
+# from the tang alone.
+
+TANG_MARK = "tang"
+TANG_FORMAT = 1
+TANG_SUFFIX = ".tang"
+
+
+class TangError(ValueError):
+    """A file that is not a tang, or a tang that cannot be read. The message says why."""
+
+
+def tang_file_name(name: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_").lower() or "tang"
+    return stem + TANG_SUFFIX
+
+
+def write_tang(model: Model) -> str:
+    """The model as a .tang file's text."""
+    body = model.to_json()
+    return (
+        json.dumps({"swissarmygrid": TANG_MARK, "format": TANG_FORMAT, **body}, indent=2, ensure_ascii=False)
+        + "\n"
+    )
+
+
+def read_tang(text: str) -> Model:
+    """A .tang file's text as a model. Raises TangError for anything else: plain JSON, another
+    program's file, a newer format, or a tang that does not hold together."""
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise TangError(
+            f"This is not a tang: it is not readable ({error.msg}, line {error.lineno})."
+        ) from None
+    if not isinstance(raw, dict) or raw.get("swissarmygrid") != TANG_MARK:
+        raise TangError('This is not a tang: it does not start with "swissarmygrid": "tang".')
+    if raw.get("format") != TANG_FORMAT:
+        raise TangError(
+            f"This tang is in format {raw.get('format')!r}; this SwissArmyGrid reads format {TANG_FORMAT}."
+        )
+    try:
+        return parse_model({k: v for k, v in raw.items() if k not in ("swissarmygrid", "format")})
+    except ValueError as error:
+        raise TangError(f"This tang does not hold together: {error}") from None
