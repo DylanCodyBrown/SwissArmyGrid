@@ -182,6 +182,13 @@ Considered for the live-update broadcasts and the agent approvals, and left out:
 - [x] 7. CLAUDE.md's layout; the architecture test at full strength (the doors reach adapters only
   through `bootstrap.py`; no layer file over 1,500 lines; a door per service).
 
+- [x] 8. `tests/test_service_layer.py`: five use cases on fakes of their ports. Merged the main line
+  again (the Sandbox page, the Application row, the new themes: page and docs only, no Python source).
+
+The refactor is complete. To keep it so: a new feature gets `domain/<feature>.py` only if it has rules
+of its own, a service class in `services/<feature>.py` built in `bootstrap.py`, and a
+`server/routes_<feature>.py` given that service; `tests/test_architecture.py` says when a line is crossed.
+
 ## Left alone, and why
 
 - `server/blade_templates.py` (the 35 starter blades) stays in `server/`. It is plain data and would sit
