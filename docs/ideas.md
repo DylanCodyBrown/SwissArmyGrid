@@ -236,6 +236,35 @@ white, white text on it 5.9:1), `#ff6b73` in dark (with dark text on red buttons
 - **Open:** keep the old blue as a "Classic" theme in Settings if anyone misses it; the user guide's
   screenshots still show blue.
 
+## Packs: blades and tangs from a Claude Code plugin marketplace (2026-11-13, the owner's idea; to build)
+
+"Use the Claude marketplace to source blades and tangs, so they could be stored in a GitHub repo and
+collaborated with." From the Claude Code docs (code.claude.com/docs/en/plugins/: create-marketplace,
+marketplace-reference, manifest-reference, install, loading, org):
+
+- A marketplace is a repository with `.claude-plugin/marketplace.json` (name, owner, plugins); each
+  plugin is copied as a unit into `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` on install
+  (the root can be moved with `CLAUDE_CODE_PLUGIN_CACHE_DIR`), so folders Claude Code does not
+  interpret, such as `blades/` and `tangs/`, travel with it. `claude plugin list --json` and
+  `installed_plugins.json` give the install paths; `enabledPlugins` in the settings says which are on.
+- Updates: `/plugin marketplace update` fetches the repository; with no `version` in the plugin, every
+  new commit is an update (its version is the commit), with one, the string must change.
+- Team-wide: a project's `.claude/settings.json` `extraKnownMarketplaces` makes the marketplace known;
+  each person still installs once; only managed settings install automatically.
+
+The design:
+- **A pack** is a plugin with `blades/` and `tangs/` (and, if wanted, the SwissArmyGrid skill and MCP
+  server). SwissArmyGrid finds installed, enabled packs and lists their blades and tangs with the pack
+  and version; read-only (the installed copy is replaced on update): Save a copy into your own blades or
+  a blade folder.
+- **Collaboration is Git:** clone the marketplace repository, add the clone as a blade folder (already
+  works), save blades and tangs there, commit, pull request, merge; teammates update.
+- **`sag pack new`** scaffolds a marketplace repository (marketplace.json, one pack, README with the
+  commands); **Add to pack** copies chosen blades and tangs into a pack folder. SwissArmyGrid's own
+  repository may become a marketplace with an example pack on the made-up store.
+- **Trust:** a pack blade is the marketplace maintainers' code, trusted as installing any plugin is;
+  it runs only when used, and always shows its pack.
+
 ## Tangs and the relationship finder (2026-11-13, the owner's requests; confirm or change)
 
 "The hardest part of my job is trying to determine how two tables relate to each other"; "a name for
