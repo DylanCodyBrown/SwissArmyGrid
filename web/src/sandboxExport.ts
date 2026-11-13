@@ -31,7 +31,7 @@ export async function sandboxMarkdown(cards: ExportCard[], picture: (id: string)
   const out = [
     "# Sandbox",
     "",
-    `Exported from SwissArmyGrid on ${when.toLocaleString()}. ${cards.length} card${cards.length === 1 ? "" : "s"}, from ${tables.map((t) => `\`${t}\``).join(", ")}.`,
+    `Exported on ${when.toLocaleString()}. ${cards.length} card${cards.length === 1 ? "" : "s"}, from ${tables.map((t) => `\`${t}\``).join(", ")}.`,
     "Each section below is one card, in the order they were arranged; charts are embedded as PNG images.",
   ];
   for (const card of cards) {

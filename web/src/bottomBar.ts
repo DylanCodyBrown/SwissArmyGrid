@@ -22,7 +22,7 @@ export function mountBottomBar(host: HTMLElement): void {
   selection = h("span", { "aria-live": "polite" });
   meter = h("span", { class: "meter" });
   live = h("span", { id: "live" });
-  clear(host, rows, selection, h("span", { class: "grow" }), meter, button("Datasets", () => void openDatasets(), { class: "ghost", title: "Open datasets and their sizes" }), live, h("span", { class: "credit" }, "SwissArmyGrid · created by Dylan Brown · not associated with the Swiss Confederation"));
+  clear(host, rows, selection, h("span", { class: "grow" }), meter, button("Datasets", () => void openDatasets(), { class: "ghost", title: "Open datasets and their sizes" }), live, h("span", { class: "credit" }, "Created by Dylan Brown"));
   state.on("selection", render);
   state.on("info", render);
 }

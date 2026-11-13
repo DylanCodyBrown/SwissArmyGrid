@@ -376,7 +376,7 @@ class BladeStore:
         backend = keyring.get_keyring()
         if isinstance(backend, fail.Keyring):
             raise VaultUnavailableError(
-                "This computer has no vault SwissArmyGrid can keep secrets in (Windows Credential Manager, "
+                "This computer has no vault the grid server can keep secrets in (Windows Credential Manager, "
                 "macOS Keychain or a Linux Secret Service). Use a secret blade (typed each session) or a "
                 "vault blade instead."
             )

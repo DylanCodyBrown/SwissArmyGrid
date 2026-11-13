@@ -140,7 +140,7 @@ async function startSingle(): Promise<void> {
   mountContextMenus();
   if (keysWindow) {
     // The Key Finder window: the finder alone, full width, titled for this grid.
-    document.title = "SwissArmyGrid · Key Finder";
+    document.title = `Key Finder · ${info.dataset}`;
     clear($("#grid-title"), `Possible Join Keys for ${info.dataset}`);
     for (const selector of [".tabbar", ".ribbon", ".workspace", ".statusbar"]) $(selector).remove();
     const host = h("main", { class: "keys-window" });
@@ -148,7 +148,7 @@ async function startSingle(): Promise<void> {
     await renderKeyFinder(host);
     return;
   }
-  document.title = "SwissArmyGrid · Table Transformations";
+  document.title = `Table Transformations · ${info.dataset}`;
   $(".tabbar").remove();
   $(".titlebar").remove();
   // The pop-out has no grid, so only the Table tools have anything to act on.
@@ -185,8 +185,8 @@ async function start(): Promise<void> {
   state.on("info", () => {
     if (!state.info) return;
     title();
-    // The browser tab always reads SwissArmyGrid; the tab bar names the grids.
-    document.title = "SwissArmyGrid";
+    // The browser tab names the grid in front; the tab bar names them all.
+    document.title = state.info.dataset;
   });
   // The Application row: app-wide commands, with their words, above the ribbon's Table row.
   clear(
@@ -194,7 +194,7 @@ async function start(): Promise<void> {
     h(
       "div",
       { class: "ribbon-group", role: "toolbar", "aria-label": "Application tools" },
-      h("div", { class: "ribbon-caption", title: "SwissArmyGrid itself" }, h("strong", {}, "Application"), h("span", {}, "SwissArmyGrid")),
+      h("div", { class: "ribbon-caption", title: "Settings, blades and the tour" }, h("strong", {}, "Application"), h("span", {}, "settings and help")),
       h("div", { class: "ribbon-tools" }, settingsButton(), bladesButton(), tourButton()),
     ),
   );
@@ -238,8 +238,8 @@ async function start(): Promise<void> {
 
 /** No grid open yet: a quiet title until the first push arrives as a tab. */
 function toolbarEmpty(): void {
-  clear($("#grid-title"), "SwissArmyGrid");
-  document.title = "SwissArmyGrid";
+  clear($("#grid-title"), "No table yet");
+  document.title = "Grid";
 }
 
 // A failed action nothing else caught (a button whose request the server refused, a tab closed

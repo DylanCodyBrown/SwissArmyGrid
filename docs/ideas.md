@@ -508,3 +508,14 @@ Jupyter or IPython puts it in the cell (set_next_input, replacing the cell that 
 prompt; plain Python prints it. The agent can't queue code (it would land in the user's kernel). The
 grid's automatic code-behind for notebook tables went with the tab; To Python is a click. Lost:
 dropping a blade straight into a cell (drag gives its text instead) and Save as blade from a cell.
+
+## The name off the screens (2026-11-13, the owner's request)
+
+"The words Swiss army grid should appear nowhere in the app." Gone from every page title (the browser
+tab names the grid in front: "orders", "Key Finder · orders"), the Application row's caption, the
+bottom bar's credit (now "Created by Dylan Brown"), the Sandbox's empty state, the markdown export and
+chart HTML footers, generated code's header comments, and the messages the page shows. Kept, because
+changing them breaks installs or stored data: the package, `import swissarmygrid as sag`, the
+`swissarmygrid` and `swissarmygrid-mcp` commands, the `~/.swissarmygrid` folder, the vault's service
+name for blade secrets, browser storage keys, and the Parquet provenance key. The MCP server and its
+agent guide still use the name (the agent's view, not the app's); to confirm.

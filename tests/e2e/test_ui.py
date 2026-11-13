@@ -179,7 +179,7 @@ def orders_url(server: dict[str, Any]) -> Iterator[str]:
 
 def test_grid_renders_with_title_rows_and_header_stats(browser: Browser, orders_url: str) -> None:
     page = open_grid(browser, orders_url)
-    assert page.title() == "SwissArmyGrid"  # the tab bar names the grid, not the browser tab
+    expect(page).to_have_title(re.compile(r"^orders"))  # the grid in front; the product's name never shows
     expect(page.locator("#grid-title")).to_contain_text("orders")
     wait_for_cell(page, 0, "order_id", "1")
     expect(page.locator("#status")).to_contain_text("of 5,000")
@@ -420,7 +420,7 @@ def test_the_grid_has_the_whole_page_and_its_steps_open_in_their_own_tab(
     steps = opened.value
     expect(steps.locator(".steps-panel h2")).to_have_text("Table Transformations")
     expect(steps.locator(".steps-panel .step.source")).to_be_visible(timeout=15000)
-    assert steps.title() == "SwissArmyGrid \u00b7 Table Transformations"
+    assert steps.title().startswith("Table Transformations \u00b7 ")
     steps.close()
 
 
@@ -448,7 +448,7 @@ def test_popout_steps_window(browser: Browser, orders_url: str) -> None:
     page = browser.new_page()
     page.goto(f"{path}?panel=steps#{fragment}")
     expect(page.locator(".steps-panel .step.source")).to_be_visible(timeout=15000)
-    assert page.title() == "SwissArmyGrid · Table Transformations"
+    assert page.title().startswith("Table Transformations · ")
 
 
 # ===== SQL box =====
@@ -1298,7 +1298,7 @@ def test_key_finder_ranks_join_columns_with_percent_match(browser: Browser, serv
     with page.expect_popup() as popup:
         page.locator(".ribbon .ribbon-group").first.get_by_role("button", name="Key Finder").click()
     finder = popup.value
-    expect(finder).to_have_title("SwissArmyGrid · Key Finder")
+    expect(finder).to_have_title("Key Finder · key_orders")
     expect(finder.locator("#grid-title")).to_have_text("Possible Join Keys for key_orders")
     panel = finder.locator(".keys-window")
     panel.get_by_label("Compare with").select_option(label="key_customers")
@@ -1347,7 +1347,7 @@ def test_workspace_shows_grids_as_tabs(browser: Browser, server: dict[str, Any])
     expect(active.locator(".ag-row[row-index='0'] .ag-cell[col-id='code']")).to_have_text("X", timeout=20000)
     expect(page.locator("#grid-title")).to_contain_text("tab_two")
     expect(page.locator(".steps-strip .steps-count")).to_have_text("No steps")
-    assert page.title() == "SwissArmyGrid"
+    expect(page).to_have_title("tab_two")
 
     # A push while the workspace is open arrives as a new, active tab (no new window).
     tab_three = pd.DataFrame({"x": [1]})

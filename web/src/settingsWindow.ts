@@ -27,11 +27,11 @@ export function settingsButton(): HTMLButtonElement {
 /** What an agent needs to connect: paste it into Claude Code (or any agent that has a shell). The
  * command is the one the installers put on PATH (uv tool install of the wheel). */
 export const MCP_PROMPT = [
-  "Connect the SwissArmyGrid MCP server so you can work on my local data grids:",
+  "Connect the grid MCP server so you can work on my local data grids:",
   "1. Run: claude mcp add --scope user swissarmygrid -- swissarmygrid-mcp",
   "   (another agent: add an MCP server over stdio whose command is swissarmygrid-mcp)",
   "2. Reconnect your MCP servers (/mcp in Claude Code).",
-  "3. Call the swissarmygrid guide tool first; it explains the grids and the tools.",
+  "3. Call its guide tool first; it explains the grids and the tools.",
 ].join("\n");
 
 async function copyMcpPrompt(): Promise<void> {
@@ -77,7 +77,7 @@ export function openSettings(): void {
       "fieldset",
       { class: "fieldset" },
       h("legend", {}, "Connect an agent"),
-      h("p", { class: "hint" }, "A prompt that installs the SwissArmyGrid MCP server in Claude Code or any agent with a shell."),
+      h("p", { class: "hint" }, "A prompt that installs the grid's MCP server in Claude Code or any agent with a shell."),
       h("pre", { class: "mono mcp-prompt" }, MCP_PROMPT),
       button("Copy the setup prompt", () => void copyMcpPrompt(), { icon: "copy" }),
     ),

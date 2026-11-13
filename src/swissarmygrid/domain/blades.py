@@ -519,8 +519,8 @@ def read_blade(text: str) -> dict[str, Any]:
         raise PortableError(f"The header is not valid TOML: {error}.") from None
     if header.get("format") != FORMAT:
         raise PortableError(
-            f"This blade is in format {header.get('format')!r}; this SwissArmyGrid reads format {FORMAT}. "
-            "Update SwissArmyGrid to import it."
+            f"This blade is in format {header.get('format')!r}; this version reads format {FORMAT}. "
+            "Update the grid server to import it."
         )
     name, kind = header.get("name"), header.get("kind")
     if not isinstance(name, str) or not name.strip():

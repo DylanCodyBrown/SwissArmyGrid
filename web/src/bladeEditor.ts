@@ -181,7 +181,7 @@ function askTyped(needs: Record<string, string>, action: string): Promise<Record
   return new Promise((resolve) => {
     const { body, foot, close, dialog } = openDialog(`Values for this ${action}`);
     const inputs = new Map<string, HTMLInputElement>();
-    body.append(h("p", { class: "hint" }, "Typed for this run only. SwissArmyGrid never keeps them."));
+    body.append(h("p", { class: "hint" }, "Typed for this run only, and never kept."));
     for (const [env, source] of Object.entries(needs)) {
       const input = h("input", { type: "password", autocomplete: "off", "aria-label": env });
       inputs.set(env, input);
@@ -262,7 +262,7 @@ function showRunError(name: string, failure: RunFailure): void {
   body.append(h("pre", { class: "code-box" }, failure.error ?? ""));
   if (failure.missing) {
     body.append(
-      h("p", {}, `It needs ${failure.missing}, which is not installed in SwissArmyGrid's Python (where Refresh runs).`),
+      h("p", {}, `It needs ${failure.missing}, which is not installed in the grid server's Python (where Refresh runs).`),
       h("pre", { class: "code-box" }, failure.install_here ?? ""),
     );
     foot.append(
@@ -589,7 +589,7 @@ export async function editBlade(
           "div",
           { class: "row-actions" },
           missing.length
-            ? button(`Install ${missing.join(", ")} into SwissArmyGrid`, () => {
+            ? button(`Install ${missing.join(", ")} into the server's Python`, () => {
                 void install(missing).then((ok) => ok && void inspect());
               }, { class: "primary", icon: "plus" })
             : h("span", { class: "hint" }, "Everything it imports is installed where Refresh runs."),

@@ -976,7 +976,7 @@ def read_tang(text: str) -> Model:
         raise TangError('This is not a tang: it does not start with "swissarmygrid": "tang".')
     if raw.get("format") != TANG_FORMAT:
         raise TangError(
-            f"This tang is in format {raw.get('format')!r}; this SwissArmyGrid reads format {TANG_FORMAT}."
+            f"This tang is in format {raw.get('format')!r}; this version reads format {TANG_FORMAT}."
         )
     try:
         return parse_model({k: v for k, v in raw.items() if k not in ("swissarmygrid", "format")})

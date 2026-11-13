@@ -417,7 +417,7 @@ async function renderCards(body: HTMLElement): Promise<void> {
         { class: "empty-state" },
         icon("agent"),
         h("strong", {}, "Nothing in the Sandbox yet"),
-        h("span", {}, "Add a chart or a note here, or ask the agent: it can add charts, notes, diagrams and figures through the SwissArmyGrid MCP tools. Resize any card from its corner."),
+        h("span", {}, "Add a chart or a note here, or ask the agent: it can add charts, notes, diagrams and figures through its MCP tools. Resize any card from its corner."),
       ),
     );
     return;
@@ -698,7 +698,7 @@ async function exportHtml(card: Card, drawn: Drawn | null): Promise<void> {
   if (!drawn) return;
   const svg = await drawn.toSvg();
   const title = card.title || chartTitle(card);
-  const page = `<!doctype html><meta charset="utf-8"><title>${title.replace(/</g, "&lt;")}</title><body style="font-family:Segoe UI,sans-serif;background:#fff;margin:24px">${svg}<p style="color:#57606a">From SwissArmyGrid, dataset ${(card.dataset ?? "").replace(/</g, "&lt;")}, ${new Date().toISOString()}</p></body>`;
+  const page = `<!doctype html><meta charset="utf-8"><title>${title.replace(/</g, "&lt;")}</title><body style="font-family:Segoe UI,sans-serif;background:#fff;margin:24px">${svg}<p style="color:#57606a">${card.dataset ? `Dataset ${card.dataset.replace(/</g, "&lt;")}, ` : ""}${new Date().toISOString()}</p></body>`;
   saveBlob(new Blob([page], { type: "text/html" }), `${title.replace(/[^A-Za-z0-9_-]+/g, "_") || "chart"}.html`);
 }
 

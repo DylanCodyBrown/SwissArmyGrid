@@ -78,7 +78,7 @@ def scaffold(marketplace: str, owner: str, pack: str, description: str = "") -> 
     every commit is an update for whoever has it installed (Claude Code uses the commit then)."""
     check_names(marketplace, pack)
     owner = (owner or "").strip() or "The team"
-    about = (description or "").strip() or f"Blades and tangs for SwissArmyGrid, shared by {owner}."
+    about = (description or "").strip() or f"Blades and tangs, shared by {owner}."
     manifest = {
         "name": marketplace,
         "owner": {"name": owner},

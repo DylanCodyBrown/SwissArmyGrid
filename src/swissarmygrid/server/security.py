@@ -39,7 +39,7 @@ _PUBLIC_PATHS: frozenset[str] = frozenset({"/workspace", "/catalog"})
 
 _MESSAGES: dict[int, str] = {
     401: "Missing or wrong token. Clients read it from the server's connection file.",
-    403: "Refused: only this computer's own SwissArmyGrid pages and clients may call it.",
+    403: "Refused: only this computer's own grid pages and clients may call it.",
 }
 
 

@@ -249,7 +249,7 @@ export async function editBladeFolders(onDone: () => void): Promise<void> {
   const input = h("input", { type: "text", placeholder: "C:\\Users\\me\\blades", "aria-label": "Folder to add", spellcheck: "false" });
   append(
     body,
-    h("p", { class: "hint" }, "SwissArmyGrid looks in these folders (and up to four levels below) for Python files that start with a blade header. Ordinary Python files are left alone; so are virtual environments and hidden folders."),
+    h("p", { class: "hint" }, "Blades are looked for in these folders (and up to four levels below) for Python files that start with a blade header. Ordinary Python files are left alone; so are virtual environments and hidden folders."),
     list,
     h("div", { class: "row-actions" }, input, button("Add", () => {
       const path = input.value.trim();
