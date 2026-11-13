@@ -359,6 +359,12 @@ The queue lives in memory (the last 20); the agent can never send code to your P
 Tables your Python makes still show in the grid page's Open list: importing `swissarmygrid` in Jupyter
 or IPython starts the watcher (`sag.watch()` in a plain script).
 
+**SQL completion.** In Jupyter and IPython, Tab inside SQL (a string with a SELECT, FROM or JOIN, or a
+`%%sql` cell) offers the loaded catalogs' tables and columns; `orders.cu` Tab gives orders' columns.
+It asks the running server and never starts one (`SWISSARMYGRID_COMPLETE=0` turns it off).
+**Script as:** right-click a catalog table for SELECT \*, SELECT the columns, or pandas over the
+blade's connection, copied and ready for `sag.paste()`.
+
 ## The agent commands: `sag` and the MCP server
 
 Every action the page has is a named command in one registry (`swissarmygrid/cli/commands.py`), 95 of

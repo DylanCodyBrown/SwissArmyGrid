@@ -19,6 +19,7 @@ themselves, in the locked DuckDB, are adapters/catalogs.py.
 
 from __future__ import annotations
 
+import keyword
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -198,3 +199,55 @@ def select_sql(
     if dialect == "oracle":
         return f"SELECT {picked}\nFROM {source}\nFETCH FIRST {rows} ROWS ONLY"
     return f"SELECT {picked}\nFROM {source}\nLIMIT {rows}"
+
+
+# ===== Script as (the catalog's right-click, like SSMS) =====
+
+SCRIPTS: dict[str, str] = {
+    "select_star": "SELECT *",
+    "select_columns": "SELECT the columns",
+    "pandas": "Python: pandas",
+}
+
+
+def _python_string(sql: str) -> str:
+    """SQL as a Python string literal: triple quotes when they fit, raw when it holds a backslash."""
+    if '"""' in sql or sql.endswith("\\"):
+        return repr(sql)
+    return f'{"r" if chr(92) in sql else ""}"""\n{sql}\n"""'
+
+
+def script(
+    kind: str,
+    dialect: str,
+    database: str,
+    schema: str,
+    table: str,
+    columns: list[str],
+    blade: str | None = None,
+) -> dict[str, Any]:
+    """One table scripted as `kind` (SCRIPTS): {"label", "language", "code", "imports"}. `blade` names the
+    blade whose connection reaches this source (the catalog's own), for the Python script."""
+    if kind not in SCRIPTS:
+        raise ValueError(f"Script as one of {', '.join(SCRIPTS)}.")
+    dialect = normalize_dialect(dialect)
+    source = ".".join(quote_identifier(p, dialect) for p in (database, schema, table) if p)
+    names = [quote_identifier(c, dialect) for c in columns]
+    if kind == "select_star":
+        return {"label": SCRIPTS[kind], "language": "sql", "code": f"SELECT *\nFROM {source};", "imports": []}
+    listed = ",\n".join(f"    {n}" for n in names) or "    *"
+    sql = f"SELECT\n{listed}\nFROM {source}"
+    if kind == "select_columns":
+        return {"label": SCRIPTS[kind], "language": "sql", "code": f"{sql};", "imports": []}
+    variable = re.sub(r"[^a-z0-9_]+", "_", table.lower()).strip("_") or "rows"
+    if variable[0].isdigit() or keyword.iskeyword(variable):
+        variable = f"t_{variable}"
+    lines = []
+    imports = ["import pandas as pd"]
+    if blade:
+        imports.append("import swissarmygrid as sag")
+        lines.append(f"conn = sag.blade({blade!r})")
+    else:
+        lines.append("# conn: a connection to this source (a blade's sag.blade(...) gives one)")
+    lines.append(f"{variable} = pd.read_sql(\n    {_python_string(sql)},\n    conn,\n)")
+    return {"label": SCRIPTS[kind], "language": "python", "code": "\n".join(lines), "imports": imports}

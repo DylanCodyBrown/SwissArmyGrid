@@ -130,6 +130,7 @@ src/swissarmygrid/
 
   client/push_client.py  push(), ensure_server()
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
+  client/completion.py   Tab completion of catalog names inside SQL in Jupyter and IPython (sag.complete)
   client/paste_client.py sag.paste: the code To Python queued, into the Jupyter cell or IPython prompt
   client/sandbox_client.py sag.sandbox: a figure, picture, table or text as a Sandbox card (duck-typed)
   cli/                   the agent command layer: commands.py (the one registry of every page action,

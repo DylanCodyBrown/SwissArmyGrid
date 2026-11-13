@@ -143,6 +143,7 @@ NOT_COMMANDS = {
     "/static": "page files",
     "/agent/context": "current_table",
     "/catalog": "page shell",
+    "/catalogs/{}/script": "the catalog's right-click Script as; the agent has catalog_columns' first SELECT",
     "/python/send": "code into the user's own Python: only the user's click, refused to the agent",
     "/python/take": "as /python/send (sag.paste() calls it)",
     "/python/sent": "as /python/send",

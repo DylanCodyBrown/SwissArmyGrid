@@ -328,6 +328,11 @@ Settings lists the agent's activity: what it asked for, newest first. It never i
 - **Drag from the blades page** into a cell or an editor: a blade gives its `sag.blade(...)` line, a table a first SELECT, a column its quoted name.
 - **Your tables are grids:** importing `swissarmygrid` in Jupyter or IPython lists the tables you make in the grid page's Open list. Open one and it's a grid; run the cell again and the grid refreshes.
 
+### SQL completion and Script as
+
+- **Completion:** in Jupyter or the IPython terminal (after `import swissarmygrid`), press Tab inside SQL, in a string holding a SELECT, FROM or JOIN, or in a `%%sql` cell, and the loaded catalogs' names come up: `ord` Tab gives tables and columns starting so, `orders.cu` Tab the columns of orders, `sales.ord` Tab the tables of sales. Columns of the tables the query names come first. It asks the running grid server and never starts one. `sag.complete()` turns it on by hand; `SWISSARMYGRID_COMPLETE=0` keeps it off.
+- **Script as** (like SSMS): right-click a table in the catalog for **SELECT \***, **SELECT the columns** (each by name, quoted for the source's own SQL) or **Python: pandas** (`pd.read_sql` over the connection of the blade the catalog came from). It is copied, and `sag.paste()` puts it in your cell.
+
 ## Limits
 
 - All open tables together can hold 3 GB (never more than half of your computer's memory), and one table up to 1 GB, enough for a full Excel sheet of 1,048,576 rows on most tables.

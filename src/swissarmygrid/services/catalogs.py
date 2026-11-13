@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from swissarmygrid.domain.catalogs import CatalogInfo, select_sql
+from swissarmygrid.domain.catalogs import CatalogInfo, script, select_sql
 from swissarmygrid.services.datasets import TableReader
 from swissarmygrid.services.ports import BACKGROUND, INTERACTIVE
 from swissarmygrid.services.workspace import Workspace
@@ -144,6 +144,23 @@ class CatalogService:
             "table": table,
             "columns": found,
             "select": select,
+        }
+
+    async def script(
+        self, name: str, schema: str, table: str | None, database: str | None, kind: str, blade: str | None
+    ) -> dict[str, Any]:
+        """One table as SELECT *, SELECT its columns, or Python (pandas over the blade's connection)."""
+        info = self._catalogs.get(name)
+        if not table:
+            raise ValueError("Name the table: ?schema=...&table=...")
+        found = await self._on_worker(lambda cur: self._catalogs.columns(cur, name, schema, table, database))
+        if not found:
+            raise LookupError(f"No table {table!r} in schema {schema!r} of the catalog {info.name!r}.")
+        named_database = database if database and info.databases > 1 else ""
+        columns = [c["column"] for c in found]
+        return script(kind, info.dialect, named_database, schema, table, columns, blade or None) | {
+            "table": table,
+            "dialect": info.dialect,
         }
 
     async def search(self, name: str, text: str, limit: int) -> dict[str, Any]:

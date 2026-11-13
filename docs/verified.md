@@ -293,3 +293,8 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   against a true level of about 2,020, held-back miss 3% (4% without the step). Show these rows keeps
   exactly the four sales of June 2021 in the grid's order. The notebook code reproduces the window's
   words for both.
+- (2026-11-13) Catalog completion against real IPython 9.18.1 (a throwaway environment with the plain
+  client): with a running server and a made-up catalog, `shell.Completer.complete()` on
+  `conn.sql("SELECT * FROM ord` gave order_lines and orders, on `pd.read_sql("""\nSELECT orders.cu`
+  gave orders.customer_id, and on `x = ord` (not SQL) nothing. IPython 9 still runs
+  `Completer.custom_matchers` (the first matcher API), which ipykernel uses for Jupyter too.

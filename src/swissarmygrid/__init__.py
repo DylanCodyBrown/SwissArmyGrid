@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from swissarmygrid.client.blades_client import blade, blades, load
+    from swissarmygrid.client.completion import complete
     from swissarmygrid.client.paste_client import paste
     from swissarmygrid.client.push_client import DatasetTooLargeError, ServerNotRunningError, push
     from swissarmygrid.client.sandbox_client import sandbox
@@ -43,6 +44,7 @@ __all__ = [
     "__version__",
     "blade",
     "blades",
+    "complete",
     "load",
     "paste",
     "push",
@@ -59,6 +61,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "blades": ("swissarmygrid.client.blades_client", "blades"),
     "sandbox": ("swissarmygrid.client.sandbox_client", "sandbox"),
     "paste": ("swissarmygrid.client.paste_client", "paste"),
+    "complete": ("swissarmygrid.client.completion", "complete"),
     "DatasetTooLargeError": ("swissarmygrid.client.push_client", "DatasetTooLargeError"),
     "ServerNotRunningError": ("swissarmygrid.client.push_client", "ServerNotRunningError"),
     "watch": ("swissarmygrid.client.watcher", "start"),
@@ -87,3 +90,8 @@ if os.environ.get("SWISSARMYGRID_WATCH", "") == "1" or "IPython" in sys.modules:
     from swissarmygrid.client.watcher import autostart
 
     autostart()
+# Catalog completion inside SQL strings: only where IPython completes (Jupyter, the IPython terminal).
+if "IPython" in sys.modules:
+    from swissarmygrid.client.completion import autostart as complete_on_tab
+
+    complete_on_tab()

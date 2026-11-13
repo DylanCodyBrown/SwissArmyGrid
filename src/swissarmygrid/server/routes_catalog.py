@@ -7,6 +7,8 @@
   GET    /catalogs/{name}/tables?schema=&database=&offset=&limit=
   GET    /catalogs/{name}/columns?schema=&table=&database=   with a first SELECT in the source's dialect
   GET    /catalogs/{name}/search?q=&limit=
+  GET    /catalogs/{name}/script?schema=&table=&database=&as=select_star|select_columns|pandas&blade=
+                                                    the right-click's Script as: SQL or Python for a table
 
 The use cases are services/catalogs.py. Only the user loads or removes a catalog. (Blades, the saved
 code that loads one, are routes_blades.py.)
@@ -94,6 +96,22 @@ def routes(catalogs: CatalogService) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    async def script(request: Request) -> Response:
+        try:
+            q = request.query_params
+            kind, blade = q.get("as", "select_star"), q.get("blade")
+            found = await catalogs.script(
+                request.path_params["name"],
+                q.get("schema", ""),
+                q.get("table"),
+                _database(request),
+                kind,
+                blade,
+            )
+            return json_response(found)
+        except Exception as error:
+            return error_response(error)
+
     async def search(request: Request) -> Response:
         try:
             name = request.path_params["name"]
@@ -111,4 +129,5 @@ def routes(catalogs: CatalogService) -> list[BaseRoute]:
         Route("/catalogs/{name}/tables", tables),
         Route("/catalogs/{name}/columns", columns),
         Route("/catalogs/{name}/search", search),
+        Route("/catalogs/{name}/script", script),
     ]
