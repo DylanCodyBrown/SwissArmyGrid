@@ -22,14 +22,16 @@ from __future__ import annotations
 
 import json
 import secrets
+import threading
 import time
+from collections import OrderedDict
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from swissarmygrid.domain import themes
 from swissarmygrid.domain.charts import _grouped, altair_code, fill_figure, validate, vega_lite
 from swissarmygrid.domain.datasets import DatasetInfo, quote
-from swissarmygrid.domain.grids import Grid
+from swissarmygrid.domain.grids import Grid, view_key
 from swissarmygrid.domain.sql_guard import guard
 from swissarmygrid.domain.steps import Step, type_family
 from swissarmygrid.services.ports import BACKGROUND, Dashboards, SqlSession, ThemeShelf
@@ -74,6 +76,10 @@ _BODY_WORDS: dict[str, str] = {
     "image": "a data: URL of a PNG, JPEG, GIF, WebP or SVG picture",
 }
 Card = dict[str, Any]
+# The number of groups, carried on each row of a grouped chart's one query.
+_GROUPS: str = "sag_groups"
+# How many charts' points are kept (a chart on a view that has not changed is not computed again).
+_KEPT_CHARTS: int = 128
 
 
 def aggregate(cursor: SqlSession, view_sql: str, spec: dict[str, Any], max_points: int) -> dict[str, Any]:
@@ -126,22 +132,19 @@ def aggregate(cursor: SqlSession, view_sql: str, spec: dict[str, Any], max_point
         return {"values": [dict(zip(keys, r, strict=True)) for r in rows], "note": note}
 
     projection, group, order = _grouped(spec)
-    groups_row = cursor.execute(
-        f"SELECT count(*) FROM (SELECT 1 FROM {v} GROUP BY {', '.join(group)})"
-    ).fetchone()
-    groups = int(groups_row[0]) if groups_row else 0
+    # One pass: the groups are made once, counted, cut to the largest when there are too many, and
+    # put in the chart's order (a count of the groups first, then the chart, read the view twice).
+    result = cursor.execute(
+        f"WITH g AS MATERIALIZED (SELECT {', '.join(projection)} FROM {v} GROUP BY {', '.join(group)}) "
+        f"SELECT * FROM (SELECT g.*, (SELECT count(*) FROM g) AS {_GROUPS} FROM g "
+        f"ORDER BY y DESC NULLS LAST LIMIT {max_points}) ORDER BY {order}"
+    )
+    names = [d[0] for d in result.description or []][:-1]
+    rows = result.fetchall()
+    groups = int(rows[0][-1]) if rows else 0
     if groups > max_points:
         note = f"Showing the {max_points:,} largest of {groups:,} groups."
-        top = (
-            f"SELECT {', '.join(projection)} FROM {v} GROUP BY {', '.join(group)} "
-            f"ORDER BY y DESC NULLS LAST LIMIT {max_points}"
-        )
-        sql = f"SELECT * FROM ({top}) ORDER BY {order}"
-    else:
-        sql = f"SELECT {', '.join(projection)} FROM {v} GROUP BY {', '.join(group)} ORDER BY {order}"
-    result = cursor.execute(sql)
-    names = [d[0] for d in result.description or []]
-    return {"values": [dict(zip(names, r, strict=True)) for r in result.fetchall()], "note": note}
+    return {"values": [dict(zip(names, r[:-1], strict=True)) for r in rows], "note": note}
 
 
 # ===== the cards =====
@@ -302,6 +305,9 @@ class Cards:
         self.ws = ws
         self.dashboards = dashboards
         self._cards: dict[str, Card] = {}
+        # Charts' points by view key and spec (see _points), least recently used first.
+        self._drawn: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self._drawn_lock = threading.Lock()
         # The Sandbox's theme: "app" (follow the app's), a built-in's id, or one of the user's own.
         self._shelf_themes = theme_shelf
         self._theme: str = themes.APP
@@ -387,7 +393,7 @@ class Cards:
         try:
             if card["kind"] == "chart":
                 spec = validate(card["spec"], compiled.columns)
-                data = aggregate(cur, compiled.sql(), spec, ws.settings.max_chart_points)
+                data = self._points(cur, grid, info, spec)
                 shown["vega_lite"] = vega_lite(spec, data, compiled.columns)
                 shown["note"] = data["note"]
                 shown["points"] = len(data["values"])
@@ -420,6 +426,32 @@ class Cards:
         except (ValueError, ws.engine_error) as error:  # ChartError is a ValueError
             shown["error"] = str(error)
         return shown
+
+    def _points(self, cur: SqlSession, grid: Grid, info: DatasetInfo, spec: dict[str, Any]) -> dict[str, Any]:
+        """The chart's points on the grid's view, kept by view key and spec: the Sandbox asks for
+        every card again on each change to any card, and only a changed view needs computing.
+
+        Computed on the view cache (adapters/views.reading), not on every step run again. A scatter
+        reads it in view order, as its sample and its points always were; a grouped chart or a
+        histogram does not care about order."""
+        ws = self.ws
+        limit = ws.settings.max_chart_points
+        key = f"{view_key(info, grid.steps, grid.settings, None)}:{limit}:" + json.dumps(
+            spec, sort_keys=True, default=str
+        )
+        with self._drawn_lock:
+            hit = self._drawn.get(key)
+            if hit is not None:
+                self._drawn.move_to_end(key)
+                return hit
+        scatter = spec["mark"] == "point" and spec.get("y", {}).get("aggregate") is None
+        with ws.views.reading(cur, info, grid.steps, grid.settings, ordered=scatter) as rows:
+            data = aggregate(cur, rows, spec, limit)
+        with self._drawn_lock:
+            self._drawn[key] = data
+            while len(self._drawn) > _KEPT_CHARTS:
+                self._drawn.popitem(last=False)
+        return data
 
     async def for_grid(self, grid: Grid) -> dict[str, Any]:
         """Every card for the grid, charts computed on its view."""

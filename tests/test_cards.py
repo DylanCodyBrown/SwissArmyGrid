@@ -451,3 +451,55 @@ def test_a_cards_size_is_kept_and_checked(client: TestClient) -> None:
     assert client.patch(f"/cards/{card}", json={"size": {"w": 7, "h": 4}}, headers=AUTH).status_code == 200
     assert cards(client, grid)[0]["size"] == {"w": 7, "h": 4}
     assert client.patch(f"/cards/{card}", json={"size": {"w": 13, "h": 4}}, headers=AUTH).status_code == 400
+
+
+def test_a_chart_follows_its_view_and_a_table_opened_again_under_its_name(client: TestClient) -> None:
+    """A chart's points are kept by view: the same view answers the same, a changed view or a table
+    closed and opened again under its old name (version 1 once more) is computed afresh."""
+    spec = {"mark": "bar", "x": {"field": "region"}, "y": {"aggregate": "sum", "field": "qty"}}
+
+    def points(grid: str) -> dict[str, int]:
+        (card,) = cards(client, grid)
+        return {v["x"]: v["y"] for v in card["vega_lite"]["data"]["values"]}
+
+    grid = grid_id(push(client, "o", big_table(100)))
+    assert add(client, grid, {"kind": "chart", "spec": spec}).status_code == 200
+    whole = points(grid)
+    assert whole == points(grid) and whole["North"] == sum(i % 50 for i in range(0, 100, 4))
+    keep = {"steps": [{"kind": "filter", "params": {"column": "id", "op": "lt", "value": 8}}]}
+    assert client.post(f"/grids/{grid}/steps", json=keep, headers=AUTH).status_code == 200
+    assert points(grid) == {"North": 4, "South": 6, "East": 8, "West": 10}
+    assert client.post(f"/grids/{grid}/steps", json={"steps": []}, headers=AUTH).status_code == 200
+    assert points(grid) == whole
+
+    assert client.delete("/datasets/o", headers=AUTH).status_code == 200
+    again = grid_id(push(client, "o", big_table(8)))
+    assert add(client, again, {"kind": "chart", "spec": spec}).status_code == 200
+    assert points(again) == {"North": 4, "South": 6, "East": 8, "West": 10}
+    profile = client.get(f"/grids/{again}/profile?column=qty", headers=AUTH).json()
+    assert (profile["rows"], profile["max"]) == (8, 7)
+
+
+def test_too_many_groups_keep_the_largest_and_say_so(client: TestClient) -> None:
+    grid = grid_id(push(client, "o", big_table(6_000)))
+    spec = {"mark": "bar", "x": {"field": "id"}, "y": {"aggregate": "sum", "field": "id"}}
+    assert add(client, grid, {"kind": "chart", "spec": spec}).status_code == 200
+    (card,) = cards(client, grid)
+    values = card["vega_lite"]["data"]["values"]
+    assert card["note"] == "Showing the 5,000 largest of 6,000 groups." and card["points"] == 5000
+    assert [v["x"] for v in values[:3]] == [5999, 5998, 5997] and set(values[0]) == {"x", "y"}
+    assert min(v["x"] for v in values) == 1000
+
+
+def test_a_grid_reads_the_table_opened_again_under_a_closed_name(client: TestClient) -> None:
+    """The compiled view and the profiles are kept by view key, which names the load, not only the
+    table and its version: a closed name opened again with other columns is a new table."""
+    grid = grid_id(push(client, "o", pa.table({"a": [1, 2, 3]})))
+    assert client.get(f"/grids/{grid}/profile?column=a", headers=AUTH).json()["max"] == 3
+    assert client.delete("/datasets/o", headers=AUTH).status_code == 200
+    grid = grid_id(push(client, "o", pa.table({"b": [10, 20, 30, 30]})))
+    rows = client.get(f"/grids/{grid}/rows?start=0&end=5", headers=AUTH)
+    assert rows.status_code == 200 and rows.json()["columns"] == ["b"]
+    assert client.get(f"/grids/{grid}/header-stats", headers=AUTH).json() == {
+        "b": {"distinct": 3, "blank_percent": 0.0}
+    }
