@@ -28,39 +28,86 @@ installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), s
 - **Record verification results** in [docs/verified.md](docs/verified.md); decisions and open
   notes go in [docs/ideas.md](docs/ideas.md).
 - **Data is sensitive.** Use only made-up data in tests, examples and screenshots. Keep the
-  posture: 127.0.0.1 only, token on every data route, DuckDB locked (`engine/database.py`),
+  posture: 127.0.0.1 only, token on every data route, DuckDB locked (`adapters/database.py`),
   nothing written to disk except explicit exports, saved recipes and the audit log.
 
 ## Layout
 
+The Python is arranged after "Architecture Patterns with Python" (Cosmic Python); [REFACTOR.md](REFACTOR.md)
+has the rules and why. Three layers, imports pointing inwards, nothing deeper than
+`src/swissarmygrid/<folder>/<file>.py`, one file per feature in each layer.
+`tests/test_architecture.py` checks all of it.
+
 ```
 src/swissarmygrid/
   settings.py            every limit (plan 6a) in one frozen dataclass
-  engine/                DuckDB setup (database), datasets + limits, steps -> SQL (steps),
-                         view cache + windows (views), workers, profile, sql_guard, export,
-                         loaders, recipes, audit, describe
-  codegen/               duckdb_code, python_code (pandas + plain), verify, generate
-  charts/spec.py         chart spec validation, server-side aggregation, Vega-Lite, Altair
-  server/                app (composition), context (services + helpers), routes_datasets,
-                         routes_grids, routes_agent, routes_cards, routes_snapshots (app_snapshot: relays the
-                         agent's request to the open page, which draws itself with web/src/snapshot.ts and
-                         uploads the PNG; nothing is kept), security (guard), lifecycle
-                         (ports, single instance, clean exit), info_file, grids, live_updates
+  bootstrap.py           the composition root: builds the adapters, hands them to the services
+
+  domain/                the model and its rules. Standard library and sqlglot only; no I/O, no clock
+    datasets.py          Column, DatasetInfo, names, the dataset errors
+    steps.py             steps -> SQL, each step in plain words, view settings
+    grids.py             Grid, the registry, request generations, selections, windows, view keys
+    sql_guard.py         what a SQL box, "+" tab or agent query may say
+    codegen.py           generated code: DuckDB, pandas, plain Python
+    charts.py            chart spec validation, the aggregate query's text, Vega-Lite, Altair
+    export.py            export options, provenance
+    relationships.py     keys, the Key Finder's scoring, compare, relationship models, the ERD
+    catalogs.py          catalog rules: dialects, names, which source column is read as what
+    blades.py            a blade as text and as a record: what its code makes, asks for and imports
+                         (read with ast), its pip packages, the portable .blade.py file (a
+                         `# /// swissarmygrid-blade` TOML header, zips), its settings (found with ast,
+                         placeholders, suggestions, written back), Blade, parse_blade, Template
+
+  services/              the use cases, one service class per feature, given their ports
+    ports.py             the shared ports: SqlSession, Views, Datasets, Jobs, Audit, Notifier, Recipes
+    workspace.py         Workspace (the ports every use case shares, grid lookups and queries) and the
+                         outcomes Refused, NotFound, TimedOut, Conflict
+    datasets.py          every way data arrives (push, file, paste, the "+" tab's query), list, close
+    grids.py             rows, counts, steps and step changes, highlights, the selection, recipes
+    profile.py           column and table profiles, kept by view key
+    sql.py               the SQL box
+    export.py            CSV, Excel, Parquet: a download, or saved (an agent's only with a ticket)
+    codegen.py           copy as code: generate, then verify what the user will paste
+    charts.py            the side panel's cards: charts, notes, tables, diagrams, cross-filtering
+    agent.py             the agent door: approvals, export tickets, its reads, the current table,
+                         listing and proposing blades (saved on the user's Allow)
+    catalogs.py          load, remove, the tree, search
+    blades.py            save, inspect, fill, refresh, test, install, favourites, folders, export, import
+    notebook.py          cells SwissArmyGrid adds to the open marimo notebook
+    relationships.py     the Key Finder, compares, the current model and its library
+    processes.py         Python sessions offering tables: the registry and the Open list
+    snapshots.py         a PNG of the page, drawn by the page (app_snapshot); nothing is kept
+
+  adapters/              the driven edge: DuckDB, Arrow, files, the vault, websockets
+    database.py          the locked DuckDB, the priority worker pool, DuckDB's own SQL grammar
+    datasets.py          the dataset store and its limits; Arrow, CSV, Excel, Parquet, JSON loaders
+    views.py             the view cache and windows
+    catalogs.py          loaded catalogs: tree queries and search in the locked DuckDB
+    blades.py            saved blades (~/.swissarmygrid/blades, one JSON each), blade folders
+                         (.blade.py files found by their header), favourites; secrets via keyring
+    blade_run.py         run a blade, its catalog command, a vault, in this Python (standard library
+                         only: sag.blade uses it too); which packages this Python has
+    codegen.py           runs copied code and compares it with the grid
+    export.py            CSV, Excel and Parquet writers; the export folder
+    state_files.py       the audit log, recipes, the connection file, the model library
+    live_updates.py      the pages' and VS Code windows' sockets
+
+  server/                the HTTP door, and everything that starts a process
+    app.py               asks bootstrap for the services, mounts the routes behind the guard
+    http.py              reading requests, shaping answers, each error as its status
+    routes_*.py          one per feature: read the request, call the use case, shape the answer
+                         (datasets, grids, agent, cards, catalog, blades, notebook, relationships,
+                         processes, snapshots). /catalogs is for everyone; /blades refuses the agent,
+                         whose own door is /agent/blades in routes_agent.py
+    security.py          the guard: 127.0.0.1, the token, Host and Origin
+    lifecycle.py, launcher.py, __main__.py   ports, single instance, clean exit; `swissarmygrid`
+    notebook.py          marimo started on first use (child process, token on stdin); NotebookControl
+                         joins the open notebook as a kiosk to add cells
+    blade_runner.py      Refresh/Test in a child process; installing packages
+    blade_templates.py   the 35 starter blades
+
   client/push_client.py  push(), ensure_server()
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
-  blade_core/            blades, standard library only: code (what code makes, asks for, imports; read
-                         with ast), run (run a blade, its catalog command, a vault), packages (pip names),
-                         portable (the .blade.py file: a `# /// swissarmygrid-blade` TOML header, zips),
-                         fill (a blade's settings: found with ast, placeholders, suggestions, written back)
-  engine/catalog.py      catalogs: a source's names and types, tree queries and search (in the locked DuckDB)
-  server/blade_store.py  saved blades (~/.swissarmygrid/blades, one JSON each), blade folders (.blade.py
-                         files found by their header), favourites, description and tags; secrets via keyring;
-                         blade_runner (Refresh/Test in a child process), blade_templates (35 starters),
-                         routes_catalog (/catalogs for everyone, /blades refuses the agent); the agent's
-                         own door is routes_agent's /agent/blades (list, and propose: saved on the user's Allow)
-  server/notebook.py     the notebook: marimo started on first use (child process, token on stdin),
-                         NotebookControl joins the open notebook as a kiosk to add cells (imports, drops);
-                         routes_notebook serves it at /marimo (HTTP + websockets, notebook cookie)
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command)
@@ -74,7 +121,8 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          The grid page has no SQL box and no steps panel (decision 13): stepsStrip.ts is the
                          strip under the title; stepsPanel.ts shows only in its own window (?panel=steps)
 web/static/              index.html, grid.css (all theme tokens), build/ (gitignored)
-tests/                   unit + HTTP tests, golden/ (shared cases), e2e/ (Edge via Playwright)
+tests/                   unit + HTTP tests, golden/ (shared cases), e2e/ (Edge via Playwright),
+                         test_architecture.py (the layers, the depth, the plain client)
 tools/                   screenshots.py, vscode_check.py
 plugin/                  the plugin template (skills/swissarmygrid-use: SKILL.md, guide)
 examples/sample_store.py made-up nine-table store with a relationship answer key (test bed for autodetection)

@@ -112,7 +112,7 @@ class Settings:
     # rows only, so a large table answers in seconds.
     key_finder_unique_rows: int = 400_000
     # Worker threads running DuckDB queries. Grid windows jump ahead of profiling, SQL and
-    # agent work in the queue (engine/workers.py).
+    # agent work in the queue (adapters/database.py).
     worker_threads: int = 4
     # The browser files: index.html, grid.css, and build/ from `npm run build`.
     web_root: Path = field(default=_PACKAGED_WEB if _PACKAGED_WEB.is_dir() else _REPO_WEB)

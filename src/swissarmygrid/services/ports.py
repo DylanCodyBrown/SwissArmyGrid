@@ -2,6 +2,10 @@
 
 A use case names the ports it needs in its constructor (or its arguments); bootstrap.py hands it the
 concrete adapters. Nothing here imports an adapter, so a test can pass a fake.
+
+These are the ports several features share. A port only one feature uses sits beside that feature's
+use cases: `TableReader` (datasets.py), `ExportWriter` (export.py), `Catalogs` (catalogs.py), `Blades`
+(blades.py), `BladeShelf` (agent.py), `Notebook` (notebook.py), `ModelLibrary` (relationships.py).
 """
 
 from __future__ import annotations
@@ -134,13 +138,6 @@ class CodeVerifier(Protocol):
         expected_names: list[str],
         expected: list[list[Any]],
     ) -> Outcome: ...
-
-
-class Table(Protocol):
-    """Rows on their way into the store (an Arrow table). The service layer only passes it on."""
-
-    @property
-    def num_rows(self) -> int: ...
 
 
 class Datasets(Protocol):

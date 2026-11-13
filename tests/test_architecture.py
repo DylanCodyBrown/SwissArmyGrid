@@ -154,6 +154,59 @@ def test_the_driven_adapters_do_not_know_the_doors(path: Path) -> None:
     assert sorted(m for m in _imports(path) if _own(m) in doors) == []
 
 
+DOORS = [*sorted((PACKAGE / "server").glob("routes_*.py")), PACKAGE / "server" / "http.py"]
+
+
+@pytest.mark.parametrize("path", DOORS, ids=lambda p: p.name)
+def test_the_http_door_reaches_the_adapters_only_through_the_composition_root(path: Path) -> None:
+    """A route module is given its service and nothing else: it builds no adapter and imports none
+    (the driven ones in `adapters/`), and it does not reach into the composition root. What it may
+    import from its own folder is the HTTP helpers and the two things only `server/` can do (start
+    the notebook, run a blade in a child process), whose errors it turns into statuses."""
+    reached = sorted(m for m in _imports(path) if _own(m) in ("adapters", "bootstrap"))
+    assert reached == []
+
+
+def test_only_the_composition_root_and_the_server_build_adapters() -> None:
+    """`bootstrap.py` is where adapters meet services. Besides it, only the server's own start-up
+    (the connection file, the live updates it watches to end with VS Code, the blade runner's child)
+    and the plain client (running a blade in the caller's Python) name an adapter."""
+    allowed = {
+        "bootstrap.py",
+        "server/__main__.py",
+        "server/blade_runner.py",
+        "client/blades_client.py",
+    }
+    named: set[str] = set()
+    for path in PACKAGE.rglob("*.py"):
+        relative = path.relative_to(PACKAGE).as_posix()
+        if relative.startswith("adapters/"):
+            continue
+        if any(_own(m) == "adapters" for m in _imports(path)):
+            named.add(relative)
+    assert named <= allowed
+
+
+@pytest.mark.parametrize("folder", ["domain", "services", "adapters", "server"])
+def test_no_layer_file_is_much_over_1500_lines(folder: str) -> None:
+    long = {
+        path.name: lines
+        for path in _layer_files(folder)
+        if (lines := len(path.read_text(encoding="utf-8").splitlines())) > 1500
+    }
+    assert long == {}
+
+
+def test_every_feature_has_at_most_one_file_in_each_layer() -> None:
+    """One file per feature: a name appears once in a layer, and a route module is named after the
+    service it calls (or is one of the doors that serve several: the agent's, a grid's)."""
+    services = {path.stem for path in _layer_files("services")} - {"__init__", "ports", "workspace"}
+    doors = {path.stem.removeprefix("routes_") for path in (PACKAGE / "server").glob("routes_*.py")}
+    # A door's name and the service file it stands on.
+    stands_on = {"catalog": "catalogs", "cards": "charts", "agent": "agent"}
+    assert {stands_on.get(door, door) for door in doors} <= services
+
+
 def test_the_client_needs_only_the_standard_library() -> None:
     """The plain wheel installs no dependencies. With every server package made impossible to import,
     each client module still imports, and nothing outside the standard library ends up loaded."""

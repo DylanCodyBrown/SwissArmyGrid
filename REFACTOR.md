@@ -16,7 +16,7 @@ command, client function and file format is the same.
    | adapters | `adapters/`, `server/`, `cli/`, `mcp/`, `client/` | anything | DuckDB, Arrow, files, the vault, websockets (`adapters/`); the HTTP door and everything that starts a process (`server/`); the agent's terminal and MCP doors (`cli/`, `mcp/`); the push client (`client/`) |
 
    `bootstrap.py` is the composition root: the one place that builds the concrete adapters and hands
-   them to the services. `server/app.py` asks it for the services and mounts the routes.
+   them to the services. `server/app.py` asks it for the services and gives each route module its own.
 
 2. **No more than three deep.** Every module is `src/swissarmygrid/<file>.py` or
    `src/swissarmygrid/<folder>/<file>.py`; there are three layers. Entry points (HTTP routes, `sag`,
@@ -56,24 +56,46 @@ architecture test imports each of them in a clean interpreter where `duckdb`, `p
 `starlette`, `uvicorn`, `sqlglot`, `keyring`, `marimo`, `mcp`, `openpyxl` and `xlsxwriter` cannot be
 imported.
 
-## Ports (`services/ports.py`, and two in the domain)
+## The service layer
 
-| port | what the service layer needs | adapter |
-|---|---|---|
-| `SqlSession` | run SQL and read rows; interrupt | a DuckDB cursor (`adapters/database.py` opens the locked database) |
-| `Describe`, `SqlGrammar` (domain) | the columns a query returns; DuckDB's own parse of a text, its keywords and table functions | `adapters/database.py` |
-| `Datasets` | the open datasets: get, all, replace, close, a session | `adapters/datasets.DatasetStore` |
-| `Views` | a grid's compiled view, windows, counts, the cached table | `adapters/views.ViewEngine` |
-| `Jobs` | run a function on the worker pool at a priority | `adapters/database.PriorityWorkers` |
-| `TableReader` | bytes, files and pasted text to a table | `adapters/datasets` (Arrow, CSV, Excel, Parquet) |
-| `Audit`, `Recipes`, `ModelLibrary` | the audit log, saved recipes, model files | `adapters/state_files.py` |
-| `Notifier` | tell the open pages; ask VS Code to show a grid | `adapters/live_updates.LiveUpdates` |
-| `ExportWriter` | a result as CSV, Excel or Parquet bytes; save into the export folder | `adapters/export.py` |
-| `CodeVerifier` | run copied code and compare it with the grid | `adapters/codegen.py` |
-| `Catalogs` | loaded catalogs in the locked DuckDB | `adapters/catalogs.CatalogStore` |
-| `Blades`, `BladeRunner`, `PackageInstaller` | saved blades and their secrets; run one in a child process; install packages | `adapters/blades.BladeStore` (files, keyring), `server/blade_runner.py` |
-| `Notebook` | marimo: start, add cells | `server/notebook.py` |
-| `Clock` | seconds, and the time of day for a stamp | `time` in `bootstrap.py` |
+One service class per feature (`services/<feature>.py`); each method is a use case. A service is
+given the `Workspace` (`services/workspace.py`: the ports every use case shares, plus grid lookups
+and the query runner that honours request generations) and whatever else it alone needs. In the
+book's terms the workspace is the unit of work the handlers share.
+
+A use case takes plain values (a grid, a parsed body, who is asking) and returns plain data. It ends
+in its answer or in an error: a domain error (`StepError`, `DatasetError`, `BladeError`...), a
+`LookupError` or `ValueError`, or one of four outcomes the workspace names: `Refused`, `NotFound`,
+`TimedOut`, `Conflict`. `server/http.py` is the one place an error becomes a status code.
+
+A route module (`server/routes_<feature>.py`) is given its service and does three things: read the
+request, call the use case, shape the answer. What stays in a route is what only HTTP knows: who is
+asking (the `X-Actor` header, and the refusals that follow from it), body caps and content types,
+streaming, cookies, and the order in which a request's problems are reported (a missing grid is
+found before the body is read, as before).
+
+## Ports
+
+The ports several features share are in `services/ports.py`; a port only one feature uses sits beside
+that feature's use cases. Two are in the domain, because compiling steps needs them.
+
+| port | where | what the service layer needs | adapter |
+|---|---|---|---|
+| `SqlSession` | `ports.py` | run SQL and read rows; interrupt | a DuckDB cursor (`adapters/database.py` opens the locked database) |
+| `Describe`, `SqlGrammar` | domain | the columns a query returns; DuckDB's own parse of a text, its keywords and table functions | `adapters/database.py` |
+| `Datasets` | `ports.py` | the open datasets: get, all, replace, close, a session | `adapters/datasets.DatasetStore` |
+| `Views` | `ports.py` | a grid's compiled view, windows, counts, the cached table | `adapters/views.ViewEngine` |
+| `Jobs` | `ports.py` | run a function on the worker pool at a priority | `adapters/database.PriorityWorkers` |
+| `Audit`, `Recipes` | `ports.py` | the audit log, saved recipes | `adapters/state_files.py` |
+| `Notifier` | `ports.py` | tell the open pages; ask VS Code to show a grid | `adapters/live_updates.LiveUpdates` |
+| `CodeVerifier` | `ports.py` | run copied code and compare it with the grid | `adapters/codegen.Verifier` |
+| `TableReader` | `datasets.py` | bytes, files and pasted text to a table; a query's result as a table | the module `adapters/datasets.py` |
+| `ExportWriter` | `export.py` | a result as CSV, Excel or Parquet bytes; save into the export folder | the module `adapters/export.py` |
+| `Catalogs` | `catalogs.py` | loaded catalogs in the locked DuckDB | `adapters/catalogs.CatalogStore` |
+| `Blades`, `BladeShelf` | `blades.py`, `agent.py` | saved blades, folders, favourites and secrets (the agent's door sees a narrower one) | `adapters/blades.BladeStore` |
+| `ModelLibrary` | `relationships.py` | the relationship model files | `adapters/state_files.ModelFiles` |
+| `Notebook` | `notebook.py` | add cells to the open marimo notebook | `server/notebook.NotebookControl` |
+| plain functions | constructors | run a blade in a child process, install packages, which packages are installed, is this path one of our own files, the time now, the engine's error classes | `server/blade_runner.py`, `adapters/blade_run.py`, `adapters/state_files.py`, `bootstrap.py` |
 
 ## No message bus
 
@@ -87,26 +109,26 @@ Considered for the live-update broadcasts and the agent approvals, and left out:
 
 ## Feature map
 
-| feature | was | domain | service layer | adapters |
+| feature | was | domain | service layer | adapters and doors |
 |---|---|---|---|---|
-| datasets and loading | `engine/datasets.py`, `engine/loaders.py`, `server/routes_datasets.py` | `datasets.py` (Column, DatasetInfo, names, errors) | `datasets.py` (store a table, load, paste, close, budget) | `adapters/datasets.py` (store, Arrow, files), `server/routes_datasets.py` |
-| grids and steps | `engine/steps.py`, `engine/describe.py`, `server/grids.py`, `server/selection.py`, `server/routes_grids.py` | `steps.py` (steps to SQL, in words), `grids.py` (Grid, registry, selection, view keys) | `grids.py` (lookup, rows, steps, step ops, highlights, recipes) | `server/routes_grids.py` |
-| views and windows | `engine/views.py` | (in `grids.py`: Window, POS, view_key) | (through the `Views` port) | `adapters/views.py` |
-| profiling | `engine/profile.py` | | `profile.py` | |
-| SQL guard and queries | `engine/sql_guard.py`, parts of three route files | `sql_guard.py` | `sql.py` (SQL box, the "+" tab, agent query) | `adapters/database.py` (grammar) |
-| export | `engine/export.py` | `export.py` (options, provenance) | `export.py` | `adapters/export.py` |
-| code generation | `codegen/*` | `codegen.py` | `codegen.py` | `adapters/codegen.py` (verify) |
-| charts and cards | `charts/spec.py`, `server/routes_cards.py` | `charts.py` | `charts.py` | `server/routes_cards.py` |
+| datasets and loading | `engine/datasets.py`, `engine/loaders.py`, `server/routes_datasets.py` | `datasets.py` | `datasets.py` (`DatasetService`: push, file, paste, the "+" tab, list, close) | `adapters/datasets.py`, `server/routes_datasets.py` |
+| grids and steps | `engine/steps.py`, `engine/describe.py`, `server/grids.py`, `server/selection.py`, `server/routes_grids.py` | `steps.py`, `grids.py` | `grids.py` (`GridService`) | `server/routes_grids.py` |
+| views and windows | `engine/views.py` | (in `grids.py`: Window, POS, view_key) | (the `Views` port) | `adapters/views.py` |
+| profiling | `engine/profile.py` | | `profile.py` (`Profiles`) | (in `routes_grids.py`) |
+| the SQL box, the guard | `engine/sql_guard.py`, part of `routes_grids.py` | `sql_guard.py` | `sql.py` (`SqlBox`) | `adapters/database.py` (grammar), (in `routes_grids.py`) |
+| export | `engine/export.py` | `export.py` | `export.py` (`Exports`) | `adapters/export.py`, (in `routes_grids.py`) |
+| code generation | `codegen/*` | `codegen.py` | `codegen.py` (`CodeService`) | `adapters/codegen.py`, (in `routes_grids.py`) |
+| charts and cards | `charts/spec.py`, `server/routes_cards.py` | `charts.py` | `charts.py` (`Cards`) | `server/routes_cards.py` |
 | recipes, audit, info file | `engine/recipes.py`, `engine/audit.py`, `server/info_file.py` | | (in `grids.py`, `datasets.py`) | `adapters/state_files.py` |
-| blades | `blade_core/*`, `server/blade_store.py`, `server/blade_runner.py`, `server/blade_templates.py`, half of `server/routes_catalog.py` | `blades.py` (code, packages, portable file, settings, Blade) | `blades.py` | `adapters/blades.py`, `adapters/blade_run.py`, `server/blade_runner.py`, `server/blade_templates.py`, `server/routes_blades.py` |
-| catalogs | `engine/catalog.py`, half of `server/routes_catalog.py` | `catalogs.py` | `catalogs.py` | `adapters/catalogs.py`, `server/routes_catalog.py` |
-| notebook | `server/notebook.py`, `server/routes_notebook.py` | | `notebook.py` | `server/notebook.py`, `server/routes_notebook.py` |
-| agent door and approvals | `server/routes_agent.py`, `server/routes_context.py` | | `agent.py` (approvals, tickets, reads, current table) | `server/routes_agent.py` |
-| snapshots | `server/routes_snapshots.py` | | `snapshots.py` | `server/routes_snapshots.py` |
-| relationships, key finder, compare | `engine/relationships.py`, `engine/keyfinder.py`, `engine/compare.py`, three route files | `relationships.py` | `relationships.py` | `server/routes_relationships.py` |
-| Python sessions (Open list) | `server/processes.py`, `server/routes_processes.py` | | `processes.py` | `server/routes_processes.py` |
+| blades | `blade_core/*`, `server/blade_store.py`, `server/blade_runner.py`, `server/blade_templates.py`, half of `server/routes_catalog.py` | `blades.py` | `blades.py` (`BladeService`) | `adapters/blades.py`, `adapters/blade_run.py`, `server/blade_runner.py`, `server/blade_templates.py`, `server/routes_blades.py` |
+| catalogs | `engine/catalog.py`, half of `server/routes_catalog.py` | `catalogs.py` | `catalogs.py` (`CatalogService`) | `adapters/catalogs.py`, `server/routes_catalog.py` |
+| notebook | `server/notebook.py`, `server/routes_notebook.py` | | `notebook.py` (`NotebookCells`) | `server/notebook.py`, `server/routes_notebook.py` |
+| agent door and approvals | `server/routes_agent.py`, `server/routes_context.py` | | `agent.py` (`AgentService`, `Approvals`, `ExportTickets`) | `server/routes_agent.py` |
+| snapshots | `server/routes_snapshots.py` | | `snapshots.py` (`Snapshots`) | `server/routes_snapshots.py` |
+| relationships, key finder, compare | `engine/relationships.py`, `engine/keyfinder.py`, `engine/compare.py`, `routes_models.py`, `routes_keyfinder.py`, `routes_compare.py` | `relationships.py` | `relationships.py` (`Models`, `KeyFinder`, `Compares`) | `adapters/state_files.py` (the library), `server/routes_relationships.py` |
+| Python sessions (Open list) | `server/processes.py`, `server/routes_processes.py` | | `processes.py` (`ProcessRegistry`, `Sessions`) | `server/routes_processes.py` |
 | live updates | `server/live_updates.py` | | (the `Notifier` port) | `adapters/live_updates.py` |
-| server lifecycle | `server/lifecycle.py`, `server/launcher.py`, `server/__main__.py`, `server/security.py`, `engine/database.py`, `engine/workers.py` | | | `server/*` unchanged, `adapters/database.py` |
+| server lifecycle | `server/lifecycle.py`, `server/launcher.py`, `server/__main__.py`, `server/security.py`, `engine/database.py`, `engine/workers.py`, `server/context.py` | | `workspace.py` | `server/*` unchanged, `server/http.py`, `adapters/database.py`, `bootstrap.py` |
 
 ## Migration order (one commit each, the whole suite green after each)
 
@@ -146,6 +168,17 @@ Considered for the live-update broadcasts and the agent approvals, and left out:
   The domain reads no clock, environment or installed packages: `parse_blade(..., now)`,
   `suggest_settings(..., environ)` and `needed(code, installed)` are given them. 1,462 tests.
 
+- [x] 5. State files (`adapters/state_files.py`: the audit log, recipes, the connection file, the model
+  library), live updates (`adapters/live_updates.py`), `services/workspace.py`, and `bootstrap.py` in
+  place of `server/context.Context`; the HTTP helpers are `server/http.py`. `engine/` is gone. 1,465 tests.
+- [x] 6a. Use cases out of the routes: datasets, grids, profiles, the SQL box, export, code, the agent
+  door (with the current table), Python sessions. 1,471 tests.
+- [x] 6b. The rest: cards, catalogs, blades (`server/routes_blades.py` split from `routes_catalog.py`),
+  the notebook's cells, relationships (`server/routes_relationships.py` in place of three files),
+  snapshots. No route module takes the composition root any more: each is given its service.
+- [x] 7. CLAUDE.md's layout; the architecture test at full strength (the doors reach adapters only
+  through `bootstrap.py`; no layer file over 1,500 lines; a door per service).
+
 ## Left alone, and why
 
 - `server/blade_templates.py` (the 35 starter blades) stays in `server/`. It is plain data and would sit
@@ -157,3 +190,24 @@ Considered for the live-update broadcasts and the agent approvals, and left out:
   failed in the first full run on this machine, before any change (two SQL cells where the test
   expects one), and passes when its file is run alone: it is timing-sensitive here (Chromium in place
   of Edge). It is not touched.
+- `cli/commands.py` (1,583 lines) is the one registry every MCP tool and `sag` command is generated
+  from: names, descriptions and arguments. It is a little over the size guide, and splitting it would
+  put the registry in several places for no gain; its text is part of the behaviour that must not
+  change. It is untouched. `cli/`, `mcp/` and `client/` are otherwise as they were, apart from import
+  paths: they are already thin entry points over HTTP.
+- `server/notebook.py`, `server/blade_runner.py`, `server/lifecycle.py`, `server/launcher.py` and
+  `server/__main__.py` stay in `server/` (not `adapters/`): each starts a process, and
+  `tests/test_client_install.py` allows that only there. The services reach them through ports.
+- A few statuses are still decided in a route, because only HTTP knows them or because the original
+  body had no content type and the generic mapping would add one: 415 and 413 on a push, 422 for a
+  failed blade run or install, 502/503/504 for the notebook and snapshots, and `DuckDB: ...` 400s on
+  the SQL box and the agent's reads (the routes catch the engine's error class there, as before).
+- `services/processes.py` holds `ProcessRegistry` (a model with its own rules: presence, load
+  requests, who follows what) beside its use cases. It waits on asyncio events, so it is not in the
+  domain; it touches no port.
+- The domain uses `sqlglot` (the SQL guard and code generation parse text with it). It is a pure
+  parser, the rule in the table above allows it, and replacing it would change behaviour.
+- `web/` and `vscode-extension/` are untouched (two comments in `web/src` still name
+  `blade_core/fill.py` and `blade_core/portable.py`; they are the main line's to change).
+- `docs/verified.md`, `docs/ideas.md` and the plans name old paths (`engine/steps.py` and so on) in
+  dated entries. They are a record of when things were verified or decided, so they are left as written.

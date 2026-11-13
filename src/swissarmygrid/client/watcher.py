@@ -519,7 +519,7 @@ def autostart() -> None:
     marimo = _marimo_namespace()
     if marimo is not None:
         # The notebook tab's tables become grids (plan, phase 2). The label tells the server these come
-        # from the notebook, so a grid's steps go back to it as a SQL cell (server/processes.py).
+        # from the notebook, so a grid's steps go back to it as a SQL cell (services/processes.py).
         file = marimo().get("__file__")
         start(marimo, label=f"notebook {os.path.basename(file)}" if isinstance(file, str) else "notebook")
     elif mode == "1" or _in_ipython():
