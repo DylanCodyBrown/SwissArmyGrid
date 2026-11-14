@@ -19,7 +19,7 @@ import { THEME_LABELS, headerProfiles, setHeaderProfiles, setTheme, themeChoice,
 
 export function settingsButton(): HTMLButtonElement {
   // First in the Application row: always there, whichever tab is open.
-  const btn = button("Settings", () => openSettings(), { icon: "cog", class: "ribbon-btn", title: "Settings: theme, agent setup and activity" });
+  const btn = button("Settings", () => openSettings(), { icon: "cog", class: "ribbon-btn" });
   btn.setAttribute("aria-haspopup", "dialog");
   return btn;
 }
@@ -37,9 +37,9 @@ export const MCP_PROMPT = [
 async function copyMcpPrompt(): Promise<void> {
   try {
     await navigator.clipboard.writeText(MCP_PROMPT);
-    toast("Copied. Paste it to your agent.");
+    toast("Copied.");
   } catch {
-    toast("The browser blocked the clipboard. Select the text and copy it.", "error");
+    toast("The browser blocked the clipboard.", "error");
   }
 }
 
@@ -58,26 +58,24 @@ export function openSettings(): void {
     h(
       "fieldset",
       { class: "fieldset" },
-      h("legend", {}, "Grid (this browser)"),
+      h("legend", {}, "Grid"),
       h(
         "label",
         { class: "choice" },
         profiles,
-        h("span", {}, h("strong", {}, "Show column profiles in the headers"), h("small", {}, "Each header adds its distinct count, its share of blanks and a small histogram. Off: plain headers, and no profiling while you work.")),
+        h("span", {}, h("strong", {}, "Show column profiles in the headers")),
       ),
     ),
     h(
       "fieldset",
       { class: "fieldset" },
-      h("legend", {}, "Theme (this browser)"),
-      h("p", { class: "hint" }, "System follows Windows' light, dark and contrast settings."),
+      h("legend", {}, "Theme"),
       h("div", { class: "form-grid", role: "radiogroup", "aria-label": "Theme" }, ...themes),
     ),
     h(
       "fieldset",
       { class: "fieldset" },
       h("legend", {}, "Connect an agent"),
-      h("p", { class: "hint" }, "A prompt that installs the grid's MCP server in Claude Code or any agent with a shell."),
       h("pre", { class: "mono mcp-prompt" }, MCP_PROMPT),
       button("Copy the setup prompt", () => void copyMcpPrompt(), { icon: "copy" }),
     ),

@@ -22,18 +22,6 @@ function showWelcome(): void {
   clear(
     detail,
     h("h2", {}, "Blades and the catalog"),
-    h(
-      "p",
-      {},
-      "A blade is any Python that reaches outside Python to load something: a database connection, a CSV or workbook, an API, a vault. Save it once here, then use it anywhere:",
-    ),
-    h("pre", { class: "code-box" }, 'import swissarmygrid as sag\n\nconn = sag.blade("Warehouse")'),
-    h(
-      "p",
-      {},
-      "A blade can add its source to the catalog: every schema, table and column with its type, searchable here and readable by your agent, so it can write SQL against the source. Or load one straight from Python:",
-    ),
-    h("pre", { class: "code-box" }, 'sag.load(conn.execute("SELECT * FROM INFORMATION_SCHEMA.COLUMNS").df(), name="Warehouse", dialect="sqlserver")'),
     h("div", { class: "row-actions" }, button("New blade", () => openEditor(null), { icon: "plus", class: "primary" })),
   );
 }
@@ -70,7 +58,7 @@ const rail = mountRail({
     detail.querySelector('[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
   },
   showSchema: (label, catalog) =>
-    clear(detail, h("h2", {}, label), h("p", { class: "hint" }, `A schema in ${catalog}. Open it to see its tables and views.`)),
+    clear(detail, h("h2", {}, label), h("p", { class: "hint" }, `Schema in ${catalog}`)),
 });
 
 showWelcome();

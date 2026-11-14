@@ -609,7 +609,7 @@ async function restore(): Promise<boolean> {
 function showWelcome(): void {
   current = null;
   variables.show(null);
-  layout.console.replaceChildren(h("p", { class: "hint wb-pane-empty" }, "No console"));
+  layout.console.replaceChildren();
   drawTabs();
   drawToolbar();
   drawStatus();

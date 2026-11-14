@@ -29,7 +29,7 @@ export function safeFigure(text: string): { data: Record<string, unknown>[]; lay
   const data = (figure as { data?: unknown }).data;
   if (!figure || typeof figure !== "object" || !Array.isArray(data)) throw new Error('A Plotly figure is {"data": [...], "layout": {...}}.');
   const maps = data.filter((t) => MAP_TRACES.test(String((t as { type?: unknown }).type ?? "")));
-  if (maps.length) throw new Error("Map traces load their maps from the internet, which SwissArmyGrid never does; draw it in Python and add it as an image.");
+  if (maps.length) throw new Error("Map traces are not supported (they load from the internet).");
   const layout = { ...((figure as { layout?: Record<string, unknown> }).layout ?? {}) };
   if (Array.isArray(layout.images)) {
     layout.images = (layout.images as { source?: unknown }[]).filter((i) => typeof i.source === "string" && i.source.startsWith("data:image/"));

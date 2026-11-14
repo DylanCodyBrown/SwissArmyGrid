@@ -213,7 +213,7 @@ export function markStaleOnChange(form: HTMLElement, results: HTMLElement): void
   const mark = (event: Event): void => {
     if (results.contains(event.target as Node) || !results.childElementCount || results.querySelector(":scope > .stale-note")) return;
     results.classList.add("stale");
-    results.prepend(h("p", { class: "hint stale-note", role: "status" }, "These results are for the earlier choices: run again to update them."));
+    results.prepend(h("p", { class: "hint stale-note", role: "status" }, "Out of date: run again"));
   };
   form.addEventListener("change", mark);
   form.addEventListener("input", mark);

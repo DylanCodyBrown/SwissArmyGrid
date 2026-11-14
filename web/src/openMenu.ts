@@ -58,7 +58,6 @@ export function openMenuButton(): HTMLButtonElement {
     icon: "rows",
     iconOnly: true,
     class: "ghost tab-new",
-    title: "Open a table from a running Python session",
   });
 }
 
@@ -95,7 +94,6 @@ function tableRow(session: Session, table: TableEntry): HTMLElement {
       {},
       button(table.open ? "Reload" : "Open", (event) => void askToOpen(session, table, event.currentTarget as HTMLButtonElement), {
         class: table.open ? "ghost" : "primary",
-        title: table.open ? `Send ${table.name} again from ${session.label}` : `Load ${table.name} from ${session.label} into the grid`,
       }),
     ),
   );
@@ -112,26 +110,26 @@ function sessionBlock(session: Session): HTMLElement {
       h("strong", {}, session.label),
       h("span", { class: "hint" }, `process ${session.pid}`),
       closed.length > 1
-        ? button("Open all", () => closed.forEach((t) => void askToOpen(session, t)), { class: "ghost", title: `Open all ${closed.length} tables in this session` })
+        ? button("Open all", () => closed.forEach((t) => void askToOpen(session, t)), { class: "ghost" })
         : null,
     ),
     session.tables.length
       ? h("table", { class: "kf-table small" }, h("tbody", {}, ...session.tables.map((t) => tableRow(session, t))))
-      : h("p", { class: "hint" }, "No tables among this session's variables yet."),
+      : h("p", { class: "hint" }, "No tables"),
   );
 }
 
 function showOpenDialog(): void {
   const { dialog, body } = openDialog("Open a table from Python", true);
   body.classList.add("open-dialog");
-  const status = h("p", { class: "hint", role: "status" }, "Looking for Python sessions…");
+  const status = h("p", { class: "hint", role: "status" }, "Loading…");
   const list = h("div", { class: "open-sessions" });
   body.append(status, list);
 
   const draw = (sessions: Session[]): void => {
     status.textContent = sessions.length
       ? ""
-      : "No Python session is offering tables yet. In a notebook, importing swissarmygrid starts it. In a script, call sag.watch() once.";
+      : "No Python sessions";
     list.replaceChildren(...sessions.map(sessionBlock));
   };
   const load = async (): Promise<void> => {

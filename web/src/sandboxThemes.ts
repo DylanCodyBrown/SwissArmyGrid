@@ -71,10 +71,10 @@ export function themeControls(themes: Themes, changed: () => void): HTMLElement 
   for (const t of themes.themes) groups.set(t.group, [...(groups.get(t.group) ?? []), t]);
   const select = h(
     "select",
-    { "aria-label": "Sandbox theme", title: "The Sandbox's theme: its cards, charts, PDF and markdown export (the grid keeps its own)" },
+    { "aria-label": "Sandbox theme", title: "Sandbox theme" },
     h("option", { value: "app", selected: themes.current === "app" }, "Theme: follow the app"),
     ...[...groups.entries()].map(([group, list]) =>
-      h("optgroup", { label: group }, ...list.map((t) => h("option", { value: t.id, selected: t.id === themes.current, title: t.note }, `${t.label}${t.by_agent ? " (proposed by the agent)" : ""}`))),
+      h("optgroup", { label: group }, ...list.map((t) => h("option", { value: t.id, selected: t.id === themes.current, title: t.note }, `${t.label}${t.by_agent ? " (agent)" : ""}`))),
     ),
   );
   select.addEventListener("change", () => {
@@ -88,7 +88,7 @@ export function themeControls(themes: Themes, changed: () => void): HTMLElement 
       try {
         const added = await api<SandboxTheme>("/sandbox/themes", "POST", JSON.parse(text));
         await api("/sandbox/theme", "PUT", { theme: added.id });
-        toast(`Theme ${added.label} imported and in use. Its colours were made readable where they needed it.`);
+        toast(`Imported theme ${added.label}.`);
         changed();
       } catch (e) {
         toast(e instanceof SyntaxError ? "That file is not JSON." : (e as Error).message, "error");
@@ -101,9 +101,9 @@ export function themeControls(themes: Themes, changed: () => void): HTMLElement 
     "span",
     { class: "theme-controls" },
     select,
-    button("Import theme…", () => file.click(), { icon: "import", iconOnly: true, class: "ghost", title: 'Import a theme file: {"name", "dark", "tokens": {"bg": "#ffffff", ..., "cat": [8 colours]}}' }),
+    button("Import theme…", () => file.click(), { icon: "import", iconOnly: true, class: "ghost" }),
     chosen
-      ? button("Export theme", () => saveBlob(new Blob([JSON.stringify({ name: chosen.label, dark: chosen.dark, tokens: { ...chosen.tokens, cat: chosen.cat } }, null, 2)], { type: "application/json" }), `${chosen.id}.theme.json`), { icon: "export", iconOnly: true, class: "ghost", title: "This theme as a file, to share or to start your own from" })
+      ? button("Export theme", () => saveBlob(new Blob([JSON.stringify({ name: chosen.label, dark: chosen.dark, tokens: { ...chosen.tokens, cat: chosen.cat } }, null, 2)], { type: "application/json" }), `${chosen.id}.theme.json`), { icon: "export", iconOnly: true, class: "ghost" })
       : null,
     chosen?.by_agent ? button("Keep this theme", () => void api("/sandbox/themes", "POST", { name: chosen.label, dark: chosen.dark, tokens: { ...chosen.tokens, cat: chosen.cat } }).then(() => { toast(`Kept ${chosen.label}.`); changed(); }, (e: Error) => toast(e.message, "error")), { icon: "save", class: "ghost" }) : null,
     file,

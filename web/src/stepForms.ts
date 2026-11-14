@@ -101,7 +101,7 @@ function filterForm(columns: ColumnInfo[], p: Params): Form {
   const values = h("textarea", { rows: "4", "aria-label": "Values, one per line" });
   const valueField = field("Value", value);
   const highField = field("To", high);
-  const valuesField = field("Values (one per line)", values);
+  const valuesField = field("Values", values);
   const colType = (): string => columns.find((c) => c.name === column.value)?.type ?? "VARCHAR";
 
   const fillOps = (keep?: string): void => {
@@ -157,7 +157,6 @@ function sortForm(columns: ColumnInfo[], p: Params): Form {
     element: h(
       "div",
       { class: "list-editor" },
-      h("p", { class: "hint" }, "Blanks always sort last. Ties keep their current order."),
       ...rows.map((r, i) => h("div", { class: "row" }, field(i === 0 ? "Sort by" : "then by", r.col), field("Direction", r.dir))),
     ),
     read: () => ({ keys: rows.filter((r) => r.col.value).map((r) => [r.col.value, r.dir.value]) }),
@@ -187,7 +186,7 @@ function columnsForm(columns: ColumnInfo[], p: Params): Form {
     );
   };
   render();
-  return { element: h("div", {}, h("p", { class: "hint" }, "Tick the columns to keep; arrows set their order."), list), read: () => ({ keep: unique.filter((n) => keep.has(n)) }) };
+  return { element: h("div", {}, list), read: () => ({ keep: unique.filter((n) => keep.has(n)) }) };
 }
 
 function renameForm(columns: ColumnInfo[], p: Params): Form {
@@ -213,7 +212,7 @@ function groupByForm(columns: ColumnInfo[], p: Params): Form {
   const addRow = (a: Params): void => {
     const fn = select(fns, String(a.fn ?? "count_rows"), "Aggregate");
     const col = columnSelect(columns, a.column);
-    const as = h("input", { type: "text", value: String(a.as ?? ""), placeholder: "name (optional)", "aria-label": "Output name" });
+    const as = h("input", { type: "text", value: String(a.as ?? ""), placeholder: "Optional", "aria-label": "Output name" });
     const row = { fn, col, as, el: h("div", { class: "row" }) };
     const sync = (): void => { col.disabled = fn.value === "count_rows"; };
     fn.addEventListener("change", sync);
@@ -224,7 +223,7 @@ function groupByForm(columns: ColumnInfo[], p: Params): Form {
   };
   aggs.forEach(addRow);
   return {
-    element: h("div", { class: "list-editor" }, field("Group by (Ctrl+click for several; none = whole table)", keys), h("h3", {}, "Aggregates"), list, button("Add aggregate", () => addRow({ fn: "sum" }), { icon: "plus" })),
+    element: h("div", { class: "list-editor" }, field("Group by", keys), h("h3", {}, "Aggregates"), list, button("Add aggregate", () => addRow({ fn: "sum" }), { icon: "plus" })),
     read: () => ({
       keys: [...keys.selectedOptions].map((o) => o.value),
       aggregates: rows.map((r) => {
@@ -252,7 +251,7 @@ function transformForm(columns: ColumnInfo[], p: Params): Form {
   all.addEventListener("change", sync);
   sync();
   return {
-    element: h("div", { class: "list-editor" }, field("Clean-up", fn), h("p", { class: "hint" }, "Trimming removes spaces, tabs and line breaks."), h("label", { class: "check" }, all, "Every text column"), list),
+    element: h("div", { class: "list-editor" }, field("Clean-up", fn), h("label", { class: "check" }, all, "Every text column"), list),
     read: () => ({ fn: fn.value, columns: all.checked ? "*text" : picks.filter((x) => x.box.checked).map((x) => x.name) }),
   };
 }
@@ -271,10 +270,10 @@ function bucketForm(columns: ColumnInfo[], p: Params): Form {
   const other = h("input", { type: "text", value: String(p.other_label ?? "Other"), "aria-label": "Out-of-range label" });
   const parts = {
     width: [field("Width", width), field("From", low), field("To", high)],
-    edges: [field("Edges (comma separated)", edges)],
+    edges: [field("Edges", edges)],
     date: [field("Unit", unit)],
   };
-  const extra = [h("label", { class: "check" }, right, "Right-closed: (a, b] instead of [a, b)"), field("Outside the range", other)];
+  const extra = [h("label", { class: "check" }, right, "Right-closed (a, b]"), field("Outside the range", other)];
   const box = h("div", { class: "form-grid" });
   const sync = async (): Promise<void> => {
     const isDate = isDateType(usable.find((c) => c.name === column.value)?.type ?? "");
@@ -339,7 +338,6 @@ function categorizeForm(columns: ColumnInfo[], p: Params): Form {
       "div",
       { class: "list-editor" },
       h("div", { class: "form-grid" }, field("Column", column), field("New column", as), field("Unmatched rows get", unmatched)),
-      h("p", { class: "hint" }, "Rules run in order and the first match wins. Blanks stay blank. After saving, the step shows how many rows matched nothing and how many matched more than one rule."),
       list,
       button("Add rule", () => addRule({ type: "contains" }), { icon: "plus" }),
     ),
@@ -373,7 +371,7 @@ function sqlForm(_columns: ColumnInfo[], params: Params): Form {
     element: h(
       "div",
       { class: "form-grid", style: { gridTemplateColumns: "1fr" } },
-      h("p", { class: "hint" }, "One SELECT over the table entering this step: ", h("code", {}, "grid"), ", or ", h("code", {}, name), "."),
+      h("p", { class: "hint" }, "Tables: ", h("code", {}, "grid"), ", ", h("code", {}, name)),
       box,
     ),
     read: () => {

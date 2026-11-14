@@ -258,7 +258,7 @@ def test_blades_are_found_by_name_description_or_tag_and_favourites_come_first(
     expect(names).to_have_text(["Orders feed", "Stock"])
     page.locator(".blade-tags").get_by_role("button", name="sales").click()  # again: every tag
     expect(names).to_have_count(3)
-    blade_item(page, "Stock").get_by_role("button", name="Pin as a favourite").click()
+    blade_item(page, "Stock").get_by_role("button", name="Pin", exact=True).click()
     expect(names.first).to_have_text("Stock")
     expect(blade_item(page, "Stock").get_by_role("button", name="Unpin")).to_have_attribute(
         "aria-pressed", "true"
@@ -456,14 +456,14 @@ def test_the_save_screen_changes_a_setting_in_the_code(
     page = open_page(browser, warehouse)
     blade_item(page, "Orders DB").locator(".blade-name").click()
     settings = page.locator("#detail fieldset", has=page.locator("legend", has_text="Settings"))
-    expect(settings).to_contain_text("3 still hold example values")
+    expect(settings.get_by_text("needs your value")).to_have_count(3)
     host = page.get_by_label("host (server)")
     host.fill("db07.corp.local")
     host.press("Enter")
     expect(page.get_by_label("Blade code")).to_have_value(
         POSTGRES_STARTER.replace("my-server", "db07.corp.local")
     )
-    expect(settings).to_contain_text("2 still hold example values")
+    expect(settings.get_by_text("needs your value")).to_have_count(2)
     page.get_by_role("button", name="Save", exact=True).click()
     expect(page.locator(".status-line")).to_contain_text("Saved Orders DB.")
     assert 'host="db07.corp.local"' in call(server, "GET", "/blades/Orders%20DB")["code"]

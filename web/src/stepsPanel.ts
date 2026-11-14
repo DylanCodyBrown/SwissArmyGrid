@@ -105,14 +105,10 @@ async function render(): Promise<void> {
     h(
       "div",
       { class: "panel-actions" },
-      button("Add a SQL step", () => editStep("sql"), {
-        icon: "sql",
-        title: "One SELECT over the table entering the step (as grid, or by its name)",
-      }),
+      button("Add a SQL step", () => editStep("sql"), { icon: "sql" }),
       button("Copy transformations as SQL or Python", () => showCode(), {
         icon: "code",
         pressed: tab === "code",
-        title: "These transformations as one DuckDB query over your own table, verified against the grid",
       }),
     ),
     h(
@@ -147,11 +143,11 @@ async function render(): Promise<void> {
   body.append(list);
   if (info.steps.length) body.append(countLine(info.steps.length, true));
   body.append(
-    ...(info.steps.length ? [] : [h("p", { class: "hint" }, "No steps yet. Add one with the Table, Column or Cell tools above the grid.")]),
+    ...(info.steps.length ? [] : [h("p", { class: "hint" }, "No steps")]),
     h(
       "div",
       { class: "add-step" },
-      button("Save recipe", () => void saveRecipe(), { icon: "save", title: "Save these steps for this dataset name (no data is saved)" }),
+      button("Save recipe", () => void saveRecipe(), { icon: "save", title: "For this dataset name" }),
     ),
   );
   for (const [index, step] of info.steps.entries()) {
@@ -195,13 +191,13 @@ function stepRow(step: StepJson, index: number): HTMLElement {
         class: "text",
         role: "button",
         tabindex: "0",
-        title: "Preview the data after this step",
+        title: "Preview",
         onclick: () => state.setPreview(previewing ? null : index + 1),
         onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter") state.setPreview(previewing ? null : index + 1); },
       },
       step.description ?? step.kind,
-      step.params.header ? h("span", { class: "hint" }, " (from the column header)") : null,
-      step.params.from_chart ? h("span", { class: "hint" }, " (from a chart)") : null,
+      step.params.header ? h("span", { class: "hint" }, " (header)") : null,
+      step.params.from_chart ? h("span", { class: "hint" }, " (chart)") : null,
       previewing ? h("span", { class: "badge preview-tag" }, "previewing") : null,
     ),
     h(
@@ -215,7 +211,7 @@ function stepRow(step: StepJson, index: number): HTMLElement {
       : null,
     h("span", { class: "meta", "data-categorize": String(index) }),
     broken ? h("span", { class: "error-text" }, info.step_error!.message) : null,
-    blocked ? h("span", { class: "meta" }, "Not applied: an earlier step is broken.") : null,
+    blocked ? h("span", { class: "meta" }, "Not applied: earlier step broken") : null,
   );
   return row;
 }
@@ -226,7 +222,7 @@ async function categorizeStats(index: number): Promise<void> {
     const slot = host.querySelector(`[data-categorize="${index}"]`);
     if (slot) {
       slot.textContent = `${formatCount(stats.unmatched)} rows matched no rule`;
-      if (stats.overlapping) slot.append(h("span", { class: "warning-text" }, ` · ⚠ ${formatCount(stats.overlapping)} matched more than one (the first wins)`));
+      if (stats.overlapping) slot.append(h("span", { class: "warning-text" }, ` · ⚠ ${formatCount(stats.overlapping)} matched more than one (first wins)`));
     }
   } catch {
     // Shown only when it can be computed.
@@ -257,7 +253,7 @@ async function move(from: number, to: number): Promise<void> {
 async function saveRecipe(): Promise<void> {
   try {
     const result = await api<{ saved: string }>(`${grid}/recipe`, "POST");
-    toast(`Recipe saved (${result.saved}). It is applied when this dataset name is pushed again.`);
+    toast(`Recipe saved (${result.saved}).`);
   } catch (e) {
     toast((e as Error).message, "error");
   }
@@ -280,26 +276,24 @@ interface CodeResult {
 async function renderCode(body: HTMLElement): Promise<void> {
   const targets: [string, string][] = [
     ["duckdb", "DuckDB SQL"],
-    ["pandas", "pandas (longer translation)"],
-    ["plain", "Plain Python (longer translation)"],
+    ["pandas", "pandas"],
+    ["plain", "Plain Python"],
   ];
   const picker = h("select", { "aria-label": "Language" });
-  const status = h("span", { class: "hint" }, "Generating and verifying…");
+  const status = h("span", { class: "hint" }, "Verifying…");
   const pre = h("pre", { class: "mono" });
   let result: CodeResult | null = null;
   const copyText = (text: string, what: string): void =>
     void navigator.clipboard.writeText(text).then(
       () => toast(`Copied the verified ${what}.`),
-      () => toast("The browser blocked the clipboard. Select the text and copy it.", "error"),
+      () => toast("The browser blocked the clipboard.", "error"),
     );
   const copySql = button("Copy as SQL", () => result && copyText(result.sql.trim() + "\n", "SQL query"), {
     icon: "copy",
     class: "primary",
-    title: "One DuckDB query over your own table, by its variable name",
   });
   const copyPython = button("Copy as Python", () => result && copyText(result.code, "Python"), {
     icon: "copy",
-    title: "import duckdb and one line that runs the query on your table",
   });
   copySql.hidden = copyPython.hidden = true;
   body.append(h("div", { class: "code-view" }, h("div", { class: "code-toolbar" }, picker, copySql, copyPython, status), pre));
@@ -317,7 +311,7 @@ async function renderCode(body: HTMLElement): Promise<void> {
     } else {
       clear(status, h("span", { class: "badge error" }, "Not verified"), " ", shown.difference ?? "");
     }
-    body.append(h("p", { class: "hint" }, `${shown.reads} The code embeds no data.`));
+    body.append(h("p", { class: "hint" }, shown.reads));
     if (shown.note) body.append(h("p", { class: "hint" }, shown.note));
   } catch (e) {
     status.textContent = (e as Error).message;

@@ -44,7 +44,7 @@ def test_the_sandbox_takes_a_theme_of_its_own(
             json.dumps({"name": "Harbour test", "dark": False, "tokens": {"bg": "#f4f8fb", "fg": "#9aa5b1"}})
         )
         page.get_by_label("Theme file").set_input_files(str(theme))
-        expect(page.locator(".toast").last).to_contain_text("Harbour test imported")
+        expect(page.locator(".toast").last).to_contain_text("Imported theme Harbour test")
         expect(page.locator("#ai-panel-body")).to_have_attribute(
             "data-sandbox-theme", "custom-harbour-test", timeout=20000
         )

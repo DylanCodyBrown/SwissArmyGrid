@@ -27,7 +27,7 @@ def test_save_change_and_open_an_earlier_version(browser: Browser, server: dict[
 
         def dashboards() -> Any:
             panel.get_by_role("button", name="Dashboards…").click()
-            return page.locator("dialog", has_text="Save the Sandbox as")
+            return page.locator("dialog", has_text="Save as")
 
         window = dashboards()
         window.get_by_label("Dashboard name").fill("dash_weekly")

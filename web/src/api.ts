@@ -152,7 +152,7 @@ async function send(path: string, init: RequestInit): Promise<Response> {
     return await fetch(path, init);
   } catch (error) {
     if ((error as Error).name === "AbortError") throw error;
-    throw new ApiError(0, "The grid's server is not answering: it may have stopped. Start it again (and push the data again) to go on.");
+    throw new ApiError(0, "The grid's server is not answering. Start it again.");
   }
 }
 

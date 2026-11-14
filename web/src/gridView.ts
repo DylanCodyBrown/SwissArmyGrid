@@ -143,7 +143,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
       this.sort = h("button", {
         type: "button",
         class: "sag-header-sort",
-        title: `Sort by ${name} (click again to reverse, a third time to clear; Shift+click adds a sort key)`,
+        title: `Sort by ${name} (Shift+click adds a key)`,
         "aria-label": `Sort by ${name}`,
         onclick: (event: MouseEvent) => params.progressSort(event.shiftKey),
       });
@@ -153,7 +153,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
         "div",
         {
           class: "sag-header",
-          title: `${name} (${info?.type ?? ""}). Click to select the column; Shift or Ctrl+click for several; drag across headers.`,
+          title: `${name} (${info?.type ?? ""})`,
           onmousedown: (event: MouseEvent) => {
             if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
             event.preventDefault();
@@ -178,7 +178,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
           "div",
           { class: "sag-header-top" },
           // A primary-key column (from the relationship model) carries a key mark.
-          primaryKey(state.info?.dataset ?? "").includes(name) ? h("span", { class: "sag-header-key", title: `${name} is part of this table's primary key` }, icon("key")) : null,
+          primaryKey(state.info?.dataset ?? "").includes(name) ? h("span", { class: "sag-header-key", title: "Primary key" }, icon("key")) : null,
           h("span", { class: "sag-header-name" }, params.displayName),
           this.sort,
         ),
@@ -240,7 +240,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
       this.gui = h("button", {
         type: "button",
         class: "sag-corner",
-        title: "Select everything (Ctrl+A)",
+        title: "Select all (Ctrl+A)",
         "aria-label": "Select all",
         onclick: () => selection.selectAll(),
       });
@@ -449,7 +449,6 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
         "div",
         { class: "grid-empty", role: "status" },
         h("strong", {}, sourceEmpty ? `${state.info?.dataset ?? "This table"} has no rows.` : `No rows ${where}.`),
-        h("span", {}, sourceEmpty ? "Push it again with rows and this grid refreshes in place." : "A filter may be too strict: turn a step off or edit it in the steps panel."),
       ),
     );
   }
@@ -794,7 +793,7 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
     }
     const rows = selection.rowCount(shownTotal);
     if (rows > COPY_CAP) {
-      toast(`That is ${formatCount(rows)} rows; the clipboard takes up to ${formatCount(COPY_CAP)}. Use Export for more.`, "error");
+      toast(`Too many rows to copy (up to ${formatCount(COPY_CAP)}).`, "error");
       return;
     }
     const text = download(

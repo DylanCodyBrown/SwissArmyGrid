@@ -212,7 +212,7 @@ export function mountRail(host: RailHost): Rail {
   const bladeSearch = h("input", {
     class: "cat-search",
     type: "search",
-    placeholder: "Search blades: name, description or tag",
+    placeholder: "Search",
     "aria-label": "Search blades",
     spellcheck: "false",
   });
@@ -249,7 +249,7 @@ export function mountRail(host: RailHost): Rail {
         button(tag, () => {
           bladeTag = bladeTag === key ? null : key;
           renderBladeList();
-        }, { class: "chip tag-chip", pressed: bladeTag === key, title: bladeTag === key ? "Show every tag again" : `Only blades tagged ${tag}` }),
+        }, { class: "chip tag-chip", pressed: bladeTag === key, title: bladeTag === key ? "Clear filter" : undefined }),
       ),
     );
     bladeTags.hidden = allTags.size === 0;
@@ -260,7 +260,7 @@ export function mountRail(host: RailHost): Rail {
     const others = shown.filter((b) => !b.connection);
     const heading = (text: string, extra: HTMLElement | null = null): HTMLElement => h("li", { class: "blade-group" }, h("span", {}, text), extra);
     if (connections.length || !blades.some((b) => b.connection)) {
-      bladeList.append(heading("Connections", button("Add connection", () => void openConnections().then(() => void loadBlades()), { icon: "plus", iconOnly: true, class: "ghost", title: "Add a database or file connection with a form" })));
+      bladeList.append(heading("Connections", button("Add connection", () => void openConnections().then(() => void loadBlades()), { icon: "plus", iconOnly: true, class: "ghost" })));
     }
     let othersHeading = false;
     for (const blade of [...connections, ...others]) {
@@ -275,19 +275,18 @@ export function mountRail(host: RailHost): Rail {
           class: "blade-item",
           draggable: "true",
           "aria-current": blade.name === selectedBlade ? "true" : undefined,
-          title: `${blade.description ? blade.description + "\n" : ""}Drag into a script: ${line}`,
+          title: `${blade.description ? blade.description + "\n" : ""}${line}`,
           ondragstart: (event: DragEvent) => {
             event.dataTransfer?.setData("text/plain", line);
             event.dataTransfer?.setData("application/x-sag-blade", JSON.stringify({ name: blade.name, kind: blade.kind, line }));
             event.dataTransfer?.setData(DROP_TYPE, JSON.stringify({ code: line, imports: ["import swissarmygrid as sag"] }));
           },
         },
-        button(blade.pinned ? "Unpin" : "Pin as a favourite", () => void setPinned(blade, !blade.pinned), {
+        button(blade.pinned ? "Unpin" : "Pin", () => void setPinned(blade, !blade.pinned), {
           icon: "star",
           iconOnly: true,
           class: `ghost star${blade.pinned ? " on" : ""}`,
           pressed: blade.pinned,
-          title: blade.pinned ? `Unpin ${blade.name}` : `Pin ${blade.name} as a favourite (listed first)`,
         }),
         blade.connection
           ? h("span", { class: `blade-kind ${blade.connection === "database" ? "sql" : "other"}` }, blade.connection === "database" ? "Database" : "File")
@@ -296,11 +295,11 @@ export function mountRail(host: RailHost): Rail {
           "span",
           { class: "blade-text" },
           h("button", { class: "blade-name", type: "button", onclick: () => openBlade(blade.name) }, blade.name),
-          host.connectionsByName && blade.code_name ? h("code", { class: "blade-code-name", title: "Its name in your notebooks and scripts: always there, opened when first used" }, blade.code_name) : null,
+          host.connectionsByName && blade.code_name ? h("code", { class: "blade-code-name", title: "Name in code" }, blade.code_name) : null,
           blade.tags?.length ? h("span", { class: "blade-item-tags" }, blade.tags.join(" · ")) : null,
         ),
-        blade.source === "folder" ? h("span", { class: "blade-file", title: `In a blade folder: ${blade.path ?? ""}` }, "file") : null,
-        blade.source === "pack" ? h("span", { class: "blade-file blade-pack", title: `From the pack ${blade.pack ?? ""} (read-only)` }, "pack") : null,
+        blade.source === "folder" ? h("span", { class: "blade-file", title: blade.path ?? "" }, "file") : null,
+        blade.source === "pack" ? h("span", { class: "blade-file blade-pack", title: `${blade.pack ?? ""}, read-only` }, "pack") : null,
         blade.has_catalog
           ? button("Refresh catalog", () => void refresh(blade.name), { icon: "play", iconOnly: true, class: "ghost", title: `Refresh ${blade.name}'s catalog` })
           : null,
@@ -318,16 +317,16 @@ export function mountRail(host: RailHost): Rail {
         "div",
         { class: "rail-head" },
         h("h2", { id: "blades-title" }, "Connections and blades"),
-        button("Import blades", () => chooseBladeFiles(() => void loadBlades()), { icon: "import", iconOnly: true, class: "ghost", title: "Import .blade.py files or a zip (you review them first)" }),
-        button("Export every blade", () => void exportBlades(), { icon: "export", iconOnly: true, class: "ghost", title: "Download every blade as a zip of .blade.py files" }),
-        button("Blade folders", () => void editBladeFolders(() => void loadBlades()), { icon: "folder", iconOnly: true, class: "ghost", title: "Folders searched for .blade.py files" }),
-        button("Packs", () => void openPacks(() => void loadBlades()), { icon: "group", iconOnly: true, class: "ghost", title: "Packs: blades and tangs from your team's Claude Code marketplace" }),
+        button("Import blades", () => chooseBladeFiles(() => void loadBlades()), { icon: "import", iconOnly: true, class: "ghost", title: "Import .blade.py or zip" }),
+        button("Export every blade", () => void exportBlades(), { icon: "export", iconOnly: true, class: "ghost" }),
+        button("Blade folders", () => void editBladeFolders(() => void loadBlades()), { icon: "folder", iconOnly: true, class: "ghost" }),
+        button("Packs", () => void openPacks(() => void loadBlades()), { icon: "group", iconOnly: true, class: "ghost" }),
         button("New blade", () => void newBlade(), { icon: "plus", class: "ghost" }),
       ),
       // The list always shows (its Connections heading has Add connection); the search only once there is something to search.
       blades.length
         ? h("div", {}, bladeSearch, bladeTags, bladeList)
-        : h("div", {}, bladeList, h("p", { class: "empty" }, "No blades yet. Any code that loads from outside Python can be one. Import a .blade.py file, or add a blade folder.")),
+        : h("div", {}, bladeList, h("p", { class: "empty" }, "No blades")),
     );
     renderBladeList();
   }
@@ -374,7 +373,7 @@ export function mountRail(host: RailHost): Rail {
   const search = h("input", {
     class: "cat-search",
     type: "search",
-    placeholder: "Search tables and columns  (try sales.orders)",
+    placeholder: "Search",
     "aria-label": "Search the catalog",
     spellcheck: "false",
   });
@@ -536,13 +535,7 @@ export function mountRail(host: RailHost): Rail {
     results.hidden = true;
     tree.hidden = false;
     if (!current) {
-      tree.append(
-        h(
-          "li",
-          { class: "empty" },
-          "No catalog loaded. Refresh a blade that has a catalog command, or run sag.load(frame, name=...) in Python.",
-        ),
-      );
+      tree.append(h("li", { class: "empty" }, "No catalog loaded"));
       return;
     }
     remember("catalog", current.name);

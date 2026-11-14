@@ -52,7 +52,7 @@ export function createSqlEditor(host: HTMLElement, initial: string, onRun: () =>
     fontSize: 13,
     scrollBeyondLastLine: false,
     wordWrap: "on",
-    ariaLabel: "SQL query. Ctrl+Enter runs it.",
+    ariaLabel: "SQL query",
   });
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
   return {

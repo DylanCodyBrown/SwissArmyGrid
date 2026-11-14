@@ -63,7 +63,7 @@ function render(): void {
   const label = on.length === 0 ? "No steps" : on.length === 1 ? "1 step" : `${on.length} steps`;
   clear(
     host,
-    h("span", { class: "steps-count", title: on.map((s, i) => `${i + 1}. ${s.description ?? s.kind}`).join("\n") || "No steps yet: the ribbon adds them" }, label),
+    h("span", { class: "steps-count", title: on.map((s, i) => `${i + 1}. ${s.description ?? s.kind}`).join("\n") || "No steps" }, label),
     info.step_error ? h("span", { class: "status-error" }, `Step ${info.step_error.index + 1}: ${info.step_error.message}`) : null,
     button("Undo the last step", () => void state.saveSteps(info.steps.slice(0, last)).catch((e: Error) => toast(e.message, "error")), {
       icon: "back",
@@ -72,13 +72,13 @@ function render(): void {
       title: last >= 0 ? `Undo: ${info.steps[last]?.description ?? info.steps[last]?.kind}` : "No step to undo",
     }),
     button("Clear the steps", () => void state.saveSteps([]).catch((e: Error) => toast(e.message, "error")), { icon: "trash", iconOnly: true, class: "ghost" }),
-    button("Edit steps", openStepsWindow, { icon: "steps", class: "ghost", title: "Every step, to edit, turn off or reorder (in a tab of its own)" }),
-    button("Copy as SQL", () => void copyCode("duckdb", "sql"), { icon: "sql", class: "ghost", title: "These steps as one DuckDB query over your table, checked against the grid" }),
-    button("Copy as Python", () => void copyCode("duckdb", "code"), { icon: "copy", class: "ghost", title: "One line of DuckDB in Python over your table, checked against the grid" }),
+    button("Edit steps", openStepsWindow, { icon: "steps", class: "ghost" }),
+    button("Copy as SQL", () => void copyCode("duckdb", "sql"), { icon: "sql", class: "ghost" }),
+    button("Copy as Python", () => void copyCode("duckdb", "code"), { icon: "copy", class: "ghost" }),
     button("To Python", () => void gridToPython(info.grid), {
       icon: "code",
       class: "ghost",
-      title: "These steps as DuckDB code over your table, checked against the grid: copied, and sag.paste() puts it in your Jupyter cell or IPython prompt",
+      title: "Queued for sag.paste()",
     }),
   );
   for (const btn of host.querySelectorAll<HTMLButtonElement>("button")) {

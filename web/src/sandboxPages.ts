@@ -146,7 +146,7 @@ export function makeMovable(element: HTMLElement, handle: HTMLElement, id: strin
   element.dataset.next = next ?? "";
   handle.draggable = true;
   handle.classList.add("card-handle");
-  handle.title = "Drag to move this card";
+  handle.title = "Drag to move";
   handle.addEventListener("dragstart", (event) => {
     event.dataTransfer?.setData(DRAG_TYPE, id);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";

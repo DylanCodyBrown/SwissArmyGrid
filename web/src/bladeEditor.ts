@@ -106,7 +106,7 @@ export function settingField(setting: BladeSetting, onValue: (value: string) => 
       input.value = s.value;
       onValue(s.value);
       commit?.();
-    }, { class: "chip suggestion", title: `Use ${s.value}: ${s.from}` }),
+    }, { class: "chip suggestion", title: s.from }),
   );
   return h(
     "div",
@@ -196,7 +196,6 @@ function askTyped(needs: Record<string, string>, action: string): Promise<Record
   return new Promise((resolve) => {
     const { body, foot, close, dialog } = openDialog(`Values for this ${action}`);
     const inputs = new Map<string, HTMLInputElement>();
-    body.append(h("p", { class: "hint" }, "Typed for this run only, and never kept."));
     for (const [env, source] of Object.entries(needs)) {
       const input = h("input", { type: "password", autocomplete: "off", "aria-label": env });
       inputs.set(env, input);
@@ -277,7 +276,7 @@ function showRunError(name: string, failure: RunFailure): void {
   body.append(h("pre", { class: "code-box" }, failure.error ?? ""));
   if (failure.missing) {
     body.append(
-      h("p", {}, `It needs ${failure.missing}, which is not installed in the grid server's Python (where Refresh runs).`),
+      h("p", {}, `Missing: ${failure.missing}`),
       h("pre", { class: "code-box" }, failure.install_here ?? ""),
     );
     foot.append(
@@ -292,7 +291,7 @@ function showRunError(name: string, failure: RunFailure): void {
 
 /** Install packages into SwissArmyGrid's own Python, on the user's click. */
 export async function install(packages: string[]): Promise<boolean> {
-  toast(`Installing ${packages.join(", ")}... this can take a minute.`);
+  toast(`Installing ${packages.join(", ")}...`);
   try {
     const result = await api<{ ok: boolean; output: string }>("/blades/install", "POST", { packages });
     toast(`Installed ${packages.join(", ")}.`);
@@ -301,11 +300,11 @@ export async function install(packages: string[]): Promise<boolean> {
     let message = (error as Error).message;
     try {
       const parsed = JSON.parse(message) as { output?: string; command?: string };
-      message = `${parsed.output ?? ""}\n\nRun it yourself: ${parsed.command ?? ""}`;
+      message = `${parsed.output ?? ""}\n\n${parsed.command ?? ""}`;
     } catch {
       // plain text already
     }
-    const { body, foot, close } = openDialog("The install failed", true);
+    const { body, foot, close } = openDialog("Install failed", true);
     body.append(h("pre", { class: "code-box" }, message));
     foot.append(button("Close", close));
     return false;
@@ -316,7 +315,7 @@ export async function install(packages: string[]): Promise<boolean> {
 
 /** "New blade": templates by group, a blank one, and a secret blade. */
 export async function showTemplatePicker(host: HTMLElement, onPick: (template: Template | null, kind: BladeKind) => void): Promise<void> {
-  clear(host, h("h2", {}, "New blade"), h("p", { class: "hint" }, "Loading templates..."));
+  clear(host, h("h2", {}, "New blade"), h("p", { class: "hint" }, "Loading..."));
   let all: Template[];
   try {
     all = await templates();
@@ -332,20 +331,15 @@ export async function showTemplatePicker(host: HTMLElement, onPick: (template: T
   }
   const column = (title: string, items: HTMLElement[]): HTMLElement => h("section", {}, h("h3", {}, title), h("ul", {}, ...items.map((item) => h("li", {}, item))));
   const pick = (template: Template): HTMLElement =>
-    button(template.label, () => onPick(template, template.kind), { title: template.note || template.label });
+    button(template.label, () => onPick(template, template.kind));
   clear(
     host,
     h("h2", {}, "New blade"),
     h(
-      "p",
-      { class: "hint" },
-      "A blade is any Python that reaches outside Python to load something: a database, a file, an API, a vault. Start from a template, or paste your own code.",
-    ),
-    h(
       "div",
       { class: "row-actions" },
       button("Paste my own code", () => onPick(null, "other"), { icon: "code", class: "primary" }),
-      button("Secret blade (typed each session)", () => onPick(null, "secret"), { icon: "key" }),
+      button("Secret blade", () => onPick(null, "secret"), { icon: "key" }),
     ),
     h(
       "div",
@@ -439,13 +433,13 @@ export async function editBlade(
   // ----- fields that stay put while the rest re-renders -----
   const nameInput = h("input", { type: "text", value: draft.name, maxlength: "64", "aria-label": "Blade name", spellcheck: "false" });
   nameInput.addEventListener("input", () => (draft.name = nameInput.value));
-  const descriptionInput = h("textarea", { rows: "2", maxlength: "2000", "aria-label": "Description", placeholder: "What it loads, and for which app" }) as HTMLTextAreaElement;
+  const descriptionInput = h("textarea", { rows: "2", maxlength: "2000", "aria-label": "Description" }) as HTMLTextAreaElement;
   descriptionInput.value = draft.description;
   descriptionInput.addEventListener("input", () => (draft.description = descriptionInput.value));
-  const tagsInput = h("input", { type: "text", value: draft.tags, "aria-label": "Tags", placeholder: "orders-function-app, warehouse, finance", spellcheck: "false" });
+  const tagsInput = h("input", { type: "text", value: draft.tags, "aria-label": "Tags", spellcheck: "false" });
   tagsInput.addEventListener("input", () => (draft.tags = tagsInput.value));
   // Where a new blade is kept: in the app, or as a .blade.py file in one of the blade folders.
-  const whereSelect = h("select", { "aria-label": "Keep it in" }, h("option", { value: "" }, "This app (on this computer)"));
+  const whereSelect = h("select", { "aria-label": "Keep it in" }, h("option", { value: "" }, "This app"));
   if (!name) {
     void api<{ folders: { path: string; exists: boolean }[] }>("/blades/folders").then((got) => {
       for (const folder of got.folders) if (folder.exists) whereSelect.append(h("option", { value: folder.path }, `Blade folder: ${folder.path}`));
@@ -497,17 +491,9 @@ export async function editBlade(
   function renderSettings(): void {
     const settings = draft.kind === "secret" ? [] : (inspection?.settings ?? []);
     settingsHost.hidden = !settings.length;
-    const waiting = settings.filter((s) => s.placeholder).length;
     clear(
       settingsHost,
       h("legend", {}, "Settings"),
-      h(
-        "p",
-        { class: "hint" },
-        waiting
-          ? `${waiting} still ${waiting === 1 ? "holds an example value" : "hold example values"}: put in your own. Each field changes that value in the code below.`
-          : "The values this code is written with. Each field changes that value in the code below.",
-      ),
       ...settings.map((setting) => {
         let typed = String(setting.value);
         return settingField(setting, (value) => (typed = value), () => {
@@ -553,20 +539,19 @@ export async function editBlade(
     clear(
       madeHost,
       names.length
-        ? h("label", {}, h("span", {}, draft.kind === "vault" ? "The function that reads a secret" : "It makes (what sag.blade gives back)"), select)
-        : h("span", { class: "hint" }, "The code makes nothing yet: end it with an assignment, such as conn = ..."),
+        ? h("label", {}, h("span", {}, draft.kind === "vault" ? "The function that reads a secret" : "It makes"), select)
+        : h("span", { class: "hint" }, "No variable assigned"),
     );
     // Secrets: typed here, kept in the operating system's vault.
     const secretNames = found?.secrets ?? [];
     clear(secretsHost);
     if (secretNames.length) {
-      secretsHost.append(h("p", { class: "hint" }, "Kept in this computer's vault (Windows Credential Manager or macOS Keychain), never in the blade. An environment variable of the same name (from a vault or secret blade) works too."));
       for (const secret of secretNames) {
         const saved = detail?.secrets[secret] === true;
         const input = h("input", {
           type: "password",
           autocomplete: "new-password",
-          placeholder: saved ? "saved (type to replace)" : "not saved",
+          placeholder: saved ? "Saved" : "Not saved",
           "aria-label": `secret ${secret}`,
         });
         input.value = typedSecrets.get(secret) ?? "";
@@ -595,7 +580,7 @@ export async function editBlade(
           ...packages.map((p) =>
             h(
               "span",
-              { class: `chip ${p.installed ? "installed" : "missing"}`, title: p.guessed ? "A guess: installed under its import name" : p.module },
+              { class: `chip ${p.installed ? "installed" : "missing"}`, title: p.guessed ? "Guessed name" : p.module },
               `${p.pip}${p.installed ? " ✓" : " missing"}`,
             ),
           ),
@@ -604,12 +589,12 @@ export async function editBlade(
           "div",
           { class: "row-actions" },
           missing.length
-            ? button(`Install ${missing.join(", ")} into the server's Python`, () => {
+            ? button(`Install ${missing.join(", ")}`, () => {
                 void install(missing).then((ok) => ok && void inspect());
               }, { class: "primary", icon: "plus" })
-            : h("span", { class: "hint" }, "Everything it imports is installed where Refresh runs."),
+            : h("span", { class: "hint" }, "All installed"),
           found?.install_yours
-            ? button("Copy the install command for your Python", () => {
+            ? button("Copy install command", () => {
                 void navigator.clipboard.writeText(found.install_yours ?? "").then(() => toast("Copied."));
               }, { icon: "copy", class: "ghost" })
             : null,
@@ -622,9 +607,6 @@ export async function editBlade(
     clear(kindHost);
     const isCode = draft.kind !== "secret";
     codeFieldset.hidden = !isCode;
-    codeHint.textContent = draft.kind === "analysis"
-      ? "A function of the grid's rows: def analyze(df): ... gets them as a pandas DataFrame (add a second argument for the selected columns). Return markdown text, a table, a figure, or a list of them. It shows in the Analyze menu."
-      : "Python that reaches outside to load something. Write secret(\"password\") where a password goes.";
     if (draft.kind === "analysis" && !draft.code.trim()) {
       draft.code = codeBox.value = ANALYSIS_STARTER;
       codeBox.dispatchEvent(new Event("input"));
@@ -633,7 +615,7 @@ export async function editBlade(
       const dialect = h("select", { "aria-label": "SQL dialect" });
       for (const [value, label] of DIALECTS) dialect.append(h("option", { value, selected: value === draft.dialect }, label));
       dialect.addEventListener("change", () => (draft.dialect = dialect.value));
-      kindHost.append(h("label", {}, h("span", {}, "SQL dialect (how the agent quotes names)"), dialect));
+      kindHost.append(h("label", {}, h("span", {}, "SQL dialect"), dialect));
     }
     if (draft.kind === "vault") kindHost.append(mappingEditor());
     if (draft.kind === "secret") kindHost.append(secretNamesEditor());
@@ -670,7 +652,6 @@ export async function editBlade(
       "fieldset",
       {},
       h("legend", {}, "Secrets in the vault → environment variables"),
-      h("p", { class: "hint" }, "Running the vault (sag.blade, or before a blade that needs one of these) reads each secret live and sets the variable. The values are never kept."),
       h("div", { class: "mapping-row hint" }, h("span", {}, "Environment variable"), h("span", {}), h("span", {}, "Secret's name in the vault"), h("span", {})),
       rows,
       h("div", {}, button("Add a secret", () => {
@@ -687,8 +668,7 @@ export async function editBlade(
     return h(
       "fieldset",
       {},
-      h("legend", {}, "Environment variables, one per line"),
-      h("p", { class: "hint" }, "Only the names are saved. sag.blade() asks for each value this Python does not have yet, so after the kernel restarts you type them again. A Refresh that needs them asks here."),
+      h("legend", {}, "Environment variables"),
       box,
     );
   }
@@ -704,7 +684,7 @@ export async function editBlade(
       clear(
         language,
         ...(["sql", "python"] as const).map((value) =>
-          button(value === "sql" ? "SQL on the connection" : "Python", () => {
+          button(value === "sql" ? "SQL" : "Python", () => {
             draft.catalogLanguage = value;
             renderLanguage();
           }, { pressed: draft.catalogLanguage === value }),
@@ -712,11 +692,11 @@ export async function editBlade(
       );
     };
     renderLanguage();
-    const starter = button("Starter query for this dialect", () => {
+    const starter = button("Starter query", () => {
       void templates().then((all) => {
         const match = all.find((t) => t.kind === "sql" && t.dialect === draft.dialect && t.catalog?.language === "sql");
         if (!match?.catalog) {
-          toast("No starter query for this dialect: write a SELECT that returns schema, table, column and type.", "error");
+          toast("No starter query for this dialect", "error");
           return;
         }
         draft.catalogLanguage = "sql";
@@ -726,7 +706,6 @@ export async function editBlade(
     }, { class: "ghost", icon: "sql" });
     body.append(
       h("div", { class: "row-actions" }, language, draft.kind === "sql" ? starter : null),
-      h("p", { class: "hint" }, "Returns one row per column of the source: its table and column, and its schema and type. An INFORMATION_SCHEMA.COLUMNS query works as it is. Python: end with the table (a frame or a list of dicts), or set `catalog`."),
       command,
     );
     body.hidden = !draft.catalogOn;
@@ -752,12 +731,10 @@ export async function editBlade(
       ),
     );
   };
-  const codeHint = h("p", { class: "hint" });
   const codeFieldset = h(
     "fieldset",
     {},
     h("legend", {}, "Code"),
-    codeHint,
     codeBox,
     madeHost,
     secretsHost,
@@ -829,7 +806,7 @@ export async function editBlade(
     if (!savedName) return;
     const target = savedName;
     const { body: dialogBody, foot, close } = openDialog(`Remove ${target}?`);
-    dialogBody.append(h("p", {}, "The blade and its saved secrets are removed. Its catalog stays until you remove it."));
+    dialogBody.append(h("p", {}, "Its saved secrets are removed too."));
     foot.append(
       button("Cancel", close, { class: "ghost" }),
       button("Remove", () => {
@@ -846,7 +823,6 @@ export async function editBlade(
   clear(
     host,
     h("h2", {}, name ? `Blade: ${name}` : "Save as blade"),
-    template?.note ? h("p", { class: "hint" }, template.note) : null,
     sections,
   );
   append(
@@ -856,13 +832,13 @@ export async function editBlade(
       ? h(
           "p",
           { class: "warning-text" },
-          `From the pack ${detail.pack}, installed from your team's marketplace. It is read-only here: Save a copy makes one of your own; the pack itself changes in its repository (a clone added as a blade folder, then a pull request).`,
+          `From the pack ${detail.pack}: read-only`,
         )
       : detail?.path
-        ? h("p", { class: "hint" }, "Kept in its own file: ", h("code", {}, detail.path), ". Saving here writes that file.")
+        ? h("p", { class: "hint" }, "File: ", h("code", {}, detail.path))
         : null,
     h("label", {}, h("span", {}, "Description"), descriptionInput),
-    h("label", {}, h("span", {}, "Tags (commas between; search finds a blade by any of them)"), tagsInput),
+    h("label", {}, h("span", {}, "Tags"), tagsInput),
     name ? null : whereLabel,
     h("div", {}, h("div", { class: "hint" }, "Kind"), kinds),
     settingsHost,
@@ -873,8 +849,8 @@ export async function editBlade(
       { class: "row-actions" },
       ...(detail?.pack
         ? [
-            button("Save a copy", () => void save("close"), { class: "primary", icon: "copy", title: "Make a blade of your own from this one" }),
-            button("Test", () => void runBlade(detail.name, "test").then((a) => a && say("It works.", "ok")), { icon: "check", title: "Run the pack's blade as it is" }),
+            button("Save a copy", () => void save("close"), { class: "primary", icon: "copy" }),
+            button("Test", () => void runBlade(detail.name, "test").then((a) => a && say("It works.", "ok")), { icon: "check" }),
             detail.catalog ? button("Refresh the catalog", () => void runBlade(detail.name, "refresh").then((a) => a && say("Refreshed.", "ok")), { icon: "play" }) : null,
           ]
         : [
@@ -883,7 +859,7 @@ export async function editBlade(
             button("Save and test", () => void save("test"), { icon: "check" }),
           ]),
       button("Cancel", onClosed, { class: "ghost" }),
-      name ? button("Export", () => void exportBlades(savedName ?? name), { icon: "export", class: "ghost", title: "Download it as a .blade.py file anyone can import" }) : null,
+      name ? button("Export", () => void exportBlades(savedName ?? name), { icon: "export", class: "ghost", title: "Download as .blade.py" }) : null,
       name && !detail?.path ? button("Remove", () => void remove(), { class: "danger", icon: "trash" }) : null,
     ),
     status,

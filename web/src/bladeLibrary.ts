@@ -102,13 +102,7 @@ export async function importBlades(files: File[], onDone: () => void): Promise<v
   const choices: Record<string, string> = {};
   // What the person fills in per blade: new values for its settings, and the secrets it asks for.
   const fill: Filled = {};
-  body.append(
-    h(
-      "p",
-      { class: "hint" },
-      "Check each blade's code before you import it: it runs on this computer whenever the blade is used. Importing runs nothing.",
-    ),
-  );
+  body.append(h("p", { class: "hint" }, "Check the code before importing."));
   for (const item of items) {
     const card = h("section", { class: "import-card" });
     if (!item.blade) {
@@ -124,12 +118,12 @@ export async function importBlades(files: File[], onDone: () => void): Promise<v
           for (const [value, label] of [
             ["copy", `Keep both (save as ${blade.name} 2)`],
             ["replace", `Replace the ${item.conflict.source === "folder" ? "folder" : "saved"} blade`],
-            ["skip", "Skip this one"],
+            ["skip", "Skip"],
           ]) {
             select.append(h("option", { value }, label));
           }
           select.addEventListener("change", () => (choices[String(item.index)] = select.value));
-          return h("label", { class: "warning-text" }, `A blade named ${item.conflict.name} already exists: `, select);
+          return h("label", { class: "warning-text" }, `${item.conflict.name} already exists: `, select);
         })()
       : null;
     append(
@@ -143,14 +137,14 @@ export async function importBlades(files: File[], onDone: () => void): Promise<v
     );
     body.append(card);
   }
-  const where = h("select", { "aria-label": "Save the blades in" }, h("option", { value: "" }, "This app (on this computer)"));
+  const where = h("select", { "aria-label": "Save the blades in" }, h("option", { value: "" }, "This app"));
   try {
     for (const folder of (await bladeFolders()).folders) if (folder.exists) where.append(h("option", { value: folder.path }, `Blade folder: ${folder.path}`));
   } catch {
     // no folders to offer
   }
   const importable = items.filter((i) => i.blade).length;
-  body.append(h("label", { class: "field" }, h("span", {}, "Save them in"), where));
+  body.append(h("label", { class: "field" }, h("span", {}, "Save in"), where));
   foot.append(
     button("Cancel", close, { class: "ghost" }),
     button(`Import ${importable} blade${importable === 1 ? "" : "s"}`, () => {
@@ -180,18 +174,10 @@ function fillIn(item: PreviewItem, fill: Filled): HTMLElement | null {
   const secrets = item.secrets ?? [];
   if (!settings.length && !secrets.length) return null;
   const mine = (fill[String(item.index)] ??= { settings: {}, secrets: {} });
-  const waiting = settings.filter((s) => s.placeholder).length;
   return h(
     "fieldset",
     { class: "fill-in" },
-    h("legend", {}, "Fill in your values"),
-    h(
-      "p",
-      { class: "hint" },
-      waiting
-        ? `${waiting} of these ${waiting === 1 ? "is an example value" : "are example values"} from whoever wrote the blade. Put in your own; they are written into its code when you import.`
-        : "The values its code is written with. Change any that differ for you; they are written into its code when you import.",
-    ),
+    h("legend", {}, "Your values"),
     ...settings.map((setting) =>
       settingField(setting, (value) => {
         if (value === String(setting.value)) delete mine.settings[setting.id];
@@ -199,12 +185,12 @@ function fillIn(item: PreviewItem, fill: Filled): HTMLElement | null {
       }),
     ),
     ...secrets.map((secret) => {
-      const input = h("input", { type: "password", autocomplete: "new-password", placeholder: "optional: type it now or later", "aria-label": `secret ${secret}` });
+      const input = h("input", { type: "password", autocomplete: "new-password", placeholder: "Optional", "aria-label": `secret ${secret}` });
       input.addEventListener("input", () => (mine.secrets[secret] = input.value));
       return h(
         "div",
         { class: "setting-row" },
-        h("label", {}, h("span", { class: "setting-key" }, `secret("${secret}")`), h("span", { class: "hint" }, " kept in this computer's vault, never in the file")),
+        h("label", {}, h("span", { class: "setting-key" }, `secret("${secret}")`)),
         input,
       );
     }),
@@ -249,7 +235,6 @@ export async function editBladeFolders(onDone: () => void): Promise<void> {
   const input = h("input", { type: "text", placeholder: "C:\\Users\\me\\blades", "aria-label": "Folder to add", spellcheck: "false" });
   append(
     body,
-    h("p", { class: "hint" }, "Blades are looked for in these folders (and up to four levels below) for Python files that start with a blade header. Ordinary Python files are left alone; so are virtual environments and hidden folders."),
     list,
     h("div", { class: "row-actions" }, input, button("Add", () => {
       const path = input.value.trim();
@@ -258,7 +243,7 @@ export async function editBladeFolders(onDone: () => void): Promise<void> {
       render();
     }, { icon: "plus" })),
     state.problems.length
-      ? h("div", {}, h("h3", {}, "Files with a blade header that could not be read"), h("ul", {}, ...state.problems.map((p) => h("li", {}, h("code", {}, p.path), h("div", { class: "status-error" }, p.error)))))
+      ? h("div", {}, h("h3", {}, "Unreadable blade files"), h("ul", {}, ...state.problems.map((p) => h("li", {}, h("code", {}, p.path), h("div", { class: "status-error" }, p.error)))))
       : null,
   );
   render();
@@ -314,7 +299,7 @@ export async function openPacks(onDone: () => void): Promise<void> {
     toast((error as Error).message, "error");
     return;
   }
-  const { body, foot, close } = openDialog("Packs: blades and tangs from your team's marketplace", true);
+  const { body, foot, close } = openDialog("Packs", true);
   const packRow = (p: PackInfo, action: HTMLElement | null): HTMLElement =>
     h(
       "li",
@@ -337,40 +322,30 @@ export async function openPacks(onDone: () => void): Promise<void> {
     );
   append(
     body,
-    h(
-      "p",
-      { class: "hint" },
-      "A pack is a Claude Code plugin with a blades/ folder and a tangs/ folder. Your team keeps packs in a marketplace: a GitHub repository. Installed packs show their blades on this page and their tangs in the Relationships window, read-only, marked with the pack.",
-    ),
     h("h3", {}, "Installed"),
     state.installed.length
       ? h("ul", { class: "tang-list" }, ...state.installed.map((p) => packRow(p, null)))
-      : h("p", { class: "hint" }, `No packs installed (looked in ${state.plugins_root}).`),
-    h("h3", {}, "Get your team's packs, in Claude Code"),
+      : h("p", { class: "hint" }, "No packs installed"),
+    h("h3", {}, "Install in Claude Code"),
     commandLine(state.commands.add),
     commandLine(state.commands.install),
-    h("p", { class: "hint" }, "Then, to get the team's latest:"),
+    h("p", { class: "hint" }, "Update"),
     commandLine(state.commands.update),
     h("h3", {}, "Change a pack"),
-    h(
-      "p",
-      { class: "hint" },
-      "Clone the marketplace's repository and add the clone as a blade folder. Its packs are listed here: add blades and tangs to one, commit, and open a pull request. Once merged, everyone updates.",
-    ),
     state.editable.length
       ? h(
           "ul",
           { class: "tang-list" },
           ...state.editable.map((p) => packRow(p, button("Add blades and tangs", () => void addToPack(p, onDone), { icon: "plus", class: "primary" }))),
         )
-      : h("p", { class: "hint" }, "No clone of a marketplace in your blade folders yet."),
+      : h("p", { class: "hint" }, "No editable packs"),
   );
   foot.append(
     button("New marketplace repository", () => newMarketplace(() => {
       close();
       onDone();
       void openPacks(onDone);
-    }), { icon: "plus", title: "Start a marketplace with one pack, ready to push to GitHub" }),
+    }), { icon: "plus" }),
     button("Close", close, { class: "primary" }),
   );
 }
@@ -396,12 +371,11 @@ async function addToPack(pack: PackInfo, onDone: () => void): Promise<void> {
   const replace = h("input", { type: "checkbox", "aria-label": "Replace files already in the pack" }) as HTMLInputElement;
   append(
     body,
-    h("p", { class: "hint" }, `Copies them into ${pack.root} (blades/ and tangs/), ready to commit. Secrets never travel: only their names.`),
     h("h3", {}, "Blades"),
-    blades.length ? bladeList : h("p", { class: "hint" }, "No blades of your own yet."),
+    blades.length ? bladeList : h("p", { class: "hint" }, "No blades"),
     h("h3", {}, "Tangs"),
-    tangs.length ? tangList : h("p", { class: "hint" }, "No tangs yet."),
-    h("label", { class: "check" }, replace, "Replace a file already in the pack"),
+    tangs.length ? tangList : h("p", { class: "hint" }, "No tangs"),
+    h("label", { class: "check" }, replace, "Replace existing files"),
   );
   foot.append(
     button("Cancel", close, { class: "ghost" }),
@@ -409,7 +383,7 @@ async function addToPack(pack: PackInfo, onDone: () => void): Promise<void> {
       void api<{ written: string[]; kept: string[] }>("/packs/add", "POST", { pack: pack.root, blades: chosenBlades(), tangs: chosenTangs(), replace: replace.checked }).then(
         (answer) => {
           close();
-          toast(`Added ${answer.written.length} files to ${pack.name}${answer.kept.length ? `; kept ${answer.kept.length} already there` : ""}. Commit and push them to share.`);
+          toast(`Added ${answer.written.length} files to ${pack.name}${answer.kept.length ? `; kept ${answer.kept.length} already there` : ""}.`);
           onDone();
         },
         (error: Error) => toast(error.message, "error"),
@@ -424,14 +398,13 @@ function newMarketplace(onDone: () => void): void {
   const folder = h("input", { type: "text", "aria-label": "New folder", placeholder: "C:\\Users\\me\\repos\\data-blades", spellcheck: "false" });
   const marketplace = h("input", { type: "text", "aria-label": "Marketplace name", placeholder: "data-blades", spellcheck: "false" });
   const pack = h("input", { type: "text", "aria-label": "First pack's name", placeholder: "sales", spellcheck: "false" });
-  const owner = h("input", { type: "text", "aria-label": "Owner", placeholder: "The sales team" });
-  const description = h("input", { type: "text", "aria-label": "Description", placeholder: "What the team keeps here" });
+  const owner = h("input", { type: "text", "aria-label": "Owner" });
+  const description = h("input", { type: "text", "aria-label": "Description" });
   append(
     body,
-    h("p", { class: "hint" }, "Makes a new folder with the marketplace's manifest, one pack (blades/ and tangs/) and a README with the commands, and adds it as a blade folder so you can save into it now. Push it to GitHub to share it. In a terminal: sag pack new <folder>."),
-    field("New folder (full path)", folder),
-    field("Marketplace name (letters, digits, . _ -)", marketplace),
-    field("First pack's name (lowercase, digits, -)", pack),
+    field("New folder", folder),
+    field("Marketplace name", marketplace),
+    field("First pack's name", pack),
     field("Owner", owner),
     field("Description", description),
   );
@@ -448,7 +421,7 @@ function newMarketplace(onDone: () => void): void {
       }).then(
         (answer) => {
           close();
-          toast(`Created ${answer.files.length} files and added the folder as a blade folder.`);
+          toast(`Created ${answer.files.length} files.`);
           onDone();
         },
         (error: Error) => toast(error.message, "error"),

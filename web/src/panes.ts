@@ -269,7 +269,7 @@ function ensurePane(ctx: Context): HTMLElement {
     { class: "pane-head" },
     h("strong", {}, ctx.dataset),
     h("span", { class: "spacer" }),
-    button("Close this side", () => unsplit(split?.find((g) => g !== ctx.id) ?? ctx.id), { icon: "close", class: "ghost small", title: "Back to one grid (this one stays open as a tab)" }),
+    button("Close this side", () => unsplit(split?.find((g) => g !== ctx.id) ?? ctx.id), { icon: "close", class: "ghost small" }),
   );
   // queryTab.ts draws a built table's query tray here: its base data, above everything else.
   const querySlot = h("div", { class: "query-slot" });
@@ -297,7 +297,7 @@ function previewBanner(ctx: Context, slot: HTMLElement): void {
     clear(slot);
     return;
   }
-  const step = upto === 0 ? "the source (before any step)" : `step ${upto}: ${ctx.state.info?.steps[upto - 1]?.description ?? ""}`;
+  const step = upto === 0 ? "the source" : `step ${upto}: ${ctx.state.info?.steps[upto - 1]?.description ?? ""}`;
   clear(
     slot,
     h(
@@ -437,7 +437,6 @@ function render(): void {
         role: "tab",
         tabindex: view === "agent" ? "0" : "-1",
         "aria-selected": String(view === "agent"),
-        title: "The Sandbox: a dashboard of charts, notes, diagrams, figures and images, for any table",
         onclick: () => showAgentView(),
         onkeydown: (e: KeyboardEvent) => {
           if (e.key === "ArrowRight" && order[0]) {
@@ -457,11 +456,11 @@ function render(): void {
         role: "tab",
         tabindex: view === "erd" ? "0" : "-1",
         "aria-selected": String(view === "erd"),
-        title: "The ERD: the keys and joins between the open tables",
+        title: "Relationship diagram",
         onclick: () => showErdView(),
       },
       icon("crown"),
-      h("span", { class: "tab-label" }, "ERD"),
+      h("span", { class: "tab-label" }, "Diagram"),
     ),
     // The Workbench tab: notebooks and scripts, always in a window of their own (code never sits in
     // the grid page, so it can go on another screen); this opens it, or brings it forward.
@@ -472,7 +471,7 @@ function render(): void {
         role: "tab",
         tabindex: "-1",
         "aria-selected": "false",
-        title: "The Workbench: notebooks and Python scripts with your connections and blades, in its own window",
+        title: "Opens in its own window",
         onclick: () => openWorkbench(),
         onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter") openWorkbench(); },
       },
@@ -492,7 +491,7 @@ function render(): void {
           tabindex: selected ? "0" : "-1",
           "aria-selected": String(selected),
           draggable: "true",
-          title: `${contexts.get(id)!.dataset}. Drag onto another tab, or down onto the grid, to see both side by side; drag to a tab's edge to reorder.`,
+          title: contexts.get(id)!.dataset,
           onclick: () => {
             showGridView();
             void activateGrid(id);
@@ -522,7 +521,7 @@ function render(): void {
       return el;
     }),
     draft ? draftTab(draft.name) : null,
-    button("New table from a query", () => void newQueryTab(), { icon: "plus", iconOnly: true, class: "ghost tab-new", title: "New table: a query over the open tables, shown as they are in their tabs" }),
+    button("New table from a query", () => void newQueryTab(), { icon: "plus", iconOnly: true, class: "ghost tab-new" }),
     openMenuButton(),
     h("div", {
       class: "tab-end",
@@ -536,9 +535,7 @@ function render(): void {
       h(
         "div",
         { class: "workspace-empty", role: "status" },
-        h("strong", {}, "No grids open."),
-        h("span", {}, "Push data from Python and it opens here as a tab:"),
-        h("code", {}, "import swissarmygrid as sag; sag.push(df)"),
+        h("strong", {}, "No grids open"),
       ),
     );
   }
@@ -556,7 +553,7 @@ function draftTab(name: string): HTMLElement {
       role: "tab",
       tabindex: selected ? "0" : "-1",
       "aria-selected": String(selected),
-      title: "A new table from a query (not built yet: Run builds it)",
+      title: "Not built yet",
       onclick: () => showQueryView(),
       onauxclick: (e: MouseEvent) => { if (e.button === 1) closeDraft(); },
     },

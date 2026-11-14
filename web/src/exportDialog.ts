@@ -48,14 +48,14 @@ export function openExport(): void {
   const bom = h("input", { type: "checkbox" });
   const blank = h("input", { type: "text", value: "", placeholder: "(empty)", "aria-label": "Blank cells as" });
   const neutralize = h("input", { type: "checkbox", checked: true });
-  const neutralizeWarning = h("p", { class: "warning-text", hidden: true }, "⚠ Text starting with = + - or @ may run as a formula when the file is opened in Excel.");
+  const neutralizeWarning = h("p", { class: "warning-text", hidden: true }, "⚠ Formula-like text may run in Excel.");
   const sheet = h("input", { type: "text", value: "Data", "aria-label": "Sheet name" });
   // Off by default: a longer cell is refused with a message naming it, and this cuts it instead.
   const cutLong = h("input", { type: "checkbox" });
   const provenance = h("input", { type: "checkbox", checked: true });
   // An Excel sheet or Parquet metadata; delimited text has nowhere to put it.
-  const provenanceField = h("label", { class: "check" }, provenance, "Include provenance (source, steps, time; never data)");
-  const compression = select([["snappy", "Snappy (widest support)"], ["zstd", "Zstandard (smaller)"]], "snappy");
+  const provenanceField = h("label", { class: "check" }, provenance, "Include provenance");
+  const compression = select([["snappy", "Snappy"], ["zstd", "Zstandard"]], "snappy");
   const boxes = info.columns.map((c) => ({ name: c.name, box: h("input", { type: "checkbox", checked: true }) }));
   const count = h("span", { class: "hint" });
   const syncCount = (): void => { count.textContent = `${boxes.filter((b) => b.box.checked).length} of ${boxes.length} selected`; };
@@ -69,8 +69,8 @@ export function openExport(): void {
     h("div", { class: "code-toolbar" }, button("Select all columns", () => setAll(true), { class: "small" }), button("Clear", () => setAll(false), { class: "small" }), count),
     h("div", { class: "checklist", role: "group", "aria-label": "Columns to export" }, ...boxes.map((b) => h("label", { class: "check" }, b.box, b.name))),
   );
-  const textOptions = h("div", { class: "form-grid" }, field("Delimiter", delimiter), field("Line endings", lineEnding), field("Blank cells as", blank), h("label", { class: "check" }, header, "Header row"), h("label", { class: "check" }, quoteAll, "Quote every cell"), h("label", { class: "check", title: "Adds a byte order mark so Excel reads accented characters correctly" }, bom, "UTF-8 BOM (for Excel)"), h("label", { class: "check" }, neutralize, "Neutralize formula-like text"));
-  const excelOptions = h("div", { class: "form-grid" }, field("Sheet name", sheet), h("label", { class: "check" }, cutLong, "Cut text longer than an Excel cell holds (32,767 characters)"));
+  const textOptions = h("div", { class: "form-grid" }, field("Delimiter", delimiter), field("Line endings", lineEnding), field("Blank cells as", blank), h("label", { class: "check" }, header, "Header row"), h("label", { class: "check" }, quoteAll, "Quote every cell"), h("label", { class: "check" }, bom, "UTF-8 BOM (for Excel)"), h("label", { class: "check" }, neutralize, "Neutralize formula-like text"));
+  const excelOptions = h("div", { class: "form-grid" }, field("Sheet name", sheet), h("label", { class: "check" }, cutLong, "Cut text over 32,767 characters"));
   const parquetOptions = h("div", { class: "form-grid" }, field("Compression", compression));
   const sync = (): void => {
     const f = format.value;
@@ -126,5 +126,5 @@ export function openExport(): void {
       error.textContent = e instanceof ApiError ? e.message : String(e);
     }
   };
-  foot.append(button("Cancel", close), button("Save to export folder", () => void exportNow(true), { icon: "save", title: "Saves into your export folder (~\\.swissarmygrid\\exports); never overwrites" }), button("Download", () => void exportNow(false), { icon: "export", class: "primary" }));
+  foot.append(button("Cancel", close), button("Save to export folder", () => void exportNow(true), { icon: "save", title: "~\\.swissarmygrid\\exports" }), button("Download", () => void exportNow(false), { icon: "export", class: "primary" }));
 }

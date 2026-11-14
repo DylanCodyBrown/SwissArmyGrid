@@ -74,7 +74,7 @@ async function pasteAsDataset(text: string): Promise<void> {
     pasting.add(name); // a second paste before this one lands picks another name
     const response = await fetch(`/datasets/${name}/paste`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: text });
     if (!response.ok) throw new Error(await response.text());
-    toast(`Pasted as dataset ${name}; it opens as a tab.`);
+    toast(`Pasted as ${name}.`);
   } catch (e) {
     toast((e as Error).message, "error");
   }
@@ -91,7 +91,7 @@ function onLiveNotice(notice: Notice): void {
   if (notice.type === "dataset_closed" && notice.dataset) {
     for (const ctx of contextsOf(notice.dataset)) dropGrid(ctx.id);
     if (popout || keysWindow) {
-      toast(`Dataset ${notice.dataset} was closed. Push it again to reopen.`, "error");
+      toast(`Dataset ${notice.dataset} was closed.`, "error");
       setLive(false);
     }
   }
@@ -162,7 +162,7 @@ async function startSingle(): Promise<void> {
 
 async function start(): Promise<void> {
   if (!token) {
-    document.body.append(h("p", { class: "status-error", style: { padding: "16px" } }, "No token in the address. Open the full grid URL the push returned (it ends with #token=...)."));
+    document.body.append(h("p", { class: "status-error", style: { padding: "16px" } }, "No token in the address. Open the full grid URL."));
     return;
   }
   if (popout || keysWindow) {
@@ -195,7 +195,7 @@ async function start(): Promise<void> {
     h(
       "div",
       { class: "ribbon-group", role: "toolbar", "aria-label": "Application tools" },
-      h("div", { class: "ribbon-caption", title: "Settings, connections, blades, the tour and zoom" }, h("strong", {}, "Application"), h("span", {}, "settings and help")),
+      h("div", { class: "ribbon-caption" }, h("strong", {}, "Application")),
       h("div", { class: "ribbon-tools" }, settingsButton(), connectionsButton(), bladesButton(), tourButton(), zoomControl()),
     ),
   );
@@ -263,7 +263,7 @@ function bladesButton(): HTMLButtonElement {
   return button(
     "Blades and catalog",
     () => window.open(`/catalog#token=${encodeURIComponent(token)}`, "swissarmygrid-catalog")?.focus(),
-    { icon: "key", class: "ribbon-btn", title: "Blades and the catalog (opens in its own tab)" },
+    { icon: "key", class: "ribbon-btn" },
   );
 }
 

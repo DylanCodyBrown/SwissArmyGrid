@@ -104,7 +104,7 @@ async function buildDraft(): Promise<Tray> {
     columnDefs: [],
     rowData: [],
     // Fixed text: no data reaches this template.
-    overlayNoRowsTemplate: "<span>Write a query in the tray and Run it: the result becomes this table.</span>",
+    overlayNoRowsTemplate: "<span>No rows</span>",
   });
   return tray;
 }
@@ -113,7 +113,7 @@ async function runDraft(): Promise<void> {
   const tray = await draftTray!;
   const name = nameInput.value.trim();
   if (!NAME.test(name)) {
-    tray.report("Name the new table with 1 to 64 letters, digits, _ or -.", true);
+    tray.report("Name: 1 to 64 letters, digits, _ or -.", true);
     nameInput.focus();
     return;
   }
@@ -176,7 +176,7 @@ async function createTray(initial: string, onRun: () => void, firstStatus: strin
   const element = h("section", { class: "query-tray", "data-open": "true", "aria-label": "The query that builds this table" });
   const editorHost = h("div", { class: "sql-editor" });
   const status = h("span", { class: "sql-status", role: "status" }, firstStatus);
-  const run = button("Run", onRun, { icon: "play", class: "run", title: "Build the table from this query (Ctrl+Enter)" });
+  const run = button("Run", onRun, { icon: "play", class: "run", title: "Run (Ctrl+Enter)" });
   const toggle = button("Hide the query", () => setOpen(element.dataset.open !== "true"), { icon: "up", iconOnly: true, class: "ghost" });
   toggle.setAttribute("aria-expanded", "true");
   const setOpen = (open: boolean): void => {
@@ -214,7 +214,7 @@ async function openEditor(editorHost: HTMLElement, initial: string, onRun: () =>
     ensureMonacoCss();
     return m.createSqlEditor(editorHost, initial, onRun, effectiveTheme());
   } catch {
-    const box = h("textarea", { "aria-label": "SQL query. Ctrl+Enter runs it.", spellcheck: "false", class: "mono" });
+    const box = h("textarea", { "aria-label": "SQL query", spellcheck: "false", class: "mono" });
     box.value = initial;
     box.addEventListener("keydown", (e) => { if (e.ctrlKey && e.key === "Enter") onRun(); });
     editorHost.append(box);
@@ -262,8 +262,8 @@ function firstQuery(): string {
 function hint(own?: string): string {
   const tables = openTables().filter((t) => t !== own);
   return tables.length
-    ? `Ctrl+Enter runs. Read a table by name, as its tab shows it: ${tables.join(", ")}.`
-    : "Ctrl+Enter runs. No tables are open yet: push one, or SELECT from range(10).";
+    ? `Tables: ${tables.join(", ")}`
+    : "No tables open";
 }
 
 /** Autocomplete: every dataset's name, and the columns of the open tabs as they show them. */

@@ -32,7 +32,7 @@ export function dashboardsDialog(cardsNow: number, redraw: () => void): void {
   const list = h("div", { class: "dashboards" });
 
   const open = async (dashboard: string, version?: number): Promise<void> => {
-    if (cardsNow && !window.confirm(`Opening ${dashboard} replaces the ${cardsNow} card${cardsNow === 1 ? "" : "s"} on the Sandbox now. Save them first if you want them back.`)) return;
+    if (cardsNow && !window.confirm(`Replace the ${cardsNow} card${cardsNow === 1 ? "" : "s"} on the Sandbox with ${dashboard}?`)) return;
     try {
       const r = await api<{ cards: number; live: number; as_saved: number }>(`/dashboards/${encodeURIComponent(dashboard)}/open`, "POST", version ? { version } : {});
       toast(`Opened ${dashboard}: ${r.cards} card${r.cards === 1 ? "" : "s"}${r.as_saved ? `, ${r.as_saved} as saved until their tables are open` : ""}.`);
@@ -66,7 +66,7 @@ export function dashboardsDialog(cardsNow: number, redraw: () => void): void {
 
   const refresh = async (): Promise<void> => {
     const { dashboards } = await api<{ dashboards: Saved[] }>("/dashboards");
-    if (!dashboards.length) return clear(list, h("p", { class: "hint" }, "No saved dashboards yet. Name the Sandbox above and save it."));
+    if (!dashboards.length) return clear(list, h("p", { class: "hint" }, "No saved dashboards"));
     clear(
       list,
       ...dashboards.map((d) => {
@@ -99,13 +99,12 @@ export function dashboardsDialog(cardsNow: number, redraw: () => void): void {
       toast((e as Error).message, "error");
     }
   };
-  const saveButton = button("Save", () => void save(), { icon: "export", class: "primary", title: cardsNow ? "Save every card as drawn now" : "The Sandbox is empty" });
+  const saveButton = button("Save", () => void save(), { icon: "export", class: "primary", title: cardsNow ? undefined : "The Sandbox is empty" });
   saveButton.disabled = !cardsNow;
   name.addEventListener("keydown", (e) => { if (e.key === "Enter") void save(); });
 
   body.append(
-    h("p", { class: "hint" }, "Saving keeps every card as it is drawn now, charts' points and tables' rows included, so a dashboard opens even when its tables are gone. Saving again under the same name adds a version. Nothing is saved unless you press Save."),
-    h("div", { class: "analysis-controls" }, h("label", { class: "analysis-field" }, h("span", {}, "Save the Sandbox as"), name), saveButton),
+    h("div", { class: "analysis-controls" }, h("label", { class: "analysis-field" }, h("span", {}, "Save as"), name), saveButton),
     list,
   );
   foot.append(button("Close", close));

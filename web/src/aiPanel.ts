@@ -129,8 +129,8 @@ function resizeGrip(card: Card, element: HTMLElement): HTMLElement {
   const grip = h("button", {
     type: "button",
     class: "card-grip",
-    title: "Resize: drag, or use the arrow keys (double-click resets)",
-    "aria-label": `Resize ${card.title || KIND_NAMES[card.kind]}: arrow keys change width and height`,
+    title: "Resize",
+    "aria-label": `Resize ${card.title || KIND_NAMES[card.kind]}`,
   });
   const set = (size: { w: number; h: number }, save: boolean, fixed = true): void => {
     applySize(element, size, fixed);
@@ -247,7 +247,7 @@ export function mountAiPanel(space: HTMLElement, host: HTMLElement, splitter: HT
 
   splitter.setAttribute("role", "separator");
   splitter.setAttribute("tabindex", "0");
-  splitter.setAttribute("aria-label", "Resize the analysis panel (arrow keys; double-click resets)");
+  splitter.setAttribute("aria-label", "Resize the panel");
   splitter.addEventListener("pointerdown", (down) => {
     if (workspace.dataset.panel !== "open") return;
     splitter.setPointerCapture(down.pointerId);
@@ -395,7 +395,6 @@ async function renderCards(body: HTMLElement): Promise<void> {
       button(pageView() ? "Back to the board" : "Page view", () => setPageView(!pageView()), {
         icon: pageView() ? "columns" : "rows",
         pressed: pageView(),
-        title: "See the Sandbox as letter or landscape pages, as it will print",
       }),
       pageView()
         ? h(
@@ -404,10 +403,10 @@ async function renderCards(body: HTMLElement): Promise<void> {
             ...(Object.keys(PAPERS) as Paper[]).map((key) => h("option", { value: key, selected: key === paper() }, PAPERS[key].label)),
           )
         : null,
-      button("Print to PDF", () => void printSandbox(), { icon: "export", title: "Print the pages (choose Save as PDF in the print dialog)" }),
-      button("Export markdown", () => void exportMarkdown(), { icon: "code", title: "The whole Sandbox as one markdown file, charts embedded as pictures: to keep, or to give an AI model" }),
+      button("Print to PDF", () => void printSandbox(), { icon: "export" }),
+      button("Export markdown", () => void exportMarkdown(), { icon: "code" }),
       themeBar,
-      button("Dashboards…", () => dashboardsDialog(onBoard, () => void render()), { icon: "columns", title: "Save the Sandbox as a named dashboard, or open one you saved (with its history)" }),
+      button("Dashboards…", () => dashboardsDialog(onBoard, () => void render()), { icon: "columns" }),
     ),
   );
   let cards: Card[];
@@ -424,8 +423,7 @@ async function renderCards(body: HTMLElement): Promise<void> {
         "div",
         { class: "empty-state" },
         icon("agent"),
-        h("strong", {}, "Nothing in the Sandbox yet"),
-        h("span", {}, "Add a chart or a note here, or ask the agent: it can add charts, notes, diagrams and figures through its MCP tools. Resize any card from its corner."),
+        h("strong", {}, "Sandbox is empty"),
       ),
     );
     return;
@@ -516,7 +514,7 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
     { class: "actions" },
     card.created_by === "agent" ? h("span", { class: "badge agent", title: "Added by the agent" }, icon("agent"), "Agent") : null,
     button(card.pinned ? "Unpin" : "Pin to the top", () => void api(`/cards/${card.id}`, "PATCH", { pinned: !card.pinned }).then(() => render()), { icon: "pin", iconOnly: true, class: "ghost", pressed: card.pinned }),
-    card.kind === "chart" && !card.error ? button("Open large (zoom)", () => void expandChart(card), { icon: "zoom", iconOnly: true, class: "ghost" }) : null,
+    card.kind === "chart" && !card.error ? button("Open large", () => void expandChart(card), { icon: "zoom", iconOnly: true, class: "ghost" }) : null,
     button("More card actions", (event) => openMenu(event, [
       ...(card.kind === "note" ? [["edit", "Edit note", () => noteDialog(card)] as [string, string, () => void]] : []),
       ...(card.kind === "chart" && !card.error
@@ -532,7 +530,7 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
     ]), { icon: "more", iconOnly: true, class: "ghost" }),
     h("span", { class: "danger-gap" }, button("Remove", () => void api(`/cards/${card.id}`, "DELETE").then(() => render()), { icon: "trash", iconOnly: true, class: "ghost" })),
   );
-  const header = h("div", { class: "card-header" }, h("h3", {}, card.title || (card.kind === "chart" ? chartTitle(card) : KIND_NAMES[card.kind])), h("span", { class: "badge card-table", title: card.dataset ? `Drawn on ${card.dataset}` : `From ${card.origin ?? "the Sandbox"}: belongs to no table` }, card.dataset ?? card.origin ?? "Sandbox"), actions);
+  const header = h("div", { class: "card-header" }, h("h3", {}, card.title || (card.kind === "chart" ? chartTitle(card) : KIND_NAMES[card.kind])), h("span", { class: "badge card-table", title: card.dataset ? `Drawn on ${card.dataset}` : `From ${card.origin ?? "the Sandbox"}` }, card.dataset ?? card.origin ?? "Sandbox"), actions);
   const element = h(
     "article",
     { class: `card card-${card.kind} ${card.pinned ? "pinned" : ""} ${card.new_page ? "new-page" : ""}`, "aria-label": card.title || KIND_NAMES[card.kind] },
@@ -544,7 +542,7 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
   makeMovable(element, header, card.id, order[index + 1] ?? null, () => void render());
   const dark = sandboxDark(); // the Sandbox's theme, or the app's when it follows it
   const failed = (slot: HTMLElement, e: unknown): void => {
-    slot.textContent = `This could not be drawn: ${(e as Error).message}`;
+    slot.textContent = `Could not draw: ${(e as Error).message}`;
     slot.classList.add("error-text");
   };
   if (card.error) {
@@ -597,16 +595,14 @@ function cardElement(card: Card, order: string[], index: number): HTMLElement {
     const source = card.body ?? "";
     pictures.set(card.id, async () => (IMAGE_DATA.test(source) ? source : null));
     if (IMAGE_DATA.test(source)) content.append(h("img", { class: "card-image", src: source, alt: card.title || "Image" }));
-    else content.append(h("p", { class: "error-text" }, "This image is not an inline PNG, JPEG, GIF, WebP or SVG picture."));
+    else content.append(h("p", { class: "error-text" }, "Unsupported image format"));
   } else if (card.kind === "table") {
     content.append(smallTable(card.columns ?? [], card.rows ?? []));
-    if (card.capped) foot.textContent = "Showing the first 100 rows.";
+    if (card.capped) foot.textContent = "First 100 rows";
   } else if (card.vega_lite) {
-    // A histogram's bar is a range, which the column profile filters on; every other mark is one value.
-    const clickable = markOf(card) !== "histogram";
-    const chart = h("div", { class: "chart", role: "img", "aria-label": `${chartTitle(card)}: ${card.points ?? 0} points.${clickable ? " Click a mark to filter the grid." : ""}` });
+    const chart = h("div", { class: "chart", role: "img", "aria-label": `${chartTitle(card)}: ${card.points ?? 0} points` });
     content.append(chart);
-    foot.textContent = [card.note, `${formatCount(card.points ?? 0)} points${clickable ? " · click a mark to filter" : ""}`].filter(Boolean).join(" · ");
+    foot.textContent = [card.note, `${formatCount(card.points ?? 0)} points`].filter(Boolean).join(" · ");
     // The chart fills its card. Resized, it changes size in place (its marks stay the same elements,
     // so a click in the meantime still lands); it is drawn afresh only the first time.
     fitDrawing(chart, async (width, height) => {
@@ -689,14 +685,7 @@ async function expandChart(card: Card): Promise<void> {
   const chart = h("div", { class: "expanded-chart" });
   const mark = markOf(card);
   const zoomable = ["point", "line", "area"].includes(mark);
-  const hint = zoomable
-    ? "Scroll to zoom and drag to pan; double-click resets. Click a point to filter the grid."
-    : mark === "histogram"
-      ? "Hover a bar for its range and count; the column profile filters on a range."
-      : mark === "heatmap"
-        ? "Click a cell to filter the grid to its pair of values."
-        : "Click a bar to filter the grid.";
-  body.append(h("p", { class: "hint" }, hint), chart);
+  body.append(chart);
   foot.append(button("Close", close, { class: "primary" }));
   const m = await charts();
   await m.drawChart(chart, card.vega_lite!, { zoomable, large: true, height: Math.round(window.innerHeight * 0.6), onSelect: (v, y2) => { close(); void crossFilter(card, v, y2); } });
@@ -734,7 +723,7 @@ function chartDialog(): void {
   const color = h("select", { "aria-label": "Series" });
   const agg = h("select", { "aria-label": "Aggregate" });
   const unit = h("select", { "aria-label": "Time unit" });
-  const title = h("input", { type: "text", "aria-label": "Title", placeholder: "optional" });
+  const title = h("input", { type: "text", "aria-label": "Title", placeholder: "Optional" });
   const fill = async (): Promise<void> => {
     const id = table.value;
     const known = contextOf(id)?.state.info?.columns;
@@ -763,8 +752,7 @@ function chartDialog(): void {
   const { body, foot, close } = openDialog("Add a chart");
   const error = h("p", { class: "status-error", role: "alert" });
   body.append(
-    h("div", { class: "form-grid" }, field("Table", table), field("Type", mark), field("X axis", x), unitField, field("Aggregate", agg), field("Y axis", y), field("Series (color + shape)", color), field("Title", title)),
-    h("p", { class: "hint" }, "The server aggregates before drawing, so a chart never sends more than 5,000 points to the browser."),
+    h("div", { class: "form-grid" }, field("Table", table), field("Type", mark), field("X axis", x), unitField, field("Aggregate", agg), field("Y axis", y), field("Series", color), field("Title", title)),
     error,
   );
   foot.append(
@@ -783,14 +771,13 @@ function chartDialog(): void {
 
 /** Add a note, or edit one (an analysis's note too: add your own words to it). */
 function noteDialog(existing?: Card): void {
-  const title = h("input", { type: "text", "aria-label": "Title", placeholder: "optional", value: existing?.title ?? "" });
-  const text = h("textarea", { rows: "14", "aria-label": "Note (markdown)", placeholder: "# Headings, **bold**, *italic*, `code`, - lists, > cautions, and tables:\n| Region | Late |\n|---|---:|\n| West | 46% |" });
+  const title = h("input", { type: "text", "aria-label": "Title", placeholder: "Optional", value: existing?.title ?? "" });
+  const text = h("textarea", { rows: "14", "aria-label": "Note (markdown)", placeholder: "Markdown" });
   text.value = existing?.body ?? "";
   const { body, foot, close } = openDialog(existing ? "Edit the note" : "Add a note", true);
   body.append(
     h("label", { class: "field" }, h("span", {}, "Title"), title),
     h("label", { class: "field" }, h("span", {}, "Note (markdown)"), text),
-    h("p", { class: "hint" }, existing ? "Changes show for everyone looking at the Sandbox." : `The note is filed with ${state.info?.dataset ?? "the table in front"}.`),
   );
   const save = (): Promise<unknown> =>
     existing ? api(`/cards/${existing.id}`, "PATCH", { title: title.value, body: text.value }) : api("/cards", "POST", { kind: "note", title: title.value, body: text.value });

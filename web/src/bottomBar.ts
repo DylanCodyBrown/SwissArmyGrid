@@ -23,7 +23,7 @@ export function mountBottomBar(host: HTMLElement): void {
   selection = h("span", { "aria-live": "polite" });
   meter = h("span", { class: "meter" });
   live = h("span", { id: "live" });
-  clear(host, rows, selection, h("span", { class: "grow" }), meter, button("Datasets", () => void openDatasets(), { class: "ghost", title: "Open datasets and their sizes" }), live, h("span", { class: "credit" }, "Created by Dylan Brown"));
+  clear(host, rows, selection, h("span", { class: "grow" }), meter, button("Datasets", () => void openDatasets(), { class: "ghost" }), live, h("span", { class: "credit" }, "Created by Dylan Brown"));
   state.on("selection", render);
   state.on("info", render);
   onAgentView(render);
@@ -32,7 +32,7 @@ export function mountBottomBar(host: HTMLElement): void {
 // What the status bar says when an app tab is in front: the grid's row count belongs to the grid.
 const APP_TABS: Record<string, string> = {
   agent: "Sandbox",
-  erd: "Relationship diagram of the open tables",
+  erd: "Relationship diagram",
   query: "New table from a query",
 };
 
@@ -51,7 +51,7 @@ function render(): void {
   }
   if (state.sqlResult) {
     const r = state.sqlResult;
-    rows.textContent = `Query result: ${formatCount(r.rows)} row${r.rows === 1 ? "" : "s"} \u00b7 ${r.milliseconds} ms${r.capped ? " \u00b7 stopped at the row cap" : ""}`;
+    rows.textContent = `Query result: ${formatCount(r.rows)} row${r.rows === 1 ? "" : "s"} \u00b7 ${r.milliseconds} ms${r.capped ? " \u00b7 row cap reached" : ""}`;
     selection.textContent = "";
     renderMeter(info.budget);
     return;
@@ -95,7 +95,7 @@ export function renderMeter(budget: Budget): void {
 
 export function setLive(on: boolean): void {
   if (!live) return; // the pop-out windows have no status bar
-  live.textContent = on ? "● live" : "○ not live: the server stopped or restarted; push again for a new link";
+  live.textContent = on ? "● live" : "○ not live: push again";
   live.className = on ? "" : "off";
 }
 
@@ -106,7 +106,7 @@ async function openDatasets(): Promise<void> {
   const closePop = (): void => pop.remove();
   pop.append(
     h("div", { class: "code-toolbar", style: { justifyContent: "space-between" } }, h("strong", {}, "Datasets"), button("Close", closePop, { icon: "close", iconOnly: true, class: "ghost" })),
-    h("p", { class: "hint" }, `${listing.budget.used} of ${listing.budget.total} in use · ${listing.budget.datasets} of ${listing.budget.max_datasets} datasets · ${listing.budget.grids} of ${listing.budget.max_grids} grids. Nothing is closed automatically.`),
+    h("p", { class: "hint" }, `${listing.budget.used} of ${listing.budget.total} in use · ${listing.budget.datasets} of ${listing.budget.max_datasets} datasets · ${listing.budget.grids} of ${listing.budget.max_grids} grids`),
     h(
       "table",
       { class: "small" },

@@ -44,11 +44,6 @@ async function activityFieldset(): Promise<HTMLElement> {
     "fieldset",
     { class: "fieldset" },
     h("legend", {}, "Agent activity"),
-    h(
-      "p",
-      { class: "hint" },
-      "A connected agent sees what this page shows, every table included. Its exports wait for your Allow.",
-    ),
     entries.length
       ? h(
           "ul",
@@ -63,7 +58,7 @@ async function activityFieldset(): Promise<HTMLElement> {
             ),
           ),
         )
-      : h("p", { class: "hint" }, "No agent activity yet. Every agent action is written to the audit log (never with cell values)."),
+      : h("p", { class: "hint" }, "No agent activity"),
   );
 }
 
@@ -99,7 +94,7 @@ function showApprovals(): void {
   }
   if (!popup || !popup.body.isConnected) {
     const { dialog, body, foot, close } = openDialog("The agent is asking", true);
-    foot.append(h("span", { class: "hint" }, "Closing this window declines the requests in it. Unanswered requests are declined after 3 minutes."));
+    foot.append(h("span", { class: "hint" }, "Closing declines. Expires in 3 minutes."));
     // Escape or the X used to hide a request that was still waiting, with nothing in the page to
     // bring it back: the agent waited out its 3 minutes. Closing now answers No.
     dialog.addEventListener("close", () => {

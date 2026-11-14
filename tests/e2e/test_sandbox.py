@@ -136,9 +136,9 @@ def test_a_figure_that_needs_the_internet_or_is_not_json_says_so(browser: Browse
             card("image", "Linked picture", "https://example.com/plot.png"),
         ],
     )
-    expect(page.locator(".card-plotly")).to_contain_text("load their maps from the internet", timeout=20000)
+    expect(page.locator(".card-plotly")).to_contain_text("they load from the internet", timeout=20000)
     expect(page.locator(".card-echarts")).to_contain_text("not JSON", timeout=20000)
-    expect(page.locator(".card-image")).to_contain_text("not an inline")
+    expect(page.locator(".card-image")).to_contain_text("Unsupported image format")
     expect(page.locator(".card-image img")).to_have_count(0)
     page.close()
 

@@ -469,7 +469,7 @@ def test_the_plus_tab_builds_a_table_from_a_query(browser: Browser, server: dict
     draft = page.locator(".tab-draft")
     expect(draft).to_have_attribute("aria-selected", "true")
     view = page.locator("#query-view")
-    expect(view.locator(".query-blank")).to_contain_text("the result becomes this table")  # the blank grid
+    expect(view.locator(".query-blank")).to_contain_text("No rows")  # the blank grid
     view.get_by_role("textbox", name="Name of the new table").fill("plus_north")
     expect(draft).to_contain_text("plus_north")  # the tab follows the name
     editor = view.locator(".sql-editor .monaco-editor, .sql-editor textarea").first
@@ -548,7 +548,7 @@ def test_excel_export_can_cut_a_cell_over_excels_limit(browser: Browser, server:
     dialog.get_by_label("Format").select_option("xlsx")
     dialog.get_by_role("button", name="Download").click()
     expect(dialog.locator(".status-error")).to_contain_text("holds 40,000 characters")
-    dialog.get_by_label("Cut text longer than an Excel cell holds (32,767 characters)").check()
+    dialog.get_by_label("Cut text over 32,767 characters").check()
     with page.expect_download() as download_info:
         dialog.get_by_role("button", name="Download").click()
     sheet = openpyxl.load_workbook(io.BytesIO(Path(download_info.value.path()).read_bytes()))["Data"]
@@ -571,7 +571,7 @@ def test_chart_card_draws_zooms_and_cross_filters(browser: Browser, orders_url: 
     dialog.get_by_role("button", name="Add chart").click()
     expect(page.locator(".card .chart svg").first).to_be_visible(timeout=20000)
     expect(page.locator(".card-foot").first).to_contain_text("4 points")
-    page.get_by_role("button", name="Open large (zoom)").click()
+    page.get_by_role("button", name="Open large").click()
     expect(page.locator("dialog .expanded-chart svg")).to_be_visible(timeout=15000)
     page.locator("dialog").get_by_role("button", name="Close", exact=True).last.click()
     page.locator(".card .chart svg path.mark-rect, .card .chart svg .mark-rect path").first.click()
@@ -814,7 +814,7 @@ def test_closing_the_approval_window_declines_the_request(
         worker = threading.Thread(target=ask)
         worker.start()
         expect(page.locator(".approval")).to_be_visible(timeout=15000)
-        expect(page.locator("dialog")).to_contain_text("Closing this window declines")
+        expect(page.locator("dialog")).to_contain_text("Closing declines")
         if close == "Escape":
             page.keyboard.press("Escape")
         else:
@@ -832,7 +832,6 @@ def test_agent_activity_in_settings(browser: Browser, orders_url: str, server: d
     page.get_by_role("button", name="Settings").click()
     dialog = page.locator("dialog")
     expect(dialog.locator(".activity li").first).to_contain_text(sql)  # newest first
-    expect(dialog).to_contain_text("Its exports wait for your Allow")
     # The privacy levels and column masks are gone.
     expect(dialog.get_by_role("radio", name=re.compile("Level 3"))).to_have_count(0)
     expect(dialog.get_by_text("What the agent may see")).to_have_count(0)
@@ -1635,7 +1634,7 @@ def test_the_erd_tab_shows_keys_or_says_none_are_defined(browser: Browser, serve
     page = open_grid(browser, push_client.push(erd_orders, new_grid=True))
     call(server, "POST", "/relationships", {"model": {"name": "empty"}, "replace": True})
     tabs = page.locator(".tabs-row .tab-item")
-    expect(tabs.nth(1)).to_have_text("ERD")  # right after Agent, and it can't be closed
+    expect(tabs.nth(1)).to_have_text("Diagram")  # right after Agent, and it can't be closed
     assert tabs.nth(1).get_by_role("button").count() == 0
     tabs.nth(1).click()
     erd = page.locator("#erd-view")
@@ -1995,7 +1994,7 @@ def test_ctrl_click_on_the_only_selected_header_selects_nothing(browser: Browser
     expect(page.locator(".statusbar")).to_contain_text("5,000 cells selected")
     name.click(modifiers=["Control"])
     expect(page.locator(".statusbar")).not_to_contain_text("selected")
-    expect(page.locator(".ribbon .ribbon-caption").nth(1)).to_contain_text("select a column")
+    expect(page.locator(".ribbon .ribbon-caption").nth(1)).to_have_text("Column")  # no column named
     page.wait_for_timeout(500)
     assert refused == []
 
