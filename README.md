@@ -230,6 +230,10 @@ its line) and the data explorer (drag a table or column for its name).
   pictures, Plotly figures.
 - **Scripts** are an editor over a Python console: F5 runs the file, Ctrl+Enter the selection or the
   line, and lines typed in the console run there too.
+- **Every connection is there by its name:** `warehouse.cursor()`, `pd.read_csv(orders_file)`, with no
+  `sag.connection(...)` line and no password or connection code in the document. A connection opens
+  the first time a cell uses its name (one never used never connects); a variable of the same name you
+  make yourself wins. The left panel shows each one's name in code (Sales DB is `sales_db`).
 - **Completion as you type:** Python from the running kernel (your variables, their attributes, a
   DataFrame's columns; hover for a signature and its help); a SQL cell from its connection's catalog
   (schemas, tables, columns: `orders.` gives orders' columns); `sag.connection("` gives your connections.

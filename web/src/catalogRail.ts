@@ -111,6 +111,8 @@ export interface RailHost {
   isEditing(): boolean;
   showTable(view: TableView): void;
   showSchema?(label: string, catalog: string): void;
+  /** In the Workbench every connection is there by its name: drag and copy give the name alone. */
+  connectionsByName?: boolean;
 }
 
 export interface Rail {
@@ -266,7 +268,7 @@ export function mountRail(host: RailHost): Rail {
         bladeList.append(heading("Blades"));
         othersHeading = true;
       }
-      const line = bladeLine(blade);
+      const line = host.connectionsByName && blade.code_name ? blade.code_name : bladeLine(blade);
       const item = h(
         "li",
         {
@@ -294,6 +296,7 @@ export function mountRail(host: RailHost): Rail {
           "span",
           { class: "blade-text" },
           h("button", { class: "blade-name", type: "button", onclick: () => openBlade(blade.name) }, blade.name),
+          host.connectionsByName && blade.code_name ? h("code", { class: "blade-code-name", title: "Its name in your notebooks and scripts: always there, opened when first used" }, blade.code_name) : null,
           blade.tags?.length ? h("span", { class: "blade-item-tags" }, blade.tags.join(" · ")) : null,
         ),
         blade.source === "folder" ? h("span", { class: "blade-file", title: `In a blade folder: ${blade.path ?? ""}` }, "file") : null,

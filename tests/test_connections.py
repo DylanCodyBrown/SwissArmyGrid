@@ -212,3 +212,55 @@ def test_a_password_comes_from_the_keyring_an_environment_variable_or_a_vault(cl
     )
     assert shop["vaults"] == ["Team vault"]
     assert client.post("/connections/source", json={}, headers=AGENT).status_code == 403
+
+
+def test_each_connection_has_a_name_in_code(client: TestClient, tmp_path: Path) -> None:
+    from swissarmygrid.domain.connections import code_names
+
+    assert code_names(["Sales DB", "orders", "Orders", "2024 Budget", "class", "Café"]) == {
+        "Sales DB": "sales_db",
+        "orders": "orders",
+        "Orders": "orders_2",
+        "2024 Budget": "c_2024_budget",
+        "class": "class_",
+        "Café": "cafe",
+    }
+    (tmp_path / "orders.csv").write_text("order_id\n1\n", encoding="utf-8")
+    client.post("/connections", json=csv_connection(tmp_path / "orders.csv", "Orders file"), headers=AUTH)
+    listed = client.get("/connections", headers=AUTH).json()["connections"]
+    assert [(c["name"], c["code_name"]) for c in listed] == [("Orders file", "orders_file")]
+
+
+def test_a_cell_that_names_a_connection_opens_it_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    from IPython.core.interactiveshell import InteractiveShell
+
+    from swissarmygrid.client import blades_client, kernel_connections
+
+    opened: list[str] = []
+
+    def blade(name: str) -> Any:
+        if name == "Broken":
+            raise RuntimeError("the server said no")
+        opened.append(name)
+        return {"Sales DB": 41, "Orders file": "orders.csv"}[name]
+
+    listed = [
+        {"name": "Sales DB", "code_name": "sales_db"},
+        {"name": "Orders file", "code_name": "orders_file"},
+        {"name": "Broken", "code_name": "broken"},
+    ]
+    monkeypatch.setattr(blades_client, "_call", lambda method, path, *a: {"connections": listed})
+    monkeypatch.setattr(blades_client, "blade", blade)
+    monkeypatch.setattr(kernel_connections, "_names", [0.0, {}])
+    shell: Any = InteractiveShell.instance()  # IPython's own methods carry no types
+    try:
+        assert kernel_connections.install(shell) and kernel_connections.install(shell)  # once
+        assert shell.run_cell("answer = sales_db + 1").success
+        assert shell.user_ns["answer"] == 42 and opened == ["Sales DB"]  # only what the cell used
+        shell.user_ns["orders_file"] = "mine.csv"  # the user's own variable wins
+        assert shell.run_cell("chosen = orders_file").success and shell.user_ns["chosen"] == "mine.csv"
+        assert opened == ["Sales DB"]
+        assert not shell.run_cell("broken").success  # NameError, after a line saying why
+    finally:
+        shell.ast_transformers.clear()
+        InteractiveShell.clear_instance()

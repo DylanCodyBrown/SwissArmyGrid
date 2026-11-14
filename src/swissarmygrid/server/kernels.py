@@ -30,7 +30,16 @@ _MAX_HELP: int = 6_000
 _IDLE_POLL_SECONDS: float = 0.5
 # Run quietly once a kernel is ready: the package (sag.*, the %%sql cells, tables as grids) when that
 # Python has it. A Python without it still runs code; the Workbench says how to add it.
-_SETUP = "try:\n    import swissarmygrid as sag\nexcept ImportError:\n    pass\n"
+_SETUP = (
+    "try:\n"
+    "    import swissarmygrid as sag\n"
+    "    from swissarmygrid.client.kernel_connections import install as _sag_connections\n"
+    "\n"
+    "    _sag_connections()\n"
+    "    del _sag_connections\n"
+    "except ImportError:\n"
+    "    pass\n"
+)
 
 
 class KernelError(ValueError):

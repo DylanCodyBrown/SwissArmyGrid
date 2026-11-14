@@ -39,6 +39,8 @@ export interface BladeSummary {
   path: string | null;
   /** A database or file blade is a connection, listed apart (connectionsWindow.ts). */
   connection?: "database" | "file" | null;
+  /** A connection's variable in the Workbench (Sales DB -> sales_db). */
+  code_name?: string | null;
 }
 
 interface CatalogCommand {

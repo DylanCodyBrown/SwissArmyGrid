@@ -33,7 +33,7 @@ export function scriptView(
   kernel: Kernel,
   theme: () => string,
   changed: () => void,
-  names: () => { connections: string[]; blades: string[] } = () => ({ connections: [], blades: [] }),
+  names: () => { connections: string[]; blades: string[]; codeNames?: { name: string; connection: string; kind: string }[] } = () => ({ connections: [], blades: [] }),
 ): ScriptView {
   const editorHost = h("div", { class: "wb-script-editor" });
   const log = h("div", { class: "wb-console-log", role: "log", "aria-live": "polite" });

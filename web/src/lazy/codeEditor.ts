@@ -148,11 +148,20 @@ export function createCodeEditor(host: HTMLElement, options: CodeEditorOptions):
     for (const language of ["python", "sql", "markdown"]) register(language);
   }
   const keys = options.keys ?? {};
-  if (keys.shiftEnter) editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, keys.shiftEnter);
-  if (keys.ctrlEnter) {
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, keys.ctrlEnter);
-    editor.addCommand(monaco.KeyCode.F9, keys.ctrlEnter);
-  }
+  // The run keys come first, even with the suggestion list open (it would take Ctrl+Enter for itself):
+  // the list closes and the code runs.
+  editor.onKeyDown((e) => {
+    const run =
+      e.keyCode === monaco.KeyCode.Enter && e.shiftKey && !e.ctrlKey && !e.metaKey ? keys.shiftEnter
+      : e.keyCode === monaco.KeyCode.Enter && (e.ctrlKey || e.metaKey) && !e.shiftKey ? keys.ctrlEnter
+      : e.keyCode === monaco.KeyCode.F9 ? keys.ctrlEnter
+      : undefined;
+    if (!run) return;
+    e.preventDefault();
+    e.stopPropagation();
+    editor.trigger("keyboard", "hideSuggestWidget", null);
+    run();
+  });
   if (keys.f5) editor.addCommand(monaco.KeyCode.F5, keys.f5);
   if (keys.escape) editor.addCommand(monaco.KeyCode.Escape, keys.escape, "!suggestWidgetVisible");
 

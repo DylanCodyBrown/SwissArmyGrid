@@ -60,18 +60,21 @@ let homeFolder = "";
 let pythons: PythonChoice[] = [];
 let connectionNames: string[] = [];
 let bladeNames: string[] = [];
+let codeNames: { name: string; connection: string; kind: string }[] = [];
 let editingBlade = false;
 
 const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
 async function loadConnections(): Promise<void> {
   try {
-    const every = (await api<{ blades: { name: string; connection?: string | null }[] }>("/blades")).blades;
+    const every = (await api<{ blades: { name: string; connection?: string | null; code_name?: string | null }[] }>("/blades")).blades;
     connectionNames = every.filter((b) => b.connection).map((b) => b.name);
     bladeNames = every.filter((b) => !b.connection).map((b) => b.name);
+    codeNames = every.filter((b) => b.code_name).map((b) => ({ name: b.code_name!, connection: b.name, kind: b.connection ?? "" }));
   } catch {
     connectionNames = [];
     bladeNames = [];
+    codeNames = [];
   }
 }
 
@@ -96,14 +99,14 @@ const markChanged = (doc: Doc) => (): void => {
 
 function openNotebook(path: string | null, cells: CellData[], modified: number | null): void {
   const doc = makeDoc("notebook", path ? baseName(path) : `Untitled notebook ${counter + 1}`, path, modified);
-  doc.notebook = notebookView(cells, doc.kernel!, () => connectionNames, () => effectiveTheme(), markChanged(doc), () => bladeNames);
+  doc.notebook = notebookView(cells, doc.kernel!, () => connectionNames, () => effectiveTheme(), markChanged(doc), () => bladeNames, () => codeNames);
   doc.element.append(doc.notebook.element);
   show(doc);
 }
 
 function openScript(path: string | null, text: string, modified: number | null): void {
   const doc = makeDoc("script", path ? baseName(path) : `Untitled script ${counter + 1}`, path, modified);
-  doc.script = scriptView(text, doc.kernel!, () => effectiveTheme(), markChanged(doc), () => ({ connections: connectionNames, blades: bladeNames }));
+  doc.script = scriptView(text, doc.kernel!, () => effectiveTheme(), markChanged(doc), () => ({ connections: connectionNames, blades: bladeNames, codeNames }));
   doc.element.append(doc.script.element);
   show(doc);
 }
@@ -347,6 +350,7 @@ const rail = mountRail({
     clear(doc.element, ...tableDetails(view));
     show(doc);
   },
+  connectionsByName: true,
   showSchema: (label, catalog) => {
     let doc = docs.find((d) => d.kind === "table");
     if (!doc) doc = makeDoc("table", "Explorer", null, null);

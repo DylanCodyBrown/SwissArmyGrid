@@ -32,7 +32,7 @@ from swissarmygrid.domain.blades import (
     install_command,
     pip_name,
 )
-from swissarmygrid.domain.connections import connection_kind
+from swissarmygrid.domain.connections import code_names, connection_kind
 from swissarmygrid.domain.datasets import DatasetInfo
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.services.catalogs import CatalogService
@@ -202,7 +202,10 @@ class BladeService:
     def listing(self) -> dict[str, Any]:
         everything = self._blades.all()
         pinned = self._blades.pinned()
-        return {"blades": [self.summary(b, everything, pinned) for b in everything]}
+        found = [self.summary(b, everything, pinned) for b in everything]
+        # A connection's variable in the Workbench (named in a fixed order, so a name never moves).
+        named = code_names(sorted((str(b["name"]) for b in found if b["connection"]), key=str.casefold))
+        return {"blades": [b | {"code_name": named.get(str(b["name"]))} for b in found]}
 
     def templates(self) -> dict[str, Any]:
         return {"templates": [t.to_json() for t in self._templates]}

@@ -31,7 +31,7 @@ class ConnectionService:
         found.sort(
             key=lambda c: (c["connection"] != "database", not c.get("pinned"), str(c["name"]).casefold())
         )
-        return {"connections": found}
+        return {"connections": found}  # each with its code_name (the blades list names them)
 
     def types(self) -> dict[str, Any]:
         """The starters a connection is made from, each as the Add connection form."""

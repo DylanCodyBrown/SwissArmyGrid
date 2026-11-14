@@ -10,6 +10,7 @@ connections, what kind each is, and how a starter becomes the Add connection for
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 # The file starters (server/blade_templates.py FILES): a blade made from one is a file connection.
@@ -101,3 +102,33 @@ def rename_secret(code: str, old: str, new: str) -> str:
     if not count:
         raise ValueError(f'The code does not ask for secret("{old}").')
     return changed
+
+
+# ===== each connection's name in code (the Workbench: every connection, always there) =====
+
+
+def code_names(names: list[str]) -> dict[str, str]:
+    """Each connection's variable in a Workbench notebook or script: lower case, words joined by _, a
+    Python name (Sales DB -> sales_db, 2024 Budget -> c_2024_budget, class -> class_), unique (orders,
+    orders_2). In the order given; the first to claim a name keeps it."""
+    taken: set[str] = set()
+    out: dict[str, str] = {}
+    for name in names:
+        plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()  # Café -> Cafe
+        base = re.sub(r"[^0-9a-zA-Z]+", "_", plain).strip("_").lower() or "connection"
+        if base[0].isdigit():
+            base = f"c_{base}"
+        if base in _PYTHON_WORDS:
+            base += "_"
+        chosen, n = base, 2
+        while chosen in taken:
+            chosen, n = f"{base}_{n}", n + 1
+        taken.add(chosen)
+        out[name] = chosen
+    return out
+
+
+_PYTHON_WORDS = frozenset(
+    "False None True and as assert async await break class continue def del elif else except finally for "
+    "from global if import in is lambda nonlocal not or pass raise return try while with yield sag".split()
+)

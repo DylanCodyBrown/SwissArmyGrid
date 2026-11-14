@@ -59,8 +59,9 @@ export function notebookView(
   theme: () => string,
   changed: () => void,
   blades: () => string[] = () => [],
+  codeNames: () => { name: string; connection: string; kind: string }[] = () => [],
 ): NotebookView {
-  const python = pythonCompleter(kernel, () => ({ connections: connections(), blades: blades() }));
+  const python = pythonCompleter(kernel, () => ({ connections: connections(), blades: blades(), codeNames: codeNames() }));
   const list = h("div", { class: "wb-cells" });
   const cells: Cell[] = [];
   let selected: Cell | null = null;

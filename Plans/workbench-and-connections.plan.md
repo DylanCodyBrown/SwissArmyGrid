@@ -43,6 +43,10 @@ The owner's requests, 2026-11-13, in their words:
 9. **Each notebook can have its own virtual environment,** made easily (where, the Python version,
    libraries by preset or group, imports added) and remembered for the notebook.
 
+10. **Every connection is in every Workbench notebook and script by its name** (the owner's choice
+    over a per-notebook checkbox, 2026-11-14): opened when a cell first uses the name, never written
+    into the document.
+
 ## How it is built
 
 **Connections share the blade store.** A connection is a blade the domain names a connection

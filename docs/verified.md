@@ -339,4 +339,10 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   and pandas took 5.8 s; the kernel ran in it with pandas 3.1.1 and `swissarmygrid` lent from the client
   copy. Password sources: an environment variable and a new vault entry both rewrote the code's
   secret() name, and a saved connection lists the vault it runs first.
+- (2026-11-14) Every connection by its name in the Workbench: an IPython AST transformer reads the names
+  a cell uses before it runs and opens a connection only then (checked in a real IPython shell: one
+  connection opened, a user's own variable of the same name kept, a failing one said why and the cell
+  raised NameError). In Chromium a cell ran `pd.read_csv(orders)` on a CSV connection with no
+  sag.connection line. With the suggestion list open, Monaco took Ctrl+Enter for the list and the cell
+  never ran; the run keys are now caught first and close the list.
 

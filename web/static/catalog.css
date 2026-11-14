@@ -600,3 +600,11 @@ dialog .dialog-body > h2:first-child {
   gap: 2px;
   overflow: auto;
 }
+
+/* A connection's name in code (the Workbench): always there in notebooks and scripts. */
+.blade-code-name {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+

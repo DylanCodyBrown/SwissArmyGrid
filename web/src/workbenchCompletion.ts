@@ -115,8 +115,9 @@ async function kernelSuggestions(kernel: Kernel, code: string, offset: number, s
   });
 }
 
-/** Python: the kernel's completions, and names inside sag.connection("…"). */
-export function pythonCompleter(kernel: Kernel, names: () => { connections: string[]; blades: string[] }) {
+/** Python: the kernel's completions, every connection by its name (there before it is first used, so
+ *  the kernel does not know it yet), and names inside sag.connection("…"). */
+export function pythonCompleter(kernel: Kernel, names: () => { connections: string[]; blades: string[]; codeNames?: { name: string; connection: string; kind: string }[] }) {
   return async (text: string, offset: number): Promise<Suggestion[]> => {
     const before = text.slice(Math.max(0, offset - 200), offset);
     const quoted = /sag\.(connection|blade|sql)\(\s*["']([^"']*)$/.exec(before);
@@ -127,11 +128,16 @@ export function pythonCompleter(kernel: Kernel, names: () => { connections: stri
     }
     // The cursor's line first: the kernel then completes against the live objects (a DataFrame's columns).
     // Sent the whole cell, Jedi reads `rainfall = pd.DataFrame(...)` above it as code and misses them.
+    const word = /(^|[^\w.])([A-Za-z_]\w*)$/.exec(before)?.[2] ?? "";
+    const connected = word
+      ? (names().codeNames ?? []).filter((c) => c.name.startsWith(word.toLowerCase())).map((c) => ({ label: c.name, kind: "connection", detail: `${c.connection} (${c.kind === "file" ? "a file" : "a database"} connection)`, start: offset - word.length, end: offset }))
+      : [];
     const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
     const lineEnd = text.indexOf("\n", offset);
     const line = text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd);
     const live = await kernelSuggestions(kernel, line, offset - lineStart, -lineStart);
-    return live.length || lineStart === 0 ? live : kernelSuggestions(kernel, text, offset);
+    const fromKernel = live.length || lineStart === 0 ? live : await kernelSuggestions(kernel, text, offset);
+    return [...connected, ...fromKernel.filter((s) => !connected.some((c) => c.label === s.label))];
   };
 }
 
