@@ -91,6 +91,7 @@ export interface Notice {
   area?: string;
   scale?: number;
   process?: string;
+  to?: string; // dataset_renamed: the new name
 }
 
 // ===== the token and the grid id, from the address =====

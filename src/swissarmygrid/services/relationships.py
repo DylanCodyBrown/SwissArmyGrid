@@ -56,6 +56,7 @@ from swissarmygrid.domain.relationships import (
     name_likeness,
     normalized,
     parse_model,
+    rename_table,
     path_between,
     read_tang,
     relationship,
@@ -824,6 +825,13 @@ class Models:
         self.ws.audit.write(who, "relationships", None, model=name)
         await self.ws.live.broadcast({"type": "relationships_updated"})
         return self.model.to_json()
+
+    async def rename_table(self, old: str, new: str) -> None:
+        """A table was renamed: the model names it by its new name (DatasetService.renamed)."""
+        model = rename_table(self.model, old, new)
+        if model is not self.model:
+            self.model = model
+            await self.ws.live.broadcast({"type": "relationships_updated"})
 
     async def set_current(self, body: Any, who: str) -> dict[str, Any]:
         """Merge (or replace with) a model: {"model": {...}, "replace": false}."""

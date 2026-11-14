@@ -40,7 +40,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
 
@@ -263,6 +263,28 @@ def merge(base: Model, extra: Model) -> Model:
         relationships=(*rels, *extra.relationships),
         tags=tuple(dict.fromkeys((*base.tags, *extra.tags))),
         columns={**base.columns, **extra.columns},
+    )
+
+
+def rename_table(model: Model, old: str, new: str) -> Model:
+    """The model with table `old` called `new` (a table renamed in the app): its key, source, columns
+    and both ends of every join. Unchanged when the model does not name it."""
+
+    def name(table: str) -> str:
+        return new if table == old else table
+
+    if old not in {*model.keys, *model.sources, *model.columns} and not any(
+        old in (r.from_table, r.to_table) for r in model.relationships
+    ):
+        return model
+    return replace(
+        model,
+        keys={name(t): v for t, v in model.keys.items()},
+        sources={name(t): v for t, v in model.sources.items()},
+        columns={name(t): v for t, v in model.columns.items()},
+        relationships=tuple(
+            replace(r, from_table=name(r.from_table), to_table=name(r.to_table)) for r in model.relationships
+        ),
     )
 
 

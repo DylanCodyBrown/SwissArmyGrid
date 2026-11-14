@@ -149,6 +149,13 @@ class GridRegistry:
     def close(self, grid_id: str) -> Grid | None:
         return self._grids.pop(grid_id, None)
 
+    def rename_dataset(self, old: str, new: str) -> list[Grid]:
+        """Every grid on dataset `old` now shows `new` (the table was renamed): its steps and settings stay."""
+        moved = self.for_dataset(old)
+        for grid in moved:
+            grid.dataset = new
+        return moved
+
     def all(self) -> list[Grid]:
         return list(self._grids.values())
 

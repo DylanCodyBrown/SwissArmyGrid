@@ -9,15 +9,15 @@ first grid on a dataset picks up a saved recipe for that name, if there is one.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from swissarmygrid.domain.datasets import DatasetError, DatasetInfo, Opened, mib, quote
+from swissarmygrid.domain.datasets import DatasetError, DatasetInfo, Opened, mib, quote, validate_name
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import SqlRefused, guard
 from swissarmygrid.services.ports import BACKGROUND, INTERACTIVE, Recipes, SqlSession
 from swissarmygrid.services.processes import ProcessRegistry
-from swissarmygrid.services.workspace import Conflict, Refused, TimedOut, Workspace
+from swissarmygrid.services.workspace import Conflict, NotFound, Refused, TimedOut, Workspace
 
 
 class TableReader(Protocol):
@@ -61,6 +61,8 @@ class DatasetService:
         # True for a path that is one of SwissArmyGrid's own files (adapters/state_files.py).
         self._own_file = own_file
         self._on_shutdown = on_shutdown
+        # Who else names tables: each is told of a rename (the relationship model, bootstrap.py).
+        self.renamed: list[Callable[[str, str], Awaitable[None]]] = []
 
     # ===== the server itself =====
 
@@ -100,6 +102,32 @@ class DatasetService:
         await ws.live.broadcast({"type": "dataset_closed", "dataset": name})
         ws.audit.write(who, "close", name)
         return {"closed": name, "budget": ws.budget()}
+
+    async def rename(self, name: str, to: Any, who: str) -> dict[str, Any]:
+        """Call a table by another name everywhere: its grids (steps and settings kept), the model's
+        joins, every page's tabs. A Python session following the old name stops following it."""
+        ws = self.ws
+        if not isinstance(to, str) or not to.strip():
+            raise ValueError('Send {"to": "new_name"}.')
+        new = to.strip()
+        if ws.store.get(name) is None:
+            raise NotFound(f"No dataset named {name!r} is open.")
+        validate_name(new)
+        if new == name:
+            return {"dataset": name, "renamed_from": name}
+        clash = next((i.name for i in ws.store.all() if i.name != name and i.name.lower() == new.lower()), None)
+        if clash is not None:
+            raise Conflict(f"A table named {clash!r} is open. Pick another name, or close that one first.")
+        ws.views.forget_dataset(name)  # its cached views name the old table
+        info: DatasetInfo = await ws.workers.run(INTERACTIVE, ws.store.rename, name, new)
+        grids = ws.grids.rename_dataset(name, new)
+        for renamed in self.renamed:
+            await renamed(name, new)
+        await ws.live.broadcast(
+            {"type": "dataset_renamed", "dataset": name, "to": new, "grids": [g.id for g in grids]}
+        )
+        ws.audit.write(who, "rename", name, to=new)
+        return self.summary(info) | {"dataset": new, "renamed_from": name}
 
     # ===== the common end of every way in =====
 

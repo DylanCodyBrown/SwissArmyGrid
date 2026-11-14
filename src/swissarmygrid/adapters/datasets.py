@@ -23,6 +23,7 @@ import threading
 import uuid
 import zipfile
 from collections.abc import Callable, Iterable, Iterator
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -261,6 +262,27 @@ class DatasetStore:
             )
             self._datasets[name] = info
             return info
+
+    def rename(self, old: str, new: str) -> DatasetInfo:
+        """Dataset `old` is now called `new`: its table renamed in place (no copy), a new serial so the
+        caches built on the old name are not reused. Only the case may change ("orders" -> "Orders")."""
+        validate_name(new)
+        with self._lock:
+            info = self._datasets.get(old)
+            if info is None:
+                raise DatasetError(f"No dataset named {old!r} is open.")
+            clash = next((n for n in self._datasets if n != old and n.lower() == new.lower()), None)
+            if clash is not None:
+                raise DatasetError(f"A dataset named {clash!r} is open; pick another name.")
+            cursor: duckdb.DuckDBPyConnection = self._connection.cursor()
+            # DuckDB matches table names without case, so a case-only rename goes through a stand-in.
+            steps = [old, new] if old.lower() != new.lower() else [old, "renaming_" + uuid.uuid4().hex, new]
+            for before, after in itertools.pairwise(steps):
+                cursor.execute(f"ALTER TABLE {quote('ds_' + before)} RENAME TO {quote('ds_' + after)}")
+            renamed = dataclasses.replace(info, name=new, serial=next(self._serial))
+            del self._datasets[old]
+            self._datasets[new] = renamed
+            return renamed
 
     def close(self, name: str) -> bool:
         with self._lock:

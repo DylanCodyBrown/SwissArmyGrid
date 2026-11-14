@@ -161,6 +161,14 @@ def routes(datasets: DatasetService) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    async def rename(request: Request) -> Response:
+        try:
+            body = await read_json(request)
+            to = body.get("to") if isinstance(body, dict) else None
+            return json_response(await datasets.rename(request.path_params["name"], to, actor(request)))
+        except Exception as error:
+            return error_response(error)
+
     async def build_from_query(request: Request) -> Response:
         """The "+" tab: dataset `name` from one SELECT over the open tables, each read as its tab
         shows it. "replace" is the tab's Run again."""
@@ -185,6 +193,7 @@ def routes(datasets: DatasetService) -> list[BaseRoute]:
         Route("/datasets/{name}", delete_dataset, methods=["DELETE"]),
         Route("/datasets/{name}/load", load, methods=["POST"]),
         Route("/datasets/{name}/paste", paste, methods=["POST"]),
+        Route("/datasets/{name}/rename", rename, methods=["POST"]),
         Route("/datasets/{name}/query", build_from_query, methods=["POST"]),
         Route("/files/sheets", sheets, methods=["POST"]),
         Route("/datasets/{name}/drop", drop, methods=["POST"]),

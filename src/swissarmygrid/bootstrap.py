@@ -226,6 +226,7 @@ def bootstrap(
             packs=pack_files.tang_dirs,
         ),
     )
+    datasets.renamed.append(models.rename_table)
     return Services(
         settings=settings,
         ws=ws,

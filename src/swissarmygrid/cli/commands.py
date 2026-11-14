@@ -230,6 +230,17 @@ def delete_dataset(a: dict[str, Any]) -> Any:
 
 
 @command(
+    "datasets_rename",
+    "Call a table by another name everywhere: its tabs, its grids (steps kept), the relationship model "
+    "(a double-click on the tab, or the Pasted toast's name box).",
+    req("name", "The table's name now."),
+    req("to", "Its new name: 1 to 64 letters, digits, '_' or '-'."),
+)
+def rename_dataset(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/datasets/{_q(a['name'])}/rename", {"to": a["to"]})
+
+
+@command(
     "datasets_load",
     "Load a CSV, TSV, Parquet, JSON-lines, Arrow or Excel file from a full path into a dataset and open a grid.",
     req("name", "New dataset name."),

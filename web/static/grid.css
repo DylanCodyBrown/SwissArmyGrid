@@ -1663,6 +1663,32 @@ dialog::backdrop {
   border-left-color: var(--error);
 }
 
+/* The Pasted toast: its name in a box, renamed with Enter (renameTable.ts). */
+.toast-naming {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast-name,
+.tab-rename {
+  font: inherit;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.toast-name {
+  width: 16ch;
+}
+
+.tab-rename {
+  width: 14ch;
+}
+
 .toast.error::before {
   content: "\26A0  ";
   color: var(--error);

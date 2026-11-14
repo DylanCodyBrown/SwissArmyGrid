@@ -35,6 +35,7 @@ import { button, clear, h, icon, recall, remember, toast } from "./dom";
 import { createGridView, setActiveView, type GridView } from "./gridView";
 import { openFileButton } from "./openFile";
 import { openMenuButton } from "./openMenu";
+import { renameInPlace } from "./renameTable";
 import { PageState, activate } from "./state";
 
 export interface Context {
@@ -245,6 +246,19 @@ export async function resyncGrids(): Promise<void> {
     if (ctx.state.info) void ctx.state.load().then(() => ctx.view?.refresh()).catch(() => undefined);
   }
   if (!activeId && order[0]) await activateGrid(order[0]);
+}
+
+/** A table was renamed (anywhere: this page, another window, the agent): its tabs, pane heads and
+ * grids follow; each grid reloads its info, which redraws the title and the panels. */
+export function renameContexts(from: string, to: string): void {
+  for (const ctx of contextsOf(from)) {
+    ctx.dataset = to;
+    const head = ctx.pane?.querySelector(".pane-head strong");
+    if (head) head.textContent = to;
+    ctx.pane?.querySelector(".grid-host")?.setAttribute("aria-label", `Data grid: ${to}`);
+    if (ctx.state.info) void ctx.state.load().catch(() => undefined);
+  }
+  render();
 }
 
 export function addGrid(id: string, dataset: string): void {
@@ -493,7 +507,18 @@ function render(): void {
           "aria-selected": String(selected),
           draggable: "true",
           title: contexts.get(id)!.dataset,
-          onclick: () => {
+          onclick: (e: MouseEvent) => {
+            // The second click of a double-click renames: the first one's redraw replaced this tab,
+            // so the browser sends no dblclick to the new one.
+            const name = (e.currentTarget as HTMLElement).querySelector<HTMLElement>(".tab-label");
+            if (e.detail === 2 && name && (e.target as HTMLElement).closest(".tab-label")) {
+              renameInPlace(name, contexts.get(id)!.dataset);
+              return;
+            }
+            if (id === activeId && view === "grid") {
+              activations += 1; // already in front: nothing to redraw, but a tab still loading loses
+              return;
+            }
             showGridView();
             void activateGrid(id);
           },
@@ -516,7 +541,7 @@ function render(): void {
           },
         },
         inSplit ? h("span", { class: "split-mark", "aria-label": "side by side" }, "◫") : null,
-        h("span", { class: "tab-label" }, label(id)),
+        h("span", { class: "tab-label", title: "Double-click to rename the table" }, label(id)),
         closeButton(id, selected),
       );
       return el;
@@ -591,6 +616,11 @@ function onTabKey(event: KeyboardEvent, id: string): void {
   else if (event.key === "End") go(order.length - 1);
   else if (event.key === "Enter" || event.key === " ") void activateGrid(id);
   else if (event.key === "Delete") void closeGrid(id);
+  else if (event.key === "F2") {
+    const tab = event.currentTarget as HTMLElement;
+    const name = tab.querySelector<HTMLElement>(".tab-label");
+    if (name) renameInPlace(name, contexts.get(id)!.dataset);
+  }
 }
 
 /** Open the Workbench in its own window, or bring it forward (one window, by name). */

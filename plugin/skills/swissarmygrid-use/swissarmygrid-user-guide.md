@@ -20,6 +20,10 @@ sag.push(orders, name="orders", new_grid=True)
 
 `new_grid=True` opens a new grid even when one with the same name is already open. Without it, pushing again refreshes the same grid, and its steps stay in place.
 
+Without Python: the folder button beside + opens a file (CSV, Parquet, JSON, Arrow or an Excel workbook; a workbook with several sheets asks which), and a file dropped anywhere on the page opens the same way. Pasting a copied table (Ctrl+V on the page) makes a table named `pasted_` and the time; its toast holds the name in a box, so type a better one there and press Enter.
+
+**Rename a table** by double-clicking its tab (or F2 on the tab): type the new name and press Enter, or Escape to leave it. The new name holds everywhere: every tab on it, its steps, the relationship model and the SQL that names it from then on. A Python session that kept the old name current stops following it.
+
 ## The workspace
 
 ![The workspace: the tab bar, the title with its steps strip, the three ribbon rows, the grid and the status bar.](images/01-workspace.png)

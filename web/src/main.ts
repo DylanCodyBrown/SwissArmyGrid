@@ -39,7 +39,7 @@ import { settingsButton } from "./settingsWindow";
 import { connectionsButton } from "./connectionsWindow";
 import { tourButton } from "./tour";
 import { openCompareDialog } from "./compareDialog";
-import { activateGrid, activeContext, addGrid, contextOf, contextsOf, dropGrid, mountPanes, onSplitCreated, openGrids, resyncGrids } from "./panes";
+import { activateGrid, activeContext, addGrid, contextOf, contextsOf, dropGrid, mountPanes, onSplitCreated, openGrids, renameContexts, resyncGrids } from "./panes";
 import { mountRibbon, zoomControl } from "./ribbon";
 import { openColumnProfile } from "./profileView";
 import { mountFileDrop } from "./openFile";
@@ -47,6 +47,7 @@ import { mountOpenMenu } from "./openMenu";
 import { mountQueryTab } from "./queryTab";
 import { loadRelationships } from "./relationships";
 import { PageState, activate, state } from "./state";
+import { pastedToast } from "./renameTable";
 import { mountStepsPanel } from "./stepsPanel";
 import { mountStepsStrip } from "./stepsStrip";
 import { setGridZoom, stepZoom } from "./theme";
@@ -75,7 +76,7 @@ async function pasteAsDataset(text: string): Promise<void> {
     pasting.add(name); // a second paste before this one lands picks another name
     const response = await fetch(`/datasets/${name}/paste`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: text });
     if (!response.ok) throw new Error(await response.text());
-    toast(`Pasted as ${name}.`);
+    pastedToast(name);
   } catch (e) {
     toast((e as Error).message, "error");
   }
@@ -89,6 +90,7 @@ function onLiveNotice(notice: Notice): void {
     void activateGrid(notice.grid);
   }
   if (notice.type === "grid_closed" && notice.grid) dropGrid(notice.grid);
+  if (notice.type === "dataset_renamed" && notice.dataset && notice.to) renameContexts(notice.dataset, notice.to);
   if (notice.type === "dataset_closed" && notice.dataset) {
     for (const ctx of contextsOf(notice.dataset)) dropGrid(ctx.id);
     if (popout || keysWindow) {
