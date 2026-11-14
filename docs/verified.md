@@ -512,3 +512,15 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   the cursor in the first empty field and Enter adds the step. Then: ruff, format, mypy (228 files), the
   TypeScript check, the non-browser suite (1,868 passed) and every browser test (132 passed). The compare
   bugs (Diff's one-sided jump, the key chosen, a reload ending it) go with round 3's compare work.
+- (2026-11-14) Round 2 of the usability test's fixes. Open file beside "+" and a file dropped on the page
+  open as grids (a workbook asks which sheets, the first ticked). A catalog table, a connection's row and
+  the catalog's right-click open a table as a grid, with its first rows previewed; the grid says "First
+  1,000 of 2,500 rows" (the connection's Rows to open) beside Load all rows. A column's right-click starts
+  with its own tools (sort, filter, rename, remove, keep only, group by); Rename... on a selected column
+  shows its box alone; a double-click renames a header in place. A table is renamed from the Pasted
+  toast's box or a double-click (F2) on its tab: the DuckDB table in place, every grid on it with its
+  steps, the relationship model, every page (the agent's datasets_rename too; a taken name is refused).
+  The Workbench: a table result has Open as grid (Out[n]; a bare variable keeps its name, anything else
+  is out_<n>, so `rainfall.describe()` no longer replaced `rainfall`), a notebook's console is a title
+  bar until used, and a new notebook has the cursor in its first cell. Then: ruff, format, mypy (233
+  files), the TypeScript check, and the whole suite with the browser tests (2,017 passed).
