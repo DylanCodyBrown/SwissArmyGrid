@@ -7,6 +7,8 @@
   DELETE /datasets/{name}               close a dataset and its grids, freeing its memory
   POST   /datasets/{name}/load          {"path": "C:\\...\\file.csv", "sheet": "..."} read by trusted Python
   POST   /files/sheets                  {"path": "C:\\...\\book.xlsx"} the workbook's sheet names
+  POST   /datasets/{name}/drop?filename=&sheet=   a file dropped on the page: its bytes, read in memory
+  POST   /files/dropped-sheets?filename=          a dropped workbook's sheet names (its bytes)
   POST   /datasets/{name}/paste         tab-separated text copied from Excel
   POST   /datasets/{name}/query         {"sql": "SELECT ...", "replace": bool} the "+" tab's table
 
@@ -132,6 +134,25 @@ def routes(datasets: DatasetService) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    async def drop(request: Request) -> Response:
+        try:
+            name = validate_name(request.path_params["name"])
+            filename = request.query_params.get("filename") or ""
+            sheet = request.query_params.get("sheet") or None
+            data = await read_body(request, settings.max_push_body_bytes)
+            return json_response(await datasets.load_dropped(name, data, filename, sheet, actor(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def dropped_sheets(request: Request) -> Response:
+        try:
+            data = await read_body(request, settings.max_push_body_bytes)
+            return json_response(
+                await datasets.dropped_sheets(data, request.query_params.get("filename") or "")
+            )
+        except Exception as error:
+            return error_response(error)
+
     async def paste(request: Request) -> Response:
         try:
             name = validate_name(request.path_params["name"])
@@ -166,4 +187,6 @@ def routes(datasets: DatasetService) -> list[BaseRoute]:
         Route("/datasets/{name}/paste", paste, methods=["POST"]),
         Route("/datasets/{name}/query", build_from_query, methods=["POST"]),
         Route("/files/sheets", sheets, methods=["POST"]),
+        Route("/datasets/{name}/drop", drop, methods=["POST"]),
+        Route("/files/dropped-sheets", dropped_sheets, methods=["POST"]),
     ]

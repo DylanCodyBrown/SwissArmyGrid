@@ -42,6 +42,7 @@ import { openCompareDialog } from "./compareDialog";
 import { activateGrid, activeContext, addGrid, contextOf, contextsOf, dropGrid, mountPanes, onSplitCreated, openGrids, resyncGrids } from "./panes";
 import { mountRibbon, zoomControl } from "./ribbon";
 import { openColumnProfile } from "./profileView";
+import { mountFileDrop } from "./openFile";
 import { mountOpenMenu } from "./openMenu";
 import { mountQueryTab } from "./queryTab";
 import { loadRelationships } from "./relationships";
@@ -207,6 +208,7 @@ async function start(): Promise<void> {
   mountSnapshots();
   mountContextMenus();
   mountOpenMenu();
+  mountFileDrop(); // a file dropped anywhere opens as a grid
   // This page shows every grid as a tab, so a push while it is open adds a tab, not a window.
   // Each (re)connect fetches the agent's requests already waiting: one made before the socket was
   // open never reached this page as a notice.

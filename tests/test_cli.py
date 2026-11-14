@@ -127,6 +127,9 @@ NOT_COMMANDS = {
     # MCP. What is left here is not a user action, or would let the agent approve itself or read a
     # password's value.
     "/agent/approvals/{}": "answering an approval: the agent cannot approve its own request",
+    "/datasets/{}/drop": "a file dropped on the page (bytes only the browser holds): the agent opens a file"
+    " by its path with datasets_load",
+    "/files/dropped-sheets": "a dropped workbook's sheets: the agent asks datasets_sheets by path",
     "/agent/export-approval/{}": "reached through table_export, which asks first",
     "/workbench/window/{}": "the Workbench window's own answer to workbench_window (not the agent's)",
     "/workspace/active": "the page reports which tab is in front (page plumbing)",

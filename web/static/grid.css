@@ -5453,3 +5453,25 @@ dialog .field > .field-row > select {
   color: var(--muted);
   font-style: italic;
 }
+
+/* A file dragged over the page: the page says it will take it. */
+body.dropping-file::after {
+  content: "";
+  position: fixed;
+  inset: 6px;
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.sheet-list {
+  display: grid;
+  gap: 6px;
+}
+
+.sheet-list .field-flag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

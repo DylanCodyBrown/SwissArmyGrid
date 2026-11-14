@@ -33,6 +33,7 @@
 import { api, token, useGrid } from "./api";
 import { button, clear, h, icon, recall, remember, toast } from "./dom";
 import { createGridView, setActiveView, type GridView } from "./gridView";
+import { openFileButton } from "./openFile";
 import { openMenuButton } from "./openMenu";
 import { PageState, activate } from "./state";
 
@@ -522,6 +523,7 @@ function render(): void {
     }),
     draft ? draftTab(draft.name) : null,
     button("New table from a query", () => void newQueryTab(), { icon: "plus", iconOnly: true, class: "ghost tab-new" }),
+    openFileButton(),
     openMenuButton(),
     h("div", {
       class: "tab-end",

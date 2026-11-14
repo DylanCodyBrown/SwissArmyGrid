@@ -31,6 +31,12 @@ class TableReader(Protocol):
 
     def excel_sheets(self, path_text: str) -> list[str]: ...
 
+    def load_bytes(
+        self, data: bytes, filename: str, max_bytes: int, sheet: str | None = None
+    ) -> tuple[Any, str]: ...
+
+    def excel_sheets_bytes(self, data: bytes, filename: str) -> list[str]: ...
+
     def parse_pasted(self, text: str, max_bytes: int) -> Any: ...
 
     def query_table(self, cursor: Any, sql: str) -> Any: ...
@@ -235,6 +241,24 @@ class DatasetService:
         """The sheet names of a workbook, so VS Code can ask which to load."""
         self._refuse_own_file(path)
         return {"sheets": await self.ws.workers.run(BACKGROUND, self._reader.excel_sheets, path)}
+
+    async def load_dropped(
+        self, name: str, data: bytes, filename: str, sheet: str | None, who: str
+    ) -> dict[str, Any]:
+        """A file dropped on the page: its bytes (the browser never gives its path), read in memory
+        as Open file reads a path; nothing is written to disk."""
+        ws = self.ws
+        table, kind = await ws.workers.run(
+            BACKGROUND, self._reader.load_bytes, data, filename, ws.settings.max_dataset_bytes, sheet
+        )
+        result = await self.store_table(name, table, kind, True, who)
+        ws.audit.write(who, "load_file", name, file=filename, sheet=sheet)
+        return result
+
+    async def dropped_sheets(self, data: bytes, filename: str) -> dict[str, Any]:
+        """A dropped workbook's sheet names, so the page can ask which to open."""
+        sheets = await self.ws.workers.run(BACKGROUND, self._reader.excel_sheets_bytes, data, filename)
+        return {"sheets": sheets}
 
     async def paste(self, name: str, text: str, who: str) -> dict[str, Any]:
         ws = self.ws

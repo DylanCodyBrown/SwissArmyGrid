@@ -87,3 +87,34 @@ def test_the_routes_list_sheets_and_load_one(client: TestClient, tmp_path: Path)
     assert loaded.status_code == 200, loaded.text
     rows = client.get(f"/grids/{loaded.json()['grid']}/rows", headers=AUTH).json()["rows"]
     assert [r[0] for r in rows] == [2, 3]
+
+
+def test_a_dropped_file_opens_from_its_bytes_and_a_workbook_lists_its_sheets(client: TestClient) -> None:
+    import io
+
+    from openpyxl import Workbook
+
+    csv = b"order_id,region\n1,North\n2,South\n"
+    opened = client.post("/datasets/orders/drop?filename=orders.csv", content=csv, headers=AUTH)
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["dataset"] == "orders" and opened.json()["grid"]
+    assert client.get("/datasets", headers=AUTH).json()["datasets"][0]["rows"] == 2
+    book = Workbook()
+    book.active.title = "Jan"
+    book.active.append(["region", "sales"])
+    book.active.append(["North", 10])
+    feb = book.create_sheet("Feb")
+    feb.append(["region", "sales"])
+    feb.append(["South", 7])
+    sink = io.BytesIO()
+    book.save(sink)
+    data = sink.getvalue()
+    sheets = client.post("/files/dropped-sheets?filename=sales.xlsx", content=data, headers=AUTH)
+    assert sheets.json() == {"sheets": ["Jan", "Feb"]}
+    for sheet in ("Jan", "Feb"):
+        one = client.post(
+            f"/datasets/sales_{sheet}/drop?filename=sales.xlsx&sheet={sheet}", content=data, headers=AUTH
+        )
+        assert one.status_code == 200 and one.json()["dataset"] == f"sales_{sheet}"
+    refused = client.post("/datasets/notes/drop?filename=notes.docx", content=b"made-up", headers=AUTH)
+    assert refused.status_code == 400 and ".docx" in refused.text
