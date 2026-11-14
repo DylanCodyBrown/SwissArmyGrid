@@ -676,3 +676,23 @@ An agent drove every area of the app in a browser with made-up data against two 
 20. Relationships: the diagram fits the window when drawn plus a Fit button; Key Finder rows get "Compare on these" and "Add as relationship"; one name for the relationship file everywhere: "Import relationships".
 
 Bugs: fix all 11 (Workbench: SQL error panel "s.notes is not iterable", new SQL cell's connection box; Connections: empty-Name Test message, stale "Not installed" note on a vault; Compare and relationships: Diff jump scrolls only the left, Find relationships includes closed tables and both directions of a pair, Key Finder crowns ship_date over order_date, compare lost on reload, wrong key pre-ticked; Server: stop lingers and crashes on open long-polls). Kernels of a closed Workbench window stop a minute after it closes.
+
+## Tables managed behind the scenes: Apply and the code behind (2026-11-14, the owner's call)
+
+"Tables should be managed behind the scene and the variables pane can be used to track tables. With an
+apply transformation button that updates the variables. Then the variable used in the workbench just
+reflects what is in the variable pane as code behind." Today a grid's steps reach Python only through
+Copy as SQL, Copy as Python and To Python, and To Python does not work in a Workbench cell. Decided:
+
+- **Steps stay live.** The app keeps each table's original behind the scenes. Apply sets the variable
+  to the original plus the grid's current steps (DuckDB SQL); the grid keeps its steps, so removing one
+  and applying again recomputes from the original (Power Query's Close and Apply). An applied write is
+  not new data: the kernel's watcher must not push it back as a new original, or the steps would apply
+  twice.
+- **Apply lives in the Workbench's Variables pane,** on each table's row beside its code behind (the
+  SQL that makes it).
+- **A table that did not come from Python** (a file, a paste, a connection) is applied into the
+  Workbench document in front, as a variable named after the table.
+- **The steps strip loses Copy as SQL, Copy as Python and To Python.** Each table's code behind has
+  Copy as SQL and Copy as Python, for tools outside the app; To Python and its queue go.
+- The golden rule: Apply and the code behind get their agent commands in the same change.
