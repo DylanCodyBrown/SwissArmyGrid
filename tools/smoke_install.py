@@ -63,6 +63,29 @@ def run_code(info: dict[str, Any], kernel: str, code: str) -> list[dict[str, Any
         return [json.loads(line) for line in response.read().decode().splitlines() if line.strip()]
 
 
+def pages_load_whole(info: dict[str, Any]) -> None:
+    """Every page's stylesheets, scripts and lazy editors' styles are in the installed wheel. (The
+    Workbench linked a stylesheet only an old build had left behind: a clean build's wheel lacked it.)"""
+    base = f"http://127.0.0.1:{info['port']}"
+    headers = {"Authorization": f"Bearer {info['token']}"}
+    linked: set[str] = {"/static/build/lazy/codeEditor.css", "/static/build/lazy/sqlEditor.css"}
+    for page in ("/workbench", "/catalog", "/g/smoke"):  # /g/<any id> serves the grid page
+        request = urllib.request.Request(base + page, headers=headers)  # noqa: S310 (fixed local URL)
+        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 (fixed local URL)
+            html = response.read().decode("utf-8")
+        linked |= set(re.findall(r'(?:href|src)="(/static/[^"]+)"', html))
+    missing = []
+    for path in sorted(linked):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(base + path, headers=headers), timeout=30):  # noqa: S310
+                pass
+        except urllib.error.HTTPError as error:
+            missing.append(f"{path} ({error.code})")
+    if missing:
+        sys.exit("The pages link files the wheel does not have: " + ", ".join(missing))
+    print(f"Every page's {len(linked)} linked files are served.")
+
+
 def workbench(info: dict[str, Any]) -> None:
     """The Workbench on the installed server: a kernel in its own Python runs code, a failed run comes
     with the error panel's explanation, and Send to the agent reaches the prompt hook."""
@@ -211,6 +234,7 @@ def main() -> None:
         if sag.paste() != "print('smoke')":
             sys.exit("sag.paste() did not take the queued code.")
         print("To Python queues code and sag.paste() takes it.")
+        pages_load_whole(info)
         workbench(info)
     finally:
         subprocess.run([command, "stop"], check=False)

@@ -1249,9 +1249,10 @@ def test_the_grid_scrolls_freely_through_a_column_wider_than_the_view(
     note_width = page.locator(".ag-header-cell[col-id='note']").evaluate("e => e.clientWidth")
     assert note_width > view_width, (view_width, note_width)
     # Over the grid's body wherever the layout puts it (a fixed point was off the grid on a slow start).
-    body = page.locator(".ag-body-viewport").bounding_box()
-    assert body
-    page.mouse.move(body["x"] + body["width"] / 2, body["y"] + body["height"] / 2)
+    across = viewport.bounding_box()  # the scroll bar spans the grid's width
+    row = page.locator(".ag-row").first.bounding_box()
+    assert across and row
+    page.mouse.move(across["x"] + across["width"] / 2, row["y"] + row["height"] / 2)
 
     def settles_at(wanted: int) -> bool:
         """The scroll arrives at `wanted` and stays there (an old snapping pulled it back after 300 ms)."""
