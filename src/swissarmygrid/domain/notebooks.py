@@ -5,6 +5,11 @@ A notebook here is a list of cells, each code (Python), sql (run on a connection
 the outputs a run gave (kept as nbformat's own output records). In the file, a SQL cell is a code cell
 that starts with its `%%sql <connection>` line (any Jupyter with SwissArmyGrid runs it as it is), marked
 so the Workbench opens it as a SQL cell again.
+
+Every cell has a number that never changes (docs/ideas.md, 2026-11-14): given when the cell is made,
+never reused or shifted when cells move or go. It is kept in the cell's metadata, with the cell's part
+in the Tables group (domain/table_cells.py): the group's heading, a table's heading, the user's cell
+that makes a table, the imports the tables need, a table's read-only transformations.
 """
 
 from __future__ import annotations
@@ -20,6 +25,8 @@ MAX_CELLS: int = 2_000
 MAX_CELL_CHARS: int = 1_000_000
 MAX_OUTPUTS_PER_CELL: int = 200
 KINDS: tuple[str, ...] = ("code", "sql", "markdown")
+ROLES: tuple[str, ...] = ("", "tables", "table", "maker", "imports", "transformations")
+MAX_STEPS_CHARS: int = 200_000
 _SQL_LINE = re.compile(r"^%%(?:sql|sag)\b(?!_)")
 
 
@@ -34,6 +41,13 @@ class Cell:
     connection: str | None = None  # a SQL cell's connection (None: the %sql_connect one)
     outputs: list[dict[str, Any]] = field(default_factory=list)
     execution_count: int | None = None
+    number: int | None = None  # the cell's own number: never changes, never reused
+    role: str = ""  # its part in the Tables group (ROLES); "" for a cell of the user's own
+    table: str | None = None  # the table a heading, a maker or a transformations cell belongs to
+    grouped: bool = False  # it sits in the Tables group
+    # A transformations cell's steps as the grid holds them, so the grid gets them back when the
+    # table is opened again.
+    steps: list[Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -42,7 +56,29 @@ class Cell:
             "connection": self.connection,
             "outputs": self.outputs,
             "execution_count": self.execution_count,
+            "number": self.number,
+            "role": self.role,
+            "table": self.table,
+            "grouped": self.grouped,
+            "steps": self.steps,
         }
+
+    def marks(self) -> dict[str, Any]:
+        """What the file keeps about the cell beside its text (the notebook's `swissarmygrid` metadata)."""
+        kept: dict[str, Any] = {}
+        if self.kind == "sql":
+            kept |= {"kind": "sql", "connection": self.connection}
+        if self.number is not None:
+            kept["number"] = self.number
+        if self.role:
+            kept["role"] = self.role
+        if self.table:
+            kept["table"] = self.table
+        if self.grouped:
+            kept["grouped"] = True
+        if self.steps is not None and self.role == "transformations":
+            kept["steps"] = self.steps
+        return kept
 
 
 def sql_line(connection: str | None) -> str:
@@ -71,8 +107,44 @@ def _lines(text: str) -> list[str]:
     return text.splitlines(keepends=True)
 
 
+def _marked(cell: Cell, raw: dict[str, Any]) -> Cell:
+    """A cell with what the file keeps about it: its number and its part in the Tables group."""
+    marks = (raw.get("metadata") or {}).get("swissarmygrid")
+    if not isinstance(marks, dict):
+        return cell
+    number = marks.get("number")
+    if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+        cell.number = number
+    if marks.get("role") in ROLES:
+        cell.role = str(marks["role"])
+    if isinstance(marks.get("table"), str):
+        cell.table = marks["table"]
+    cell.grouped = marks.get("grouped") is True
+    if isinstance(marks.get("steps"), list) and cell.role == "transformations":
+        cell.steps = marks["steps"]
+    return cell
+
+
+def number_cells(cells: list[Cell], next_number: int = 1) -> int:
+    """Give each cell without a number (or with an earlier cell's) the next one; the next after that.
+    A number is never reused: `next_number` is the file's own count of the numbers given so far."""
+    seen: set[int] = set()
+    highest = max([next_number - 1, *(c.number for c in cells if c.number is not None)])
+    for cell in cells:
+        if cell.number is None or cell.number in seen:
+            highest += 1
+            cell.number = highest
+        seen.add(cell.number)
+    return highest + 1
+
+
 def read_notebook(text: str) -> list[Cell]:
-    """The cells of an .ipynb file's text (nbformat 4)."""
+    """The cells of an .ipynb file's text (nbformat 4), each with its number."""
+    return read_document(text)[0]
+
+
+def read_document(text: str) -> tuple[list[Cell], int]:
+    """A notebook's cells, and the number its next new cell gets."""
     try:
         data = json.loads(text)
     except ValueError as error:
@@ -90,7 +162,7 @@ def read_notebook(text: str) -> list[Cell]:
         source = _text(raw.get("source"))
         kind = raw.get("cell_type")
         if kind == "markdown":
-            cells.append(Cell("markdown", source))
+            cells.append(_marked(Cell("markdown", source), raw))
         elif kind == "code":
             first, _, rest = source.partition("\n")
             marked = (raw.get("metadata") or {}).get("swissarmygrid", {}).get("kind") == "sql"
@@ -111,10 +183,12 @@ def read_notebook(text: str) -> list[Cell]:
             )
             count = raw.get("execution_count")
             cell.execution_count = count if isinstance(count, int) else None
-            cells.append(cell)
+            cells.append(_marked(cell, raw))
         elif kind == "raw":
-            cells.append(Cell("markdown", source))
-    return cells
+            cells.append(_marked(Cell("markdown", source), raw))
+    kept = (data.get("metadata") or {}).get("swissarmygrid")
+    counted = kept.get("next_cell") if isinstance(kept, dict) else None
+    return cells, number_cells(cells, counted if isinstance(counted, int) and counted > 0 else 1)
 
 
 def read_cells(sent: Any) -> list[Cell]:
@@ -137,6 +211,16 @@ def read_cells(sent: Any) -> list[Cell]:
         if not isinstance(outputs, list) or not all(isinstance(o, dict) for o in outputs):
             raise NotebookError("A cell's outputs are a list of output records.")
         count = raw.get("execution_count")
+        number = raw.get("number")
+        if number is not None and (isinstance(number, bool) or not isinstance(number, int) or number < 1):
+            raise NotebookError("A cell's number is a whole number from 1.")
+        role = raw.get("role") or ""
+        table = raw.get("table")
+        if role not in ROLES or (table is not None and (not isinstance(table, str) or len(table) > 64)):
+            raise NotebookError("A cell's role is one of the Tables group's, and its table a table's name.")
+        steps = raw.get("steps")
+        if steps is not None and (not isinstance(steps, list) or len(json.dumps(steps)) > MAX_STEPS_CHARS):
+            raise NotebookError("A table cell's steps are a list of the grid's steps.")
         cells.append(
             Cell(
                 str(raw["kind"]),
@@ -144,27 +228,32 @@ def read_cells(sent: Any) -> list[Cell]:
                 connection or None,
                 outputs[:MAX_OUTPUTS_PER_CELL] if raw["kind"] != "markdown" else [],
                 count if isinstance(count, int) else None,
+                number,
+                role,
+                table or None,
+                raw.get("grouped") is True,
+                steps,
             )
         )
     return cells
 
 
-def write_notebook(cells: list[Cell], python_version: str = "3") -> str:
-    """The cells as an .ipynb file's text (nbformat 4.5)."""
+def write_notebook(cells: list[Cell], python_version: str = "3", next_number: int | None = None) -> str:
+    """The cells as an .ipynb file's text (nbformat 4.5). Each cell's number is in its metadata, and
+    the notebook's keeps the next number to give, so a deleted cell's number is never given again."""
+    following = number_cells(cells, next_number or 1)
     out: list[dict[str, Any]] = []
     for i, cell in enumerate(cells):
-        base: dict[str, Any] = {"id": f"cell-{i + 1}", "metadata": {}}
+        marks = cell.marks()
+        metadata = {"swissarmygrid": marks} if marks else {}
+        base: dict[str, Any] = {"id": f"cell-{i + 1}", "metadata": metadata}
         if cell.kind == "markdown":
             out.append(base | {"cell_type": "markdown", "source": _lines(cell.source)})
             continue
-        metadata = (
-            {"swissarmygrid": {"kind": "sql", "connection": cell.connection}} if cell.kind == "sql" else {}
-        )
         out.append(
             base
             | {
                 "cell_type": "code",
-                "metadata": metadata,
                 "source": _lines(code_of(cell)),
                 "outputs": cell.outputs,
                 "execution_count": cell.execution_count,
@@ -175,6 +264,7 @@ def write_notebook(cells: list[Cell], python_version: str = "3") -> str:
         "metadata": {
             "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
             "language_info": {"name": "python", "version": python_version},
+            "swissarmygrid": {"next_cell": following},
         },
         "nbformat": 4,
         "nbformat_minor": 5,

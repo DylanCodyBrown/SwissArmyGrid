@@ -132,8 +132,16 @@ class Workbench:
         # Its environment: the one chosen for it before, else a .venv beside it.
         python = self._documents.environment(full) or self._kernels.beside(self._folder_of(full))
         if kind == "notebook":
-            cells = [c.to_json() for c in rules.read_notebook(text)]
-            return {"path": full, "kind": kind, "modified": modified, "cells": cells, "python": python}
+            read, next_cell = rules.read_document(text)
+            cells = [c.to_json() for c in read]
+            return {
+                "path": full,
+                "kind": kind,
+                "modified": modified,
+                "cells": cells,
+                "python": python,
+                "next_cell": next_cell,  # the number the next new cell gets (never one used before)
+            }
         return {"path": full, "kind": kind, "modified": modified, "text": text, "python": python}
 
     def save(self, body: Any) -> dict[str, Any]:
@@ -144,7 +152,11 @@ class Workbench:
         path = body["path"]
         kind = rules.kind_of(path)
         if kind == "notebook":
-            text = rules.write_notebook(rules.read_cells(body.get("cells")))
+            following = body.get("next_cell")
+            text = rules.write_notebook(
+                rules.read_cells(body.get("cells")),
+                next_number=following if isinstance(following, int) and following > 0 else None,
+            )
         else:
             script = body.get("text")
             if not isinstance(script, str) or len(script) > rules.MAX_CELL_CHARS * 5:
