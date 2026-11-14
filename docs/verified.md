@@ -444,3 +444,8 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   answered 200, a second press reused it; the MCP command it registers (the tool's Python, -m
   swissarmygrid.mcp.server) answered initialize and listed 177 tools. Not run: inside a real VS Code
   (needs a VS Code download).
+- (2026-11-14) The release workflow by hand on the branch (run 22; off main nothing publishes, and the
+  release and PyPI jobs were skipped): the checks, the tests and the extension's tests passed, the wheel
+  and the 1.7.0 .vsix built, and the installers installed the 1.7.0b1 wheel as a uv tool on Linux and
+  macOS (install.sh) and Windows (install.ps1); on each the smoke test passed, the Workbench's kernel,
+  the error panel, Send to the agent through the prompt hook and every page's linked files included.
