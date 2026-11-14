@@ -15,6 +15,8 @@ from swissarmygrid.domain import notebooks as rules
 from swissarmygrid.services.workspace import Conflict, NotFound, Workspace
 
 MAX_KERNELS: int = 12
+# How long a kernel outlives the Workbench window that started it (a reload or a slip keeps it a minute).
+ORPHAN_SECONDS: float = 60.0
 
 
 class Documents(Protocol):
@@ -106,6 +108,9 @@ class Workbench:
         # secret names them only when it runs, and the Variables pane lists them.
         self._vault_names: set[str] = set()
         self._running: dict[str, Kernel] = {}
+        # The Workbench window that started each kernel, and since when that window has been gone.
+        self._owner: dict[str, str] = {}
+        self._gone_since: dict[str, float] = {}
 
     # ===== files =====
 
@@ -227,6 +232,9 @@ class Workbench:
         kernel = await self._kernels.start(str(python), folder, dict(self._environ) | from_vaults)
         kernel_id = tokens.token_hex(6)
         self._running[kernel_id] = kernel
+        window = body.get("window")
+        if isinstance(window, str) and 0 < len(window) <= 64:
+            self._owner[kernel_id] = window  # the agent's kernels have none: they stop when it says
         self.ws.audit.write("user", "start_kernel", str(python))
         self._vault_names |= set(from_vaults)
         if from_vaults:
@@ -285,6 +293,25 @@ class Workbench:
                 yield item
 
         return run()
+
+    async def stop_orphans(self, open_windows: set[str]) -> list[str]:
+        """Stop each kernel whose Workbench window has been gone (closed, or reloaded into a new one)
+        for ORPHAN_SECONDS: the owner's call, 2026-11-14, so a reload or a slip keeps the variables a
+        minute. A kernel no window started (the agent's) is left alone. The kernels stopped."""
+        stopped: list[str] = []
+        now = self._now()
+        for kernel_id, window in list(self._owner.items()):
+            if kernel_id not in self._running:
+                self._owner.pop(kernel_id, None)
+                self._gone_since.pop(kernel_id, None)
+            elif window in open_windows:
+                self._gone_since.pop(kernel_id, None)
+            elif now - self._gone_since.setdefault(kernel_id, now) >= ORPHAN_SECONDS:
+                await self.stop(kernel_id)
+                self._owner.pop(kernel_id, None)
+                self._gone_since.pop(kernel_id, None)
+                stopped.append(kernel_id)
+        return stopped
 
     async def _prune(self) -> None:
         """Drop the kernels that died (out of memory, os._exit) without saying so."""

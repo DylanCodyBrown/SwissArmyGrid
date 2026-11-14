@@ -41,6 +41,9 @@ export interface RunBody {
 /** An item of a run's stream: an output record, or the kernel asking for a line. */
 export type RunItem = Output & { input_request?: { prompt: string; password: boolean } };
 
+/** This window, for this page load: its kernels stop a minute after it is gone (closed or reloaded). */
+export const WINDOW_ID: string = Math.random().toString(36).slice(2, 12);
+
 export class Kernel {
   id: string | null = null;
   python = "";
@@ -64,7 +67,7 @@ export class Kernel {
     if (this.id) return this.id;
     this.set("starting");
     try {
-      const started = await api<{ kernel: string; python: string; vaults?: { set: string[]; problems: string[] } }>("/workbench/kernels", "POST", { python: this.chosenPython(), path: this.path() });
+      const started = await api<{ kernel: string; python: string; vaults?: { set: string[]; problems: string[] } }>("/workbench/kernels", "POST", { python: this.chosenPython(), path: this.path(), window: WINDOW_ID });
       // A vault that could not be read: the kernel started without its variables.
       for (const problem of started.vaults?.problems ?? []) toast(problem, "error");
       this.id = started.kernel;

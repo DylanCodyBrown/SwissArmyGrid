@@ -323,3 +323,24 @@ def test_heartbeats_stay_out_of_the_access_log() -> None:
     assert quiet.filter(_access_record("/processes/abc/requests?wait=25")) is False
     assert quiet.filter(_access_record("/datasets/SOD")) is True
     assert quiet.filter(_access_record("/processes")) is True  # the page opening the list is still logged
+
+
+def test_stopping_the_server_answers_every_waiting_listener_at_once() -> None:
+    import time
+
+    registry = ProcessRegistry()
+    registry.sync("p" * 32, "made-up notebook", 1, [])
+
+    async def scenario() -> tuple[float, float]:
+        waiting = asyncio.create_task(registry.wait_requests("p" * 32, 25))
+        await asyncio.sleep(0.05)
+        started = time.monotonic()
+        registry.release_all()  # what a stop does first
+        assert await waiting == []
+        first = time.monotonic() - started
+        started = time.monotonic()
+        assert await registry.wait_requests("p" * 32, 25) == []  # and none waits again
+        return first, time.monotonic() - started
+
+    first, again = asyncio.run(scenario())
+    assert first < 1 and again < 1  # not the 25 seconds asked (a stop once waited out every listener)

@@ -91,6 +91,7 @@ class ProcessRegistry:
         self._ttl = ttl_seconds
         self._clock = clock
         self._sessions: dict[str, _Session] = {}
+        self._closing = False  # the server is stopping: no listener waits any more
 
     # ===== presence =====
 
@@ -169,7 +170,7 @@ class ProcessRegistry:
         if not self.touch(process_id):
             return []
         session = self._sessions[process_id]
-        if not session.requests and wait > 0:
+        if not session.requests and wait > 0 and not self._closing:
             event = asyncio.Event()  # a fresh one per wait, so it never belongs to a finished loop
             session.waiters.append(event)
             try:
@@ -181,6 +182,15 @@ class ProcessRegistry:
                     session.waiters.remove(event)
         taken, session.requests = session.requests, []
         return taken
+
+    def release_all(self) -> None:
+        """The server is stopping: every listener waiting for a request answers now (empty), and none
+        waits again. Otherwise each open wait held the stop up to its time limit and was then cancelled
+        (a traceback each, and with several kernels open a crash on the way out)."""
+        self._closing = True
+        for session in self._sessions.values():
+            for event in session.waiters:
+                event.set()
 
     # ===== what a session keeps current =====
 
@@ -245,6 +255,10 @@ class Sessions:
 
     def _open(self, name: str) -> bool:
         return self._store.get(name) is not None
+
+    def release_waiters(self) -> None:
+        """The server is stopping: the sessions' listeners answer now."""
+        self.registry.release_all()
 
     async def sync(self, process_id: str, body: Any) -> dict[str, Any]:
         """A session's report: label, pid, tables. Replies with the datasets it keeps current."""

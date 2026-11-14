@@ -40,6 +40,7 @@ class LiveUpdates:
         # Open Workbench windows, the one the user was last in at the end: the agent's
         # workbench_window commands go to it.
         self._workbenches: list[WebSocket] = []
+        self._window_of: dict[WebSocket, str] = {}  # a Workbench window's id (its kernels carry it)
         # When a caller was last told to open a window, until that window connects.
         self._window_promised: float | None = None
         # The VS Code windows, the one the user was last in at the end.
@@ -54,10 +55,13 @@ class LiveUpdates:
         workspace: bool = False,
         opener: bool = False,
         workbench: bool = False,
+        window: str | None = None,
     ) -> None:
         self._sockets.add(websocket)
         if workbench:
             self._workbenches.append(websocket)
+            if window:
+                self._window_of[websocket] = window
         if grid:
             self._grid_of[websocket] = grid
         if workspace:
@@ -69,6 +73,7 @@ class LiveUpdates:
     def discard(self, websocket: WebSocket) -> None:
         self._sockets.discard(websocket)
         self._grid_of.pop(websocket, None)
+        self._window_of.pop(websocket, None)
         self._workspaces.discard(websocket)
         if websocket in self._workbenches:
             self._workbenches.remove(websocket)
@@ -98,6 +103,10 @@ class LiveUpdates:
     def workspace_open(self) -> bool:
         """True when a workspace window is open (it shows every grid as a tab)."""
         return any(ws in self._sockets for ws in self._workspaces)
+
+    def workbench_windows(self) -> set[str]:
+        """The ids of the Workbench windows open now (a kernel started by one stops after it is gone)."""
+        return {w for ws, w in self._window_of.items() if ws in self._sockets}
 
     def workbench_open(self) -> bool:
         """True when a Workbench window is connected."""

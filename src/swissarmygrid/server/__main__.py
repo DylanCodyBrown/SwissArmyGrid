@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from types import FrameType
 
 import uvicorn
 
@@ -48,6 +49,22 @@ from swissarmygrid.settings import Settings
 
 # Long enough to ride out a window reload (the extension reconnects within a few seconds).
 VSCODE_GONE_SECONDS: float = 30.0
+
+
+class _Server(uvicorn.Server):
+    """uvicorn's server, but a stop by signal (Ctrl+C, the system shutting down) first lets the waiting
+    listeners answer, as `swissarmygrid stop` does."""
+
+    def __init__(self, config: uvicorn.Config, on_exit: Callable[[], None]) -> None:
+        super().__init__(config)
+        self._on_exit = on_exit
+
+    def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+        try:
+            self._on_exit()
+        except Exception:  # noqa: S110 (never in the way of stopping)
+            pass
+        super().handle_exit(sig, frame)
 
 
 def main() -> None:
@@ -104,7 +121,13 @@ def start(port: int | None) -> None:
 
     server: uvicorn.Server | None = None
 
+    def release() -> None:
+        # Every waiting listener (each Workbench kernel and Python session has one) answers now, so
+        # the stop never waits on them.
+        app.state.ctx.sessions.release_waiters()
+
     def stop_soon() -> None:
+        release()
         if server is not None:
             server.should_exit = True
 
@@ -112,7 +135,7 @@ def start(port: int | None) -> None:
     config = uvicorn.Config(app, log_level="info", timeout_graceful_shutdown=3)
     # uvicorn has set up its loggers by now; keep the sessions' heartbeats out of the access log.
     logging.getLogger("uvicorn.access").addFilter(QuietHeartbeats())
-    server = uvicorn.Server(config)
+    server = _Server(config, release)
 
     on_exit(lambda: remove_info_file(path, token))
     remember_port(settings.state_dir / "last_port", actual_port)

@@ -92,6 +92,7 @@ def create_app(
             opener=websocket.query_params.get("opener") == "1",
             # A Workbench window: the agent's workbench_window commands go to it.
             workbench=websocket.query_params.get("workbench") == "1",
+            window=websocket.query_params.get("window"),
         )
         try:
             while True:
@@ -124,6 +125,8 @@ def create_app(
         while True:
             await asyncio.sleep(PRUNE_EVERY_SECONDS)
             await ctx.sessions.drop_silent()
+            # A Workbench window closed (or reloaded) a minute ago: its kernels stop.
+            await ctx.workbench.stop_orphans(ctx.live.workbench_windows())
 
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:

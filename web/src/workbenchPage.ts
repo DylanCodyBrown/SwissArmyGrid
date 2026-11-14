@@ -40,7 +40,7 @@ import type { Fix } from "./workbenchErrors";
 import { mountLayout } from "./workbenchLayout";
 import { setDocumentName } from "./workbenchAgent";
 import { variablesPanel } from "./workbenchVariables";
-import { Kernel } from "./workbenchKernel";
+import { Kernel, WINDOW_ID } from "./workbenchKernel";
 import { type CellData, notebookView, type NotebookView } from "./workbenchNotebook";
 import { scriptView, type ScriptView } from "./workbenchScript";
 
@@ -829,7 +829,7 @@ connect((live) => {
   if (!live) return;
   void loadApprovals(); // an agent's request (a new blade, say) asks here too
   if (document.hasFocus()) tellFocus();
-}, { catalog: "1", workbench: "1" });
+}, { catalog: "1", workbench: "1", window: WINDOW_ID });
 // The agent's workbench_window goes to the Workbench window the user was last in.
 window.addEventListener("focus", tellFocus);
 onNotice((notice) => {

@@ -838,3 +838,25 @@ def test_a_sql_cells_error_reads_like_a_python_one() -> None:
     assert set(sql) == set(python)  # every field the panel reads (it once failed on a missing "notes")
     [entry] = errors.explain_detail({"chain": [sql]})["chain"]
     assert entry["notes"] == [] and entry["group"] == [] and isinstance(entry["fixes"], list)
+
+
+def test_a_closed_windows_kernels_stop_a_minute_later(client: TestClient) -> None:
+    ctx = client.app.state.ctx  # type: ignore[attr-defined]
+    mine = client.post("/workbench/kernels", json={"window": "made-up-window"}, headers=AUTH).json()
+    agents = client.post("/workbench/kernels", json={}, headers=AGENT).json()  # no window: never orphaned
+    try:
+        portal = client.portal
+        assert portal is not None  # the client is open (the fixture's with)
+        # The window is open: nothing stops.
+        assert portal.call(ctx.workbench.stop_orphans, {"made-up-window"}) == []
+        # It closed: nothing yet (a reload or a slip keeps the variables a minute) ...
+        assert portal.call(ctx.workbench.stop_orphans, set()) == []
+        clock = ctx.workbench._now
+        ctx.workbench._now = lambda: clock() + 61
+        # ... a minute on, its kernel stops; the agent's does not.
+        assert portal.call(ctx.workbench.stop_orphans, set()) == [mine["kernel"]]
+        assert run(client, agents["kernel"], "1 + 1")[0]["data"]["text/plain"] == "2"
+        gone = client.post(f"/workbench/kernels/{mine['kernel']}/execute", json={"code": "1"}, headers=AUTH)
+        assert gone.status_code == 404
+    finally:
+        client.delete(f"/workbench/kernels/{agents['kernel']}", headers=AUTH)
