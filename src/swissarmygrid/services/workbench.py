@@ -8,6 +8,7 @@ import secrets as tokens
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any, Protocol
 
+from swissarmygrid.domain import environments as envs
 from swissarmygrid.domain import notebooks as rules
 from swissarmygrid.services.workspace import Conflict, NotFound, Workspace
 
@@ -26,6 +27,10 @@ class Documents(Protocol):
     def recent(self) -> list[dict[str, Any]]: ...
 
     def remember(self, path: str, when: float) -> None: ...
+
+    def environment(self, path: str) -> str | None: ...
+
+    def remember_environment(self, path: str, python: str) -> None: ...
 
 
 class Kernel(Protocol):
@@ -50,6 +55,12 @@ class Kernels(Protocol):
     def check_python(self, python: str) -> dict[str, Any]: ...
 
     def candidates(self, folders: list[str]) -> list[str]: ...
+
+    def create_environment(
+        self, folder: str, version: str | None, packages: list[str]
+    ) -> AsyncIterator[dict[str, Any]]: ...
+
+    def beside(self, folder: str) -> str | None: ...
 
 
 class Workbench:
@@ -86,10 +97,12 @@ class Workbench:
             raise NotFound(str(error)) from None
         self._documents.remember(full, self._now())
         self.ws.audit.write("user", "open_document", full)
+        # Its environment: the one chosen for it before, else a .venv beside it.
+        python = self._documents.environment(full) or self._kernels.beside(self._folder_of(full))
         if kind == "notebook":
             cells = [c.to_json() for c in rules.read_notebook(text)]
-            return {"path": full, "kind": kind, "modified": modified, "cells": cells}
-        return {"path": full, "kind": kind, "modified": modified, "text": text}
+            return {"path": full, "kind": kind, "modified": modified, "cells": cells, "python": python}
+        return {"path": full, "kind": kind, "modified": modified, "text": text, "python": python}
 
     def save(self, body: Any) -> dict[str, Any]:
         """Save a notebook's cells or a script's text. A file changed on disk since it was opened is not
@@ -121,6 +134,40 @@ class Workbench:
         self._documents.remember(full, self._now())
         self.ws.audit.write("user", "save_document", full)
         return {"path": full, "modified": modified}
+
+    # ===== environments: a notebook's own Python =====
+
+    def environments(self) -> dict[str, Any]:
+        """What the New environment dialog offers: libraries by group, presets, Python versions."""
+        return envs.catalog()
+
+    def create_environment(self, body: Any) -> AsyncIterator[dict[str, Any]]:
+        """Make a virtual environment with the kernel and the libraries chosen; its progress as it goes.
+        When done, it is remembered for the document named in `body["document"]` (if any)."""
+        folder, version, packages = envs.check_request(body)
+        document = body.get("document") if isinstance(body.get("document"), str) else None
+        self.ws.audit.write("user", "create_environment", f"{folder} ({', '.join(packages)})")
+
+        async def run() -> AsyncIterator[dict[str, Any]]:
+            async for event in self._kernels.create_environment(folder, version, packages):
+                done = event.get("done")
+                if done and done.get("ok") and document:
+                    self._documents.remember_environment(document, str(done["python"]))
+                yield event
+
+        return run()
+
+    def choose_environment(self, body: Any) -> dict[str, Any]:
+        """Remember the Python chosen for a document (the Workbench's Python picker)."""
+        if (
+            not isinstance(body, dict)
+            or not isinstance(body.get("path"), str)
+            or not isinstance(body.get("python"), str)
+        ):
+            raise ValueError('Send {"path": "the document", "python": "its Python"}.')
+        checked = self._kernels.check_python(body["python"])
+        self._documents.remember_environment(body["path"], str(checked["python"]))
+        return checked
 
     # ===== kernels =====
 

@@ -199,3 +199,65 @@ def test_the_agent_is_refused(client: TestClient) -> None:
         ("DELETE", "/workbench/kernels/abc"),
     ):
         assert client.request(method, path, headers=AGENT, json={}).status_code == 403, path
+
+
+def test_a_new_environment_is_checked_and_a_documents_python_remembered(
+    client: TestClient, tmp_path: Path
+) -> None:
+    from swissarmygrid.domain import environments
+
+    offered = client.get("/workbench/environments", headers=AUTH).json()
+    assert "pandas" in offered["presets"]["Data analysis"] and "3.12" in offered["versions"]
+    assert {
+        "pip": "pandas",
+        "label": "pandas",
+        "group": "Data",
+        "imports": "import pandas as pd",
+        "note": "tables (DataFrames)",
+    } in offered["libraries"]
+    _folder, version, packages = environments.check_request(
+        {
+            "folder": str(tmp_path / ".venv"),
+            "python": "3.12",
+            "packages": ["pandas", "psycopg[binary]", "pandas"],
+        }
+    )
+    assert version == "3.12" and packages == ["ipykernel", "pandas", "psycopg[binary]"]
+    assert environments.import_lines(["duckdb", "pyodbc", "pandas"]) == [
+        "import pandas as pd",
+        "import duckdb",
+    ]
+    # Refused before anything runs: a bad package name, an unknown version; an existing folder says so.
+    bad = client.post(
+        "/workbench/environments",
+        json={"folder": str(tmp_path / "env"), "packages": ["pandas; rm -rf /"]},
+        headers=AUTH,
+    )
+    assert bad.status_code == 400
+    assert (
+        client.post(
+            "/workbench/environments", json={"folder": str(tmp_path / "env"), "python": "2.7"}, headers=AUTH
+        ).status_code
+        == 400
+    )
+    there = client.post("/workbench/environments", json={"folder": str(tmp_path)}, headers=AUTH)
+    assert there.status_code == 200 and "already there" in there.text
+    # A document's Python: remembered when chosen, and a .venv beside a document is found by itself.
+    book = tmp_path / "analysis.ipynb"
+    client.post("/workbench/save", json={"path": str(book), "cells": []}, headers=AUTH)
+    assert client.post("/workbench/open", json={"path": str(book)}, headers=AUTH).json()["python"] is None
+    beside = tmp_path / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    beside.parent.mkdir(parents=True)
+    beside.symlink_to(sys.executable)
+    assert client.post("/workbench/open", json={"path": str(book)}, headers=AUTH).json()["python"] == str(
+        beside
+    )
+    chosen = client.post(
+        "/workbench/environment", json={"path": str(book), "python": sys.executable}, headers=AUTH
+    )
+    assert chosen.status_code == 200, chosen.text
+    assert (
+        client.post("/workbench/open", json={"path": str(book)}, headers=AUTH).json()["python"]
+        == chosen.json()["python"]
+    )
+    assert client.post("/workbench/environments", json={}, headers=AGENT).status_code == 403

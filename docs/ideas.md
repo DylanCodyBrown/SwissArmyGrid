@@ -257,13 +257,17 @@ white, white text on it 5.9:1), `#ff6b73` in dark (with dark text on red buttons
 - **Open:** keep the old blue as a "Classic" theme in Settings if anyone misses it; the user guide's
   screenshots still show blue.
 
-## Connections, the SQL cell and the Workbench (2026-11-13, the owner's requests; phases 1 and 2 built)
+## Connections, the SQL cell and the Workbench (2026-11-13/14, the owner's requests; built)
 
 Plans/workbench-and-connections.plan.md. The owner's answers: connections are databases and files
 (vaults and secrets stay blades); adding one is a form per type with the code underneath; the Workbench
 (notebooks, scripts with a console, connections, the data explorer, blades) always opens in its own
 window from its tab; an IPython kernel behind our own editor (jupyter_client and ipykernel approved);
 scripts are an editor with a Python console. Connections share the blade store rather than a copy of it.
+Then (2026-11-14): the Workbench completes as you type (kernel for Python, the data explorer's catalog
+for SQL cells); a connection's password comes from the keyring, an environment variable or a key vault;
+each notebook can have its own environment, made from library presets and remembered. Open: inline
+suggestions written by an AI model (the owner mentioned GitHub's code completion; not asked yet).
 
 ## Packs: blades and tangs from a Claude Code plugin marketplace (2026-11-13, the owner's idea; built)
 

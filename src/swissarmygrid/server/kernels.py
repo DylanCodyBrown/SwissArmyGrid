@@ -223,6 +223,13 @@ async def start(python: str, folder: str | None, environ: dict[str, str]) -> Ker
         env={},
     )
     cwd = folder if folder and os.path.isdir(folder) else str(Path.home())
+    if not found["swissarmygrid"]:
+        # This Python lacks the package: lend it a copy (the plain client) on its import path.
+        from swissarmygrid.server.environments import client_path
+
+        environ = environ | {
+            "PYTHONPATH": os.pathsep.join(p for p in (client_path(), environ.get("PYTHONPATH", "")) if p)
+        }
     try:
         await manager.start_kernel(cwd=cwd, env=environ)
     except Exception as error:
@@ -239,7 +246,19 @@ async def start(python: str, folder: str | None, environ: dict[str, str]) -> Ker
 
 
 class Launcher:
-    """The Workbench's kernels port (services/workbench.py)."""
+    """The Workbench's kernels port (services/workbench.py): kernels, and the environments they run in."""
+
+    def create_environment(
+        self, folder: str, version: str | None, packages: list[str]
+    ) -> AsyncIterator[dict[str, Any]]:
+        from swissarmygrid.server import environments
+
+        return environments.create(folder, version, packages)
+
+    def beside(self, folder: str) -> str | None:
+        from swissarmygrid.server import environments
+
+        return environments.beside(folder)
 
     async def start(self, python: str, folder: str | None, environ: dict[str, str]) -> Kernel:
         return await start(python, folder, environ)

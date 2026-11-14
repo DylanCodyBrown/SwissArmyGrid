@@ -15,13 +15,14 @@
  * ROUTING: /workbench/home, /open, /save, /pythons (routes_workbench.py); kernels in workbenchKernel.ts.
  */
 import { handleAgentNotice, loadApprovals } from "./agentAccess";
-import { api, ApiError, connect, onNotice } from "./api";
+import { api, ApiError, connect, onNotice, openedWith } from "./api";
 import { type BladeKind, editBlade, showTemplatePicker } from "./bladeEditor";
 import { mountRail, tableDetails, watchTheme } from "./catalogRail";
 import { button, clear, h, toast } from "./dom";
 import { chooseFile } from "./fileChooser";
 import { effectiveTheme } from "./theme";
 import { forgetCatalogs } from "./workbenchCompletion";
+import { newEnvironment } from "./workbenchEnvironment";
 import { Kernel } from "./workbenchKernel";
 import { type CellData, notebookView, type NotebookView } from "./workbenchNotebook";
 import { scriptView, type ScriptView } from "./workbenchScript";
@@ -149,9 +150,15 @@ async function open(path?: string): Promise<void> {
   const already = docs.find((d) => d.path === chosen);
   if (already) return show(already);
   try {
-    const found = await api<{ path: string; kind: "notebook" | "script"; modified: number; cells?: CellData[]; text?: string }>("/workbench/open", "POST", { path: chosen });
+    const found = await api<{ path: string; kind: "notebook" | "script"; modified: number; cells?: CellData[]; text?: string; python: string | null }>("/workbench/open", "POST", { path: chosen });
     if (found.kind === "notebook") openNotebook(found.path, found.cells ?? [], found.modified);
     else openScript(found.path, found.text ?? "", found.modified);
+    // Its own environment, as remembered (or the .venv beside it): the picker shows it, Run uses it.
+    if (found.python && current) {
+      current.python = found.python;
+      if (!pythons.some((p) => p.python === found.python)) pythons.push({ python: found.python, version: "", ipykernel: true, swissarmygrid: true });
+      drawToolbar();
+    }
     void refreshHome();
   } catch (e) {
     toast((e as Error).message, "error");
@@ -171,8 +178,10 @@ async function save(doc: Doc | null, as = false): Promise<void> {
   const body = doc.kind === "notebook" ? { cells: doc.notebook!.cells() } : { text: doc.script!.text() };
   const send = async (force: boolean): Promise<void> => {
     const saved = await api<{ path: string; modified: number }>("/workbench/save", "POST", { path, ...body, modified: as ? null : doc.modified, force });
+    const first = doc.path === null;
     doc.path = saved.path;
     doc.modified = saved.modified;
+    if (first && doc.python) void api("/workbench/environment", "POST", { path: saved.path, python: doc.python }).catch(() => undefined);
     doc.title = baseName(saved.path);
     doc.dirty = false;
     drawTabs();
@@ -221,24 +230,50 @@ function recentMenu(anchor: HTMLElement): void {
 
 const STATE_WORDS: Record<string, string> = { off: "not started (starts on the first Run)", starting: "starting…", idle: "ready", busy: "running…" };
 
+function folderOf(path: string | null): string {
+  if (!path) return homeFolder;
+  const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return at > 0 ? path.slice(0, at) : homeFolder;
+}
+
+/** Run in another Python from the next Run on (a running kernel is stopped first). */
+function useEnvironment(doc: Doc, python: string): void {
+  doc.python = python;
+  if (!pythons.some((p) => p.python === python)) pythons.push({ python, version: "", ipykernel: true, swissarmygrid: true });
+  if (doc.kernel?.id) {
+    doc.kernel.stop();
+    toast("The kernel stopped: the next Run starts in the chosen Python.");
+  }
+  if (doc.path) void api("/workbench/environment", "POST", { path: doc.path, python }).catch((e: Error) => toast(e.message, "error"));
+  drawToolbar();
+}
+
 function pythonPicker(doc: Doc): HTMLElement {
-  const select = h("select", { "aria-label": "Python", title: "The Python this document's code runs in" }) as HTMLSelectElement;
-  const label = (p: PythonChoice, i: number): string => `${i === 0 ? "This app's Python" : p.python} (${p.version})${p.ipykernel ? "" : ", no ipykernel"}`;
-  for (const [i, p] of pythons.entries()) select.append(h("option", { value: p.python, selected: (doc.python ?? pythons[0]?.python) === p.python }, label(p, i)));
-  select.append(h("option", { value: "__other" }, "Another Python…"));
-  select.disabled = Boolean(doc.kernel?.id);
-  if (select.disabled) select.title = "Restart is in this Python; close and reopen the document to change it";
+  const select = h("select", { "aria-label": "Environment", title: "The Python this document's code runs in (remembered for it)" }) as HTMLSelectElement;
+  const own = pythons[0];
+  const label = (p: PythonChoice): string => {
+    const where = p === own ? "This app's Python" : p.python.replace(/[\\/](bin[\\/]python|Scripts[\\/]python\.exe)$/i, "");
+    return `${where}${p.version ? ` (${p.version})` : ""}${p.ipykernel ? "" : ", no ipykernel"}`;
+  };
+  for (const p of pythons) select.append(h("option", { value: p.python, selected: (doc.python ?? own?.python) === p.python }, label(p)));
+  select.append(h("option", { value: "__new" }, "New environment…"), h("option", { value: "__other" }, "Another Python…"));
   select.addEventListener("change", async () => {
-    if (select.value !== "__other") {
-      doc.python = select.value;
+    if (select.value === "__new") {
+      const made = await newEnvironment({ folder: folderOf(doc.path), document: doc.path, appVersion: own?.version ?? "" });
+      if (made) {
+        useEnvironment(doc, made.python);
+        if (made.imports.length && doc.notebook) doc.notebook.add("code", made.imports.join("\n"), true);
+      }
+      drawToolbar();
       return;
     }
-    const path = await chooseFile({ title: "Choose a Python (python.exe in a project's .venv\\Scripts, or bin/python)", mode: "file", start: homeFolder });
-    if (path) {
-      doc.python = path;
-      pythons.push({ python: path, version: "?", ipykernel: true, swissarmygrid: true });
+    if (select.value === "__other") {
+      const path = await chooseFile({ title: "Choose a Python (python.exe in a project's .venv\\Scripts, or bin/python)", mode: "file", start: folderOf(doc.path) });
+      if (path) useEnvironment(doc, path);
+      drawToolbar();
+      return;
     }
-    drawToolbar();
+    useEnvironment(doc, select.value);
   });
   return select;
 }
@@ -385,6 +420,6 @@ void Promise.all([
   api<{ pythons: PythonChoice[] }>("/workbench/pythons").then((r) => (pythons = r.pythons), () => undefined),
 ]).then(() => {
   showWelcome();
-  const wanted = new URLSearchParams(location.hash.slice(1)).get("open");
+  const wanted = openedWith.get("open"); // the address as opened (the page clears it once the token is read)
   if (wanted) void open(wanted);
 });

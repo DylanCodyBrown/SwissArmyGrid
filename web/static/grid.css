@@ -4591,3 +4591,54 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   opacity: 0.6;
 }
 
+/* New environment (workbenchEnvironment.ts) */
+.env-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.env-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.env-group {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px 8px;
+}
+
+.env-group legend {
+  font-weight: 600;
+}
+
+.env-log {
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+
+/* A field's box with a button beside it (a path and its Browse…) takes the row's width. */
+dialog .field > .field-row {
+  display: flex;
+  gap: 6px;
+}
+
+dialog .field > .field-row > input,
+dialog .field > .field-row > select {
+  flex: 1;
+  min-width: 0;
+}

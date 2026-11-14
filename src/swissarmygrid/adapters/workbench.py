@@ -14,9 +14,13 @@ MAX_RECENT: int = 15
 
 
 class Documents:
-    def __init__(self, recent_file: Path, default_folder: Path) -> None:
+    def __init__(
+        self, recent_file: Path, default_folder: Path, environments_file: Path | None = None
+    ) -> None:
         self._recent = recent_file
         self.default_folder = default_folder
+        # Each document's environment (document path -> its Python), as the user chose or made it.
+        self._environments = environments_file or recent_file.with_name("environments.json")
 
     def read(self, path: str) -> tuple[str, str, float]:
         """The file's text, its full path and when it was last changed."""
@@ -73,3 +77,21 @@ class Documents:
         listed = [{"path": path, "opened": when}, *({"path": r["path"], "opened": r["opened"]} for r in kept)]
         self._recent.parent.mkdir(parents=True, exist_ok=True)
         self._recent.write_text(json.dumps(listed[:MAX_RECENT], indent=1), encoding="utf-8")
+
+    def _chosen(self) -> dict[str, str]:
+        try:
+            found = json.loads(self._environments.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return {str(k): str(v) for k, v in found.items()} if isinstance(found, dict) else {}
+
+    def environment(self, path: str) -> str | None:
+        """The Python remembered for a document, when it is still there."""
+        python = self._chosen().get(str(Path(path).expanduser().resolve()))
+        return python if python and Path(python).is_file() else None
+
+    def remember_environment(self, path: str, python: str) -> None:
+        chosen = self._chosen()
+        chosen[str(Path(path).expanduser().resolve())] = python
+        self._environments.parent.mkdir(parents=True, exist_ok=True)
+        self._environments.write_text(json.dumps(chosen, indent=1), encoding="utf-8")

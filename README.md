@@ -218,11 +218,40 @@ Or the demo data:
 Open the printed URL, including the `#token=` part. In VS Code: Ctrl+Shift+P, then
 **Simple Browser: Show**, then paste it.
 
+## The Workbench
+
+Notebooks and Python scripts, in a window of their own: the grid page's **Workbench** tab opens it (or
+brings it forward). On the left, your connections and blades (drag one into a cell or the script for
+its line) and the data explorer (drag a table or column for its name).
+
+- **Notebooks** are Python, SQL and Markdown cells, saved as `.ipynb` (Jupyter and VS Code open them;
+  a SQL cell is saved as a `%%sql <connection>` cell). Shift+Enter runs a cell and moves on, Ctrl+Enter
+  runs it in place; Run all, Interrupt, Restart. Outputs stream as they come: text, errors, DataFrames,
+  pictures, Plotly figures.
+- **Scripts** are an editor over a Python console: F5 runs the file, Ctrl+Enter the selection or the
+  line, and lines typed in the console run there too.
+- **Completion as you type:** Python from the running kernel (your variables, their attributes, a
+  DataFrame's columns; hover for a signature and its help); a SQL cell from its connection's catalog
+  (schemas, tables, columns: `orders.` gives orders' columns); `sag.connection("` gives your connections.
+- **Each notebook's own environment:** pick **New environment…** in the Environment box: where it goes
+  (a `.venv` beside the notebook), the Python version, and libraries from presets (Data analysis,
+  Charts, Statistics and models, Databases) or by group, plus any other package. It is made with uv
+  (or venv and pip), its imports can go in as a first cell, and the Workbench remembers it for the
+  notebook (a `.venv` beside a notebook is found by itself). `sag` and `%%sql` work in any
+  environment, installed there or not.
+- **Files:** New, Open, Save, Save as (a file chooser showing real paths) and Recent. Save as starts in
+  `~/SwissArmyGrid`. A file changed on disk since it was opened is not overwritten without asking.
+
+The kernel runs on your computer only when you press Run, in the Python you chose; an agent can never
+run code there.
+
 ## Connections and SQL cells
 
 A **connection** is a database or a file you reach: added in the app (**Connections** in the Application
-row) with a form for its type, the Python it makes shown underneath. Its password goes to the system
-keyring; **Test connection** runs the form before anything is saved. Connections are kept with the
+row) with a form for its type, the Python it makes shown underneath. Each password says where it comes
+from: saved on this computer (the system keyring), an environment variable, or a key vault (an entry of
+a vault blade: Azure Key Vault, AWS, HashiCorp, 1Password, a `.env` file...). **Test connection** runs
+the form before anything is saved. Connections are kept with the
 blades (so folders, packs, the catalog and Refresh work the same) but listed apart.
 
 ```python

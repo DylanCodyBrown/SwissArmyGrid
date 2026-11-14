@@ -6,6 +6,10 @@ run them. The user's alone: every route refuses the agent (it never runs code in
   POST   /workbench/open      {"path"}      a notebook's cells or a script's text
   POST   /workbench/save      {"path", "cells" | "text", "modified", "force"}
   GET    /workbench/pythons                 the Pythons a kernel can run in (this server's own first)
+  GET    /workbench/environments            what New environment offers: libraries, presets, versions
+  POST   /workbench/environments  {"folder", "python", "packages", "document"}: make one; its progress
+                                            as it goes, one JSON object a line, the last {"done": ...}
+  POST   /workbench/environment   {"path", "python"}: remember the Python chosen for a document
   POST   /workbench/kernels   {"python", "path"}   start one, for a document
   POST   /workbench/kernels/{id}/execute    {"code", "kind", "connection"}: the outputs as they come,
                                             one JSON object a line, the last {"done": ...}
@@ -60,6 +64,26 @@ def routes(workbench: Workbench) -> list[BaseRoute]:
     async def pythons(request: Request) -> Response:
         return json_response(workbench.pythons())
 
+    async def environments(request: Request) -> Response:
+        return json_response(workbench.environments())
+
+    async def create_environment(request: Request) -> Response:
+        events = workbench.create_environment(await read_json(request))
+
+        async def lines() -> AsyncIterator[bytes]:
+            try:
+                async for event in events:
+                    yield (json.dumps(event) + "\n").encode()
+            except Exception as error:
+                yield (json.dumps({"done": {"ok": False, "error": str(error)}}) + "\n").encode()
+
+        return StreamingResponse(
+            lines(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store"}
+        )
+
+    async def choose_environment(request: Request) -> Response:
+        return json_response(workbench.choose_environment(await read_json(request)))
+
     async def start(request: Request) -> Response:
         body = await read_json(request) if int(request.headers.get("content-length") or 0) else {}
         return json_response(await workbench.start(body))
@@ -103,6 +127,9 @@ def routes(workbench: Workbench) -> list[BaseRoute]:
         Route("/workbench/open", user_only(open_document), methods=["POST"]),
         Route("/workbench/save", user_only(save), methods=["POST"]),
         Route("/workbench/pythons", user_only(pythons)),
+        Route("/workbench/environments", user_only(environments)),
+        Route("/workbench/environments", user_only(create_environment), methods=["POST"]),
+        Route("/workbench/environment", user_only(choose_environment), methods=["POST"]),
         Route("/workbench/kernels", user_only(start), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/execute", user_only(execute), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/complete", user_only(complete), methods=["POST"]),

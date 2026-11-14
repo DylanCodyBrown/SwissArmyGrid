@@ -36,6 +36,13 @@ The owner's requests, 2026-11-13, in their words:
    save and reopen `.py` files; Run sends the script or the selected lines to the kernel; the console
    below shows output and takes typed lines.
 
+7. **The Workbench is a robust IDE** (the owner, 2026-11-14): completion as you type from the
+   kernel (Python) and from the data explorer's catalog (SQL cells), help on hover.
+8. **Connections keep every blade power:** a password from the keyring, an environment variable, or a
+   key vault's entry (the vault blade runs first).
+9. **Each notebook can have its own virtual environment,** made easily (where, the Python version,
+   libraries by preset or group, imports added) and remembered for the notebook.
+
 ## How it is built
 
 **Connections share the blade store.** A connection is a blade the domain names a connection
@@ -70,6 +77,13 @@ that makes a DataFrame can be queried too. `%%sag` always works; `%%sql` only wh
 **Security.** The kernel runs only on the user's click, on their own computer, reached through the
 server's token-guarded routes on 127.0.0.1. The agent cannot run code in it (milestone 9 stays unbuilt):
 the kernel routes refuse the agent as the blade routes do.
+
+**Completion** asks the kernel (`complete_request`, IPython with Jedi) for the cursor's line first, so
+live objects answer (a DataFrame's columns), and the catalog search for a SQL cell's connection, kept
+in the page. **Password sources** rename the secret in the code to the variable's name; a vault blade
+mapping that name runs first, as for any blade. **Environments** are made with uv (else venv and pip),
+ipykernel always; remembered per document in the state folder (a `.venv` beside it is found by itself);
+a kernel in a Python without the package gets a copy of the plain client on its import path.
 
 ## Phases
 

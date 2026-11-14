@@ -326,4 +326,17 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   through DuckDB; a bad column stopped the cell with one line (`UsageError: Shop: OperationalError: no
   such column: nope`); Tab in the cell gave the CSV's own column. DuckDB lists a registered DataFrame as
   a temporary view in main, so one query finds files, sheets and tables alike.
+- (2026-11-14) The Workbench (Plans/workbench-and-connections.plan.md) in Chromium against a real server
+  and real IPython kernels (jupyter_client 8.10, ipykernel 7.4): opened from the grid page's tab in its
+  own window; a Python cell printed and drew a DataFrame, a SQL cell on a CSV connection totalled by
+  region through DuckDB; saved as .ipynb (the SQL cell as `%%sql Orders`), closed, reopened from Recent
+  with its outputs; a script ran in its console and a typed line answered. Kernels use Unix sockets in a
+  private folder off Windows (a relative socket name was read from two working folders and the kernel
+  never answered). Completion: the first on pandas takes about 4.5 s (Jedi reading it; the kernel warms
+  its completer at start), then 0.06 to 0.6 s. Sent the whole cell, Jedi reads `rainfall =
+  pd.DataFrame(...)` as code and misses the live columns; the cursor's line alone gets them. A SQL
+  cell's names come from the connection's catalog before any kernel runs. A new environment with uv
+  and pandas took 5.8 s; the kernel ran in it with pandas 3.1.1 and `swissarmygrid` lent from the client
+  copy. Password sources: an environment variable and a new vault entry both rewrote the code's
+  secret() name, and a saved connection lists the vault it runs first.
 

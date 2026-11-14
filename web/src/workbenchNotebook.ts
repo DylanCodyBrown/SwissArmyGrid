@@ -47,7 +47,7 @@ const KIND_NAMES: Record<CellKind, string> = { code: "Python", sql: "SQL", markd
 export interface NotebookView {
   element: HTMLElement;
   cells: () => CellData[];
-  add: (kind: CellKind, source?: string) => void;
+  add: (kind: CellKind, source?: string, first?: boolean) => void;
   runAll: () => Promise<void>;
   setTheme: (theme: string) => void;
 }
@@ -223,8 +223,8 @@ export function notebookView(
   return {
     element: list,
     cells: () => cells.map((c) => ({ kind: c.kind, source: c.editor ? c.editor.value() : c.source, connection: c.kind === "sql" ? c.connection : null, outputs: c.kind === "markdown" ? [] : c.outputs, execution_count: c.execution_count })),
-    add: (kind, source = "") => {
-      const at = selected ? indexOf(selected) + 1 : cells.length;
+    add: (kind, source = "", first = false) => {
+      const at = first ? 0 : selected ? indexOf(selected) + 1 : cells.length;
       const cell = make({ kind, source, connection: kind === "sql" ? (connections()[0] ?? null) : null, outputs: [], execution_count: null }, at);
       select(cell);
       cell.element.scrollIntoView({ block: "nearest" });

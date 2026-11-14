@@ -14,16 +14,20 @@ installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), s
   DuckDB SQL over the user's own table, never a pandas translation.
 - **Where it is going:** [Plans/standalone-workspaces.plan.md](Plans/standalone-workspaces.plan.md):
   a one-command installer that sets up everything; one local server with separate workspaces
-  (`sag.create_workspace()`); Jupyter and Python in the terminal are where code goes (marimo was
-  built in, then stripped on the owner's call, 2026-11: heavy and not well adopted). **Rule: the notebook/terminal always opens in its own browser tab, never in
-  the grid page**, so it can sit on another screen; saved workspaces; a tray icon; and a Power BI style
+  (`sag.create_workspace()`); code goes in the **Workbench** (our own notebooks and scripts on an
+  IPython kernel, [Plans/workbench-and-connections.plan.md](Plans/workbench-and-connections.plan.md)),
+  Jupyter or Python in the terminal (marimo was built in, then stripped on the owner's call, 2026-11).
+  **Rule: code always opens in its own browser window, never in the grid page** (the Workbench tab
+  opens it), so it can sit on another screen; saved workspaces; a tray icon; and a Power BI style
   relationships view with autodetection. VS Code is optional.
 - **The original plan:** [Plans/swissarmygrid-build-plan.md](Plans/swissarmygrid-build-plan.md).
   Follow its section 0 working agreements: typed Python, tests first for semantics, ask before
   adding a dependency the plan doesn't list, never build milestone 9 (agent code sandbox)
   without asking.
-- **What exists:** milestones M0-M8, blades and the catalog, the Analyze menu, the Sandbox, compare's
-  diff and tie-out, and To Python (code queued for `sag.paste()` in Jupyter or IPython). Not built: M9 (sandbox), the VS Code extension and the
+- **What exists:** milestones M0-M8, blades and the catalog, connections (database and file blades,
+  added with a form), the SQL cell (`%%sql <connection>`), the Workbench (notebooks, scripts,
+  completion, per-notebook environments), the Analyze menu, the Sandbox, compare's diff and tie-out,
+  and To Python (code queued for `sag.paste()` in Jupyter or IPython). Not built: M9 (sandbox), the VS Code extension and the
   Jupyter display hook (the plan's "parallel extras").
 - **Record verification results** in [docs/verified.md](docs/verified.md); decisions and open
   notes go in [docs/ideas.md](docs/ideas.md).
@@ -73,6 +77,10 @@ src/swissarmygrid/
     proofs.py            Show the math: each analysis result as a step-by-step proof (markdown)
     themes.py            the Sandbox's 20 themes and imported ones, every colour made readable (WCAG)
     diff.py              compare's diff mode: which cells differ (tolerance, trim, case), as SQL and Python
+    connections.py       which blades are connections (database, file), the Add connection form, a password's
+                         source (renamed in the code: secret("WAREHOUSE_PASSWORD"))
+    notebooks.py         the Workbench's notebooks (.ipynb; a SQL cell is a %%sql code cell) and scripts
+    environments.py      a notebook's own environment: the libraries offered (groups, presets, imports)
     packs.py             a pack (a Claude Code plugin with blades/ and tangs/): names, the new marketplace's
                          files, Claude Code's install record read loosely, which plugins are switched off
 
@@ -96,6 +104,9 @@ src/swissarmygrid/
     catalogs.py          load, remove, the tree, search
     blades.py            save, inspect, fill, refresh, test, install, favourites, folders, export, import
     handoff.py           code handed to the user's Python: To Python's queue, taken by sag.paste()
+    connections.py       connections: the list, the forms, test before saving, password sources
+    folders.py           the page's file chooser (a folder's names: real paths)
+    workbench.py         the Workbench: open, save, recent; kernels; completion; environments, remembered
     relationships.py     the Key Finder, compares, the current model and its library
     tieout.py            the tie-out report on a compare's two grids
     processes.py         Python sessions offering tables: the registry and the Open list
@@ -115,6 +126,8 @@ src/swissarmygrid/
     export.py            CSV, Excel and Parquet writers; the export folder
     state_files.py       the audit log, recipes, saved dashboards and themes, the connection file, the model library
     live_updates.py      the pages' and VS Code windows' sockets
+    folders.py           a folder's contents for the file chooser
+    workbench.py         the Workbench's files (saved on the user's click), recent files, each document's Python
     packs.py             installed packs in Claude Code's plugin folder, editable ones in the blade
                          folders; writing a new marketplace and a pack's files
 
@@ -128,12 +141,16 @@ src/swissarmygrid/
     security.py          the guard: 127.0.0.1, the token, Host and Origin
     lifecycle.py, launcher.py, __main__.py   ports, single instance, clean exit; `swissarmygrid`
     blade_runner.py      Refresh/Test in a child process; installing packages
+    kernels.py           the Workbench's IPython kernels (jupyter_client): run, complete, inspect, interrupt
+    environments.py      making a notebook's environment (uv, else venv and pip); the client lent to kernels
     blade_templates.py   the 38 starter blades (3 analyses)
 
   client/push_client.py  push(), ensure_server()
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
   client/completion.py   Tab completion of catalog names inside SQL in Jupyter and IPython (sag.complete)
   client/paste_client.py sag.paste: the code To Python queued, into the Jupyter cell or IPython prompt
+  client/sql_cell.py     %%sql <connection> cells in Jupyter and IPython, sag.sql: a database in its own SQL,
+                         files (CSV, workbook sheets, folders) and DataFrames in DuckDB
   client/sandbox_client.py sag.sandbox: a figure, picture, table or text as a Sandbox card (duck-typed)
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
@@ -160,6 +177,11 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          catalogRail.ts (blades + catalog navigation) is the blades page's
                          (catalogPage.ts, static/catalog.html); bladeEditor.ts is the save screen;
                          bladeLibrary.ts is import (review first), export and the blade folders dialog.
+                         connectionsWindow.ts is the Application row's Connections (a form per type);
+                         fileChooser.ts picks real paths. The Workbench (static/workbench.html, its own
+                         window): workbenchPage.ts (composition), workbenchNotebook.ts, workbenchScript.ts,
+                         workbenchKernel.ts (runs, outputs), workbenchCompletion.ts, workbenchEnvironment.ts,
+                         lazy/codeEditor.ts (Monaco)
                          The grid page has no SQL box and no steps panel (decision 13): stepsStrip.ts is the
                          strip under the title; stepsPanel.ts shows only in its own window (?panel=steps)
 web/static/              index.html, grid.css (all theme tokens), build/ (gitignored)
