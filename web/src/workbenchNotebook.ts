@@ -18,7 +18,19 @@
  *
  * A SQL cell runs as `%%sql <connection>` (client/sql_cell.py) in the kernel: its connection's own SQL,
  * or DuckDB over a file's tables.
+ *
+ *   [NUMBERS]  every cell has a number that never changes (#7 in its head; not the run count): given
+ *              when the cell is made, never reused; `@cell7` in a comment is a link to it
+ *   [TABLES]   every table open in the grid has a read-only cell here (docs/ideas.md, 2026-11-14): its
+ *              transformations, which follow the grid's steps. All tables sit at the top in a Tables
+ *              group, each with the user's cell that makes it; a table folds to one line and so does
+ *              the group. A changed cell turns yellow (Out of date · Run); nothing runs by itself
+ *   [USES]     one of the user's cells that names a table starts with `# uses orders @cell3`, kept by
+ *              the app as they type
+ *
+ * ROUTING: POST /workbench/tables/arrange (the rules are the server's: domain/table_cells.py)
  */
+import { api } from "./api";
 import { button, clear, h, toast } from "./dom";
 import type { CodeEditor } from "./lazy/codeEditor";
 import { renderMarkdown } from "./markdown";
@@ -28,6 +40,7 @@ import { pythonCompleter, sqlCompleter } from "./workbenchCompletion";
 import { type ErrorDetail, type Fix, type Frame, problemsFor, sqlProblems, yourFrame } from "./workbenchErrors";
 import { type Kernel, runInto } from "./workbenchKernel";
 import { type ErrorHooks, type Output, type OutputArea, outputArea, resultName } from "./workbenchOutputs";
+import { type ArrangedCell, firstLine, groupLineText, noteParts, type RunRecord, type TableInfo, type TableLine, tableLineText, type TableState, tableState, withUses } from "./workbenchTables";
 
 /** A SQL cell's first line as the kernel runs it (domain/notebooks.py sql_line). */
 export function sqlLine(connection: string | null): string {
@@ -42,9 +55,35 @@ export interface CellData {
   connection: string | null;
   outputs: Output[];
   execution_count: number | null;
+  /** The cell's own number: never changes, never reused (not the run count). */
+  number?: number | null;
+  /** Its part in the Tables group: "tables" and "table" (headings), "maker", "imports",
+   *  "transformations" (a table's read-only cell); "" for a cell of the user's own. */
+  role?: string;
+  table?: string | null;
+  grouped?: boolean;
+  /** A transformations cell's steps as the grid holds them. */
+  steps?: unknown[] | null;
 }
 
-interface Cell extends Omit<CellData, "outputs"> {
+/** A table of the notebook, with its cell's state: for the folded lines and the agent. */
+export interface TableReport extends TableLine {
+  state: TableState["kind"];
+  label: string;
+}
+
+interface Cell extends Omit<CellData, "outputs" | "number" | "role" | "table" | "grouped" | "steps"> {
+  number: number;
+  role: string;
+  table: string | null;
+  grouped: boolean;
+  steps: unknown[] | null;
+  /** A heading's line (the Tables group's, a table's). */
+  bar: HTMLElement | null;
+  /** A table cell's state: "Out of date · last run 10:42". */
+  status: HTMLElement | null;
+  /** A word about the cell's part: "makes orders". */
+  part: HTMLElement;
   element: HTMLElement;
   editor: CodeEditor | null;
   area: OutputArea;
@@ -92,7 +131,28 @@ export interface NotebookView {
   /** The help for the name at the cursor in the selected cell. */
   helpAtCursor: () => Promise<string>;
   setTheme: (theme: string) => void;
+  /** The open tables that belong to this notebook: their cells follow, the Tables group is arranged. */
+  setTables: (tables: TableInfo[]) => void;
+  /** It holds this table's cell (from its file, say). */
+  holdsTable: (name: string) => boolean;
+  /** Its tables and each cell's state. */
+  tables: () => TableReport[];
+  /** Run a table's cell (false: it failed, or there is no such table). */
+  runTable: (name: string) => Promise<boolean>;
+  /** Run every table's cell that is not up to date; how many ran. */
+  runOutOfDate: () => Promise<number>;
+  /** Go to the cell with this number (false: there is none). */
+  goTo: (number: number) => boolean;
+  /** The number the next new cell gets (saved with the file, so none is ever reused). */
+  nextCell: () => number;
+  /** Fold or unfold the Tables group (or one table of it). */
+  foldTables: (folded: boolean, table?: string) => void;
+  /** A table was renamed in the grid. */
+  renameTable: (from: string, to: string) => void;
 }
+
+const isApp = (role: string): boolean => role === "tables" || role === "table" || role === "transformations";
+const isHeading = (role: string): boolean => role === "tables" || role === "table";
 
 export function notebookView(
   initial: CellData[],
@@ -102,7 +162,21 @@ export function notebookView(
   changed: () => void,
   blades: () => string[] = () => [],
   codeNames: () => { name: string; connection: string; kind: string }[] = () => [],
-  hooks: { cursor?: (line: number, column: number) => void; help?: () => void; fix?: (fix: Fix) => boolean; openGrid?: (name: string) => void; openResult?: (count: number, name?: string) => void } = {},
+  hooks: {
+    cursor?: (line: number, column: number) => void;
+    help?: () => void;
+    fix?: (fix: Fix) => boolean;
+    openGrid?: (name: string) => void;
+    openResult?: (count: number, name?: string) => void;
+    /** The number the next new cell gets (from the file). */
+    nextCell?: number;
+    /** The cells came from a file or a reload: a table's cell says "Not run since opening". */
+    opened?: boolean;
+    /** Give a grid its saved steps back (a table opened again whose cell the file holds). */
+    restoreSteps?: (grid: string, steps: unknown[]) => void;
+    /** The tables' state changed (for the toolbar). */
+    tablesChanged?: () => void;
+  } = {},
 ): NotebookView {
   const python = pythonCompleter(kernel, () => ({ connections: connections(), blades: blades(), codeNames: codeNames() }));
   const list = h("div", { class: "wb-cells", role: "list", "aria-label": "Cells" });
@@ -112,6 +186,31 @@ export function notebookView(
   let pendingD = 0; // the first D of D D, and when
   const dark = (): boolean => theme().endsWith("dark");
   const indexOf = (cell: Cell): number => cells.indexOf(cell);
+  // ----- numbers, tables
+  let nextNumber = Math.max(hooks.nextCell ?? 1, 1 + Math.max(0, ...initial.map((c) => c.number ?? 0)));
+  let tableInfos: TableInfo[] = [];
+  let tableLines: TableLine[] = [];
+  const records = new Map<string, RunRecord>();
+  const restored = new Set<string>();
+  const cameWithFile = new Set<string>(); // the tables whose cell the file (or a reload) brought
+  let groupFolded = true; // the group starts folded when a file opens
+  const unfolded = new Set<string>(); // the tables opened
+  let version = 0; // counts every change: an arrangement worked out for an older one is dropped
+  let asked = 0;
+  let quiet: number | null = null;
+  let building = true;
+  const sourceOf = (c: Cell): string => (c.editor ? c.editor.value() : c.source);
+  const byNumber = (number: number): Cell | undefined => cells.find((c) => c.number === number);
+  const infoOf = (table: string | null): TableInfo | undefined => tableInfos.find((t) => t.name === table);
+  const lineOf = (table: string | null): TableLine | undefined => tableLines.find((t) => t.name === table);
+  const stateOf = (cell: Cell): TableState => tableState(sourceOf(cell), cell.table ? records.get(cell.table) : undefined);
+  const tableCell = (table: string | null): Cell | undefined => cells.find((c) => c.role === "transformations" && c.table === table);
+  /** Every change goes through here: the document is changed, and what the server works out next is
+   *  for this text. */
+  const edited = (): void => {
+    version++;
+    changed();
+  };
 
   const label = (cell: Cell): string => `Cell ${indexOf(cell) + 1} of ${cells.length}, ${KIND_NAMES[cell.kind]}`;
   const relabel = (): void => {
@@ -138,10 +237,12 @@ export function notebookView(
   const run = async (cell: Cell): Promise<boolean> => {
     if (cell.editor) cell.source = cell.editor.value();
     for (const c of cells) c.editor?.setProblems([]); // the last failure's marks describe code that ran before
+    if (isHeading(cell.role)) return true;
     if (cell.kind === "markdown") {
       showMarkdown(cell);
       return true;
     }
+    if (cell.role === "transformations") return runTransformations(cell);
     if (!cell.source.trim()) return true;
     cell.area.set([]);
     cell.element.classList.remove("output-hidden");
@@ -152,7 +253,32 @@ export function notebookView(
       cell.execution_count = done.execution_count;
       cell.count.textContent = done.error ? "[!]" : done.execution_count ? `[${done.execution_count}]` : "[ ]";
       cell.element.classList.toggle("failed", !done.ok);
-      changed();
+      edited();
+      // A calm moment: a cell that now makes a table joins the Tables group.
+      if (done.ok && cell.kind === "code" && (tableInfos.length || cells.some((c) => c.role))) void arrange(true);
+      return done.ok;
+    } finally {
+      cell.element.classList.remove("running");
+    }
+  };
+
+  /** A table's read-only cell: run so that running it again changes nothing (it starts from the table
+   *  as its maker made it: client/table_cells.py). */
+  const runTransformations = async (cell: Cell): Promise<boolean> => {
+    const code = sourceOf(cell);
+    const table = cell.table ?? "";
+    const variable = infoOf(table)?.variable ?? table.replace(/\W/g, "_");
+    cell.area.set([]);
+    cell.count.textContent = "[*]";
+    cell.element.classList.add("running");
+    try {
+      const done = await runInto(kernel, { code, kind: "table", table: variable }, cell.area);
+      cell.execution_count = done.execution_count;
+      cell.count.textContent = done.error ? "[!]" : done.execution_count ? `[${done.execution_count}]` : "[ ]";
+      cell.element.classList.toggle("failed", !done.ok);
+      if (done.ok) records.set(table, { code, at: new Date(), opened: false });
+      edited();
+      redraw();
       return done.ok;
     } finally {
       cell.element.classList.remove("running");
@@ -180,7 +306,7 @@ export function notebookView(
     if (kind === "sql") cell.connectionPicker.dispatchEvent(new Event("focus"));
     cell.editor?.setLanguage(LANGUAGE[kind]);
     relabel();
-    changed();
+    edited();
   };
 
   const cellMenu = (cell: Cell, anchor: HTMLElement): void => {
@@ -302,6 +428,9 @@ export function notebookView(
   };
 
   const make = (data: CellData, at: number): Cell => {
+    const number = data.number && !byNumber(data.number) ? data.number : nextNumber;
+    nextNumber = Math.max(nextNumber, number + 1);
+    const role = data.role ?? "";
     const editorHost = h("div", { class: "wb-editor" });
     // The hooks need the cell, made just below: they look it up when an error comes.
     let self: Cell | null = null;
@@ -328,29 +457,69 @@ export function notebookView(
     };
     const more = button("More actions", () => cellMenu(cell, more), { icon: "more", iconOnly: true, class: "ghost" });
     const hiddenNote = h("button", { type: "button", class: "link wb-output-hidden", onclick: () => toggleOutput(cell) }, "Show output");
-    const element = h(
-      "section",
-      { class: `wb-cell kind-${data.kind}`, tabindex: -1, role: "listitem" },
-      h(
-        "div",
-        { class: "wb-cell-head" },
-        count,
-        kindPicker,
-        connectionPicker,
-        h("span", { class: "spacer" }),
-        button("Run cell", () => void run(cell), { icon: "play", iconOnly: true, class: "ghost", title: "Run cell (Ctrl+Enter)" }),
-        button("Move up", () => moveCell(cell, -1), { icon: "up", iconOnly: true, class: "ghost" }),
-        button("Move down", () => moveCell(cell, 1), { icon: "down", iconOnly: true, class: "ghost" }),
-        more,
-        button("Delete cell", () => removeCell(cell), { icon: "trash", iconOnly: true, class: "ghost" }),
-      ),
-      editorHost,
+    const numberLabel = h("span", { class: "wb-number", title: `Cell ${number}: this number never changes. @cell${number} in a comment links here.` }, `#${number}`);
+    const part = h("span", { class: "wb-part hint" });
+    const status = role === "transformations" ? h("span", { class: "wb-table-state", role: "status" }) : null;
+    const bar = isHeading(role) ? h("div", { class: "wb-group-bar" }) : null;
+    const runButton = button("Run cell", () => void run(cell), { icon: "play", iconOnly: true, class: "ghost", title: "Run cell (Ctrl+Enter)" });
+    const head =
+      role === "transformations"
+        ? h("div", { class: "wb-cell-head" }, numberLabel, count, part, h("span", { class: "spacer" }), status, runButton, button("Delete cell", () => removeCell(cell), { icon: "trash", iconOnly: true, class: "ghost wb-delete-table" }))
+        : h(
+            "div",
+            { class: "wb-cell-head" },
+            numberLabel,
+            count,
+            kindPicker,
+            connectionPicker,
+            part,
+            h("span", { class: "spacer" }),
+            runButton,
+            button("Move up", () => moveCell(cell, -1), { icon: "up", iconOnly: true, class: "ghost" }),
+            button("Move down", () => moveCell(cell, 1), { icon: "down", iconOnly: true, class: "ghost" }),
+            more,
+            button("Delete cell", () => removeCell(cell), { icon: "trash", iconOnly: true, class: "ghost" }),
+          );
+    // The app's own cells (a heading's line, a table's read-only cell) are `wb-tcell`; `wb-cell` is a
+    // cell of the user's.
+    const element = bar
+      ? h("section", { class: `wb-tcell wb-heading role-${role}`, tabindex: -1, role: "listitem" }, bar)
+      : h("section", { class: `${role === "transformations" ? "wb-tcell role-transformations" : "wb-cell"} kind-${data.kind}`, tabindex: -1, role: "listitem" }, head, editorHost, view, area.element, hiddenNote);
+    const cell: Cell = {
+      kind: data.kind,
+      source: data.source,
+      connection: data.connection,
+      execution_count: data.execution_count,
+      element,
+      editor: null,
+      area,
       view,
-      area.element,
-      hiddenNote,
-    );
-    const cell: Cell = { kind: data.kind, source: data.source, connection: data.connection, execution_count: data.execution_count, element, editor: null, area, view, count, kindPicker, connectionPicker, wantsFocus: false };
+      count,
+      kindPicker,
+      connectionPicker,
+      wantsFocus: false,
+      number,
+      role,
+      table: data.table ?? null,
+      grouped: data.grouped ?? false,
+      steps: data.steps ?? null,
+      bar,
+      status,
+      part,
+    };
     self = cell;
+    // A table's cell that came with the file (or a reload) has not run since.
+    if (role === "transformations" && cell.table && building && hooks.opened && !records.has(cell.table)) {
+      records.set(cell.table, { code: null, at: null, opened: true });
+      cameWithFile.add(cell.table);
+    }
+    if (bar) {
+      element.addEventListener("focusin", () => select(cell));
+      cells.splice(at, 0, cell);
+      list.insertBefore(element, list.children[at] ?? null);
+      relabel();
+      return cell;
+    }
     const sql = sqlCompleter(kernel, () => cell.connection);
     connectionPicker.hidden = data.kind !== "sql";
     fillConnections();
@@ -364,12 +533,16 @@ export function notebookView(
     element.addEventListener("dblclick", () => {
       if (cell.kind === "markdown" && element.classList.contains("rendered")) editMarkdown(cell);
     });
+    if (role === "transformations") kindPicker.hidden = true;
     void loadEditors().then((m) => {
+      if (!cells.includes(cell)) return; // deleted before its editor loaded
       cell.editor = m.createCodeEditor(editorHost, {
         language: LANGUAGE[cell.kind],
         value: cell.source,
         theme: theme(),
         grow: true,
+        readOnly: cell.role === "transformations",
+        cellLinks: { first: (n) => (byNumber(n) ? firstLine(sourceOf(byNumber(n)!)) : null), go: (n) => void goTo(n) },
         placeholder: cell.kind === "sql" ? "SQL" : undefined,
         // By the cell's kind as it is now: Python from the kernel, SQL from the connection's catalog.
         complete: (text, offset) => (cell.kind === "sql" ? sql(text, offset) : cell.kind === "code" ? python(text, offset) : Promise.resolve([])),
@@ -382,7 +555,12 @@ export function notebookView(
           f1: hooks.help,
         },
       });
-      cell.editor.onChange(changed);
+      cell.editor.onChange((change) => {
+        edited();
+        // The uses line follows the typing, after a short pause (never an undo: that would undo the undo).
+        if (!change.undo && !isApp(cell.role)) typedSoon();
+        if (cell.role === "transformations") redraw();
+      });
       if (hooks.cursor) cell.editor.onCursor(hooks.cursor);
       if (cell.wantsFocus) focusEditor(cell);
     });
@@ -436,7 +614,8 @@ export function notebookView(
     select(cell);
     cell.element.scrollIntoView({ block: "nearest" });
     focusEditor(cell);
-    changed();
+    edited();
+    if (source) typedSoon();
     return cell;
   };
 
@@ -454,12 +633,30 @@ export function notebookView(
     place(cell, to);
     undos.push({ kind: "move", cell, from });
     cell.element.scrollIntoView({ block: "nearest" });
-    changed();
+    edited();
   };
 
-  const dataOf = (c: Cell): CellData => ({ kind: c.kind, source: c.editor ? c.editor.value() : c.source, connection: c.kind === "sql" ? c.connection : null, outputs: c.kind === "markdown" ? [] : c.area.outputs(), execution_count: c.execution_count });
+  const dataOf = (c: Cell): CellData => ({
+    kind: c.kind,
+    source: sourceOf(c),
+    connection: c.kind === "sql" ? c.connection : null,
+    outputs: c.kind === "markdown" ? [] : c.area.outputs(),
+    execution_count: c.execution_count,
+    number: c.number,
+    role: c.role,
+    table: c.table,
+    grouped: c.grouped,
+    steps: c.role === "transformations" ? c.steps : null,
+  });
 
   const removeCell = (cell: Cell): void => {
+    // The app's own cells go when their table does: a heading is never deleted, a table's cell only
+    // once the table is closed in the grid (an open table always has its cell).
+    if (isHeading(cell.role)) return;
+    if (cell.role === "transformations" && infoOf(cell.table)) {
+      toast(`${cell.table} is open in the grid, so it keeps its cell. Close the table there first.`);
+      return;
+    }
     const at = indexOf(cell);
     const data = dataOf(cell);
     cells.splice(at, 1);
@@ -475,7 +672,8 @@ export function notebookView(
       if (document.activeElement === document.body) after.element.focus();
     }
     relabel();
-    changed();
+    edited();
+    if (cell.role === "transformations") void arrange(true);
     toast("Cell deleted.", "info", { label: "Undo", run: () => void undo() });
   };
 
@@ -497,22 +695,25 @@ export function notebookView(
       select(back);
       back.element.scrollIntoView({ block: "nearest" });
     }
-    changed();
+    edited();
     return true;
   };
 
   const duplicate = (cell: Cell): void => {
-    const copy = make({ ...dataOf(cell), outputs: [], execution_count: null }, indexOf(cell) + 1);
+    if (isApp(cell.role)) return;
+    // A copy is a new cell: its own number, and no part in the Tables group.
+    const copy = make({ ...dataOf(cell), outputs: [], execution_count: null, number: null, role: "", table: null, grouped: false, steps: null }, indexOf(cell) + 1);
     select(copy);
-    changed();
+    edited();
   };
 
   const clearOutput = (cell: Cell): void => {
+    if (isHeading(cell.role)) return;
     cell.area.set([]);
     cell.execution_count = null;
     cell.count.textContent = "[ ]";
     cell.element.classList.remove("failed", "output-hidden");
-    changed();
+    edited();
   };
 
   const toggleOutput = (cell: Cell): void => {
@@ -522,7 +723,7 @@ export function notebookView(
   // Command mode: Jupyter's keys on the selected cell when the focus is on the cell, not its editor.
   list.addEventListener("keydown", (e) => {
     const target = e.target as HTMLElement;
-    if (!target.classList.contains("wb-cell") || !selected) return;
+    if (!target.matches(".wb-cell, .wb-tcell") || !selected) return;
     const cell = selected;
     const at = indexOf(cell);
     const key = e.key.toLowerCase();
@@ -530,6 +731,7 @@ export function notebookView(
     let handled = true;
     if (e.key === "Enter" && e.shiftKey) void run(cell).then(() => next(cell));
     else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void run(cell);
+    else if (e.key === "Enter" && plain && isHeading(cell.role)) toggleFold(cell);
     else if (e.key === "Enter" && plain) edit(cell);
     else if (plain && !e.shiftKey && key === "a") insertAt(at, "code");
     else if (plain && !e.shiftKey && key === "b") insertAt(at + 1, "code");
@@ -538,15 +740,15 @@ export function notebookView(
         pendingD = 0;
         removeCell(cell);
       } else pendingD = Date.now();
-    } else if (plain && key === "y") setKind(cell, "code");
-    else if (plain && key === "m") setKind(cell, "markdown");
-    else if (plain && key === "s") setKind(cell, "sql");
+    } else if (plain && key === "y" && !isApp(cell.role)) setKind(cell, "code");
+    else if (plain && key === "m" && !isApp(cell.role)) setKind(cell, "markdown");
+    else if (plain && key === "s" && !isApp(cell.role)) setKind(cell, "sql");
     else if (plain && key === "z") undo();
     else if (plain && (key === "j" || e.key === "ArrowDown")) {
-      const below = cells[at + 1];
+      const below = cells.slice(at + 1).find((c) => !c.element.hidden); // a folded group's cells are passed over
       if (below) toCommandMode(below);
     } else if (plain && (key === "k" || e.key === "ArrowUp")) {
-      const above = cells[at - 1];
+      const above = cells.slice(0, at).reverse().find((c) => !c.element.hidden);
       if (above) toCommandMode(above);
     } else if (plain && key === "o") toggleOutput(cell);
     else handled = false;
@@ -556,7 +758,212 @@ export function notebookView(
     }
   });
 
+  // ===== the Tables group: arranged by the server's rules, drawn and folded here =====
+
+  const goTo = (number: number): boolean => {
+    const cell = byNumber(number);
+    if (!cell) {
+      toast(`There is no cell ${number} in this notebook.`, "error");
+      return false;
+    }
+    // Open what hides it.
+    if (cell.grouped && cell.role !== "tables") groupFolded = false;
+    if (cell.grouped && cell.table && (cell.role === "maker" || cell.role === "transformations")) unfolded.add(cell.table);
+    redraw();
+    select(cell);
+    cell.element.scrollIntoView({ block: "center" });
+    cell.element.focus();
+    cell.element.classList.add("wb-arrived");
+    setTimeout(() => cell.element.classList.remove("wb-arrived"), 1200);
+    return true;
+  };
+
+  const toggleFold = (cell: Cell): void => {
+    if (cell.role === "tables") groupFolded = !groupFolded;
+    else if (cell.table) {
+      if (unfolded.has(cell.table)) unfolded.delete(cell.table);
+      else unfolded.add(cell.table);
+    }
+    redraw();
+  };
+
+  /** A note with its cell links as buttons: "orders is made at [@cell7] (it needs make_dates)". */
+  const noteElement = (note: string): HTMLElement =>
+    h(
+      "span",
+      { class: "wb-table-note" },
+      ...noteParts(note).map((part) =>
+        typeof part === "string" ? part : h("button", { type: "button", class: "link wb-cell-link", title: firstLine(byNumber(part.cell) ? sourceOf(byNumber(part.cell)!) : "") || `Cell ${part.cell}`, onclick: (e: Event) => { e.stopPropagation(); goTo(part.cell); } }, `@cell${part.cell}`),
+      ),
+    );
+
+  /** Draw the folded lines, each table cell's state, and what is folded away. */
+  const redraw = (): void => {
+    const tables = cells.filter((c) => c.role === "transformations");
+    const states = new Map(tables.map((c) => [c.table, stateOf(c)]));
+    for (const cell of cells) {
+      const inTable = cell.grouped && !!cell.table && (cell.role === "maker" || cell.role === "transformations");
+      cell.element.hidden = (cell.grouped && cell.role !== "tables" && groupFolded) || (inTable && !unfolded.has(cell.table!));
+      cell.element.classList.toggle("in-tables", cell.grouped && !isHeading(cell.role));
+      cell.element.classList.toggle("role-maker", cell.role === "maker");
+      cell.element.classList.toggle("role-imports", cell.role === "imports");
+      cell.part.textContent = cell.role === "maker" && cell.table ? `makes ${cell.table}` : cell.role === "imports" ? "imports the tables need" : cell.role === "transformations" ? `${cell.table} · transformations · read-only: it follows the grid` : "";
+      if (cell.role === "tables" && cell.bar) {
+        const line = groupLineText([...states.values()]);
+        cell.element.classList.toggle("stale", line.stale);
+        clear(cell.bar, h("button", { type: "button", class: "wb-fold", "aria-expanded": String(!groupFolded), onclick: () => toggleFold(cell) }, h("span", { class: "wb-chevron", "aria-hidden": "true" }, groupFolded ? "▸" : "▾"), line.text));
+      } else if (cell.role === "table" && cell.bar) {
+        const line = lineOf(cell.table);
+        const state = states.get(cell.table);
+        const own = tables.find((c) => c.table === cell.table);
+        const foldable = !!own?.grouped;
+        const open = unfolded.has(cell.table ?? "");
+        const words = line && state ? tableLineText(line, state) : (cell.table ?? "");
+        const note = line?.note ?? cell.source.split("\n").slice(1).join(" ").trim();
+        cell.element.classList.toggle("stale", state?.kind === "outOfDate");
+        clear(
+          cell.bar,
+          foldable
+            ? h("button", { type: "button", class: "wb-fold", "aria-expanded": String(open), onclick: () => toggleFold(cell) }, h("span", { class: "wb-chevron", "aria-hidden": "true" }, open ? "▾" : "▸"), words)
+            : h("span", { class: "wb-fold still" }, words),
+          note ? noteElement(note) : null,
+          h("span", { class: "spacer" }),
+          own && state?.runnable ? button("Run", () => void run(own), { icon: "play", class: "ghost wb-run-table", title: `Run ${cell.table}'s cell` }) : null,
+        );
+      } else if (cell.role === "transformations" && cell.status) {
+        const state = states.get(cell.table)!;
+        cell.status.textContent = state.label;
+        cell.status.className = `wb-table-state ${state.kind}`;
+        cell.element.classList.toggle("stale", state.kind === "outOfDate");
+        cell.element.classList.toggle("closed", !infoOf(cell.table));
+      }
+    }
+    relabel();
+    hooks.tablesChanged?.();
+  };
+
+  /** A cell's uses line as it should be. The cursor stays on its text, and that text stays where it is
+   *  on screen when the line above it comes or goes. */
+  const applyUses = (cell: Cell, line: string | null): void => {
+    const current = sourceOf(cell);
+    const next = withUses(current, line, cell.kind === "sql");
+    if (next === current) return;
+    if (!cell.editor) {
+      cell.source = next;
+      edited();
+      return;
+    }
+    const typing = cell.element.contains(document.activeElement);
+    const before = cell.element.getBoundingClientRect().height;
+    cell.editor.replaceText(next);
+    cell.editor.layout();
+    if (typing) {
+      const grew = cell.element.getBoundingClientRect().height - before;
+      let scroller: HTMLElement | null = list.parentElement;
+      while (scroller && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement;
+      if (scroller && grew) scroller.scrollTop += grew;
+    }
+  };
+
+  const apply = (done: { cells: ArrangedCell[]; tables: TableLine[]; next_cell: number }, move: boolean): void => {
+    nextNumber = Math.max(nextNumber, done.next_cell);
+    tableLines = done.tables;
+    if (move) {
+      const left = new Map(cells.map((c) => [c.number, c]));
+      const wanted: Cell[] = [];
+      const hadGroup = cells.some((c) => c.role === "tables");
+      const movedIn: string[] = [];
+      for (const a of done.cells) {
+        let cell = left.get(a.number);
+        // The app's cells are made and unmade as a whole (a heading is never turned into code).
+        if (cell && isApp(cell.role) !== isApp(a.role)) cell = undefined;
+        if (!cell) cell = make({ kind: a.kind, source: a.source, connection: null, outputs: [], execution_count: null, number: a.number, role: a.role, table: a.table, grouped: a.grouped, steps: a.steps ?? null }, cells.length);
+        else left.delete(a.number);
+        if (a.role === "maker" && a.grouped && !(cell.role === "maker" && cell.grouped) && a.table) movedIn.push(a.table);
+        cell.role = a.role;
+        cell.table = a.table;
+        cell.grouped = a.grouped;
+        wanted.push(cell);
+      }
+      for (const gone of left.values()) {
+        if (isApp(gone.role)) {
+          gone.editor?.dispose();
+          gone.element.remove();
+          if (selected === gone) selected = null;
+        } else wanted.push(gone); // never lose a cell of the user's
+      }
+      const focused = wanted.find((c) => c.editor?.hasFocus());
+      const moved = wanted.length !== cells.length || wanted.some((c, i) => cells[i] !== c);
+      cells.splice(0, cells.length, ...wanted);
+      wanted.forEach((c, i) => {
+        if (list.children[i] !== c.element) list.insertBefore(c.element, list.children[i] ?? null);
+      });
+      focused?.editor?.focus();
+      if (moved) edited();
+      // A group made while working shows its tables (a file's group starts folded).
+      if (!hadGroup && !building && cells.some((c) => c.role === "tables")) groupFolded = false;
+      // A cell the user was just working in is not folded away under them: its table shows open.
+      if (movedIn.length && !building) {
+        for (const name of movedIn) unfolded.add(name);
+        toast(`${movedIn.join(", ")}: now in Tables, at the top.`);
+      }
+    }
+    for (const a of done.cells) {
+      const cell = byNumber(a.number);
+      if (!cell) continue;
+      if (isHeading(a.role)) {
+        if (cell.source !== a.source) {
+          cell.source = a.source;
+          edited();
+        }
+      } else if (a.role === "transformations") {
+        if (a.steps) cell.steps = a.steps;
+        if (sourceOf(cell) !== a.source) {
+          if (cell.editor) cell.editor.replaceText(a.source);
+          cell.source = a.source;
+          edited();
+        }
+      } else if (cell.kind !== "markdown") applyUses(cell, a.uses);
+    }
+    redraw();
+  };
+
+  /** Ask the server for the notebook as it should be. `move` false while the user types: nothing is
+   *  added or moved, only the tables' cells and the uses lines follow. */
+  const arrange = async (move: boolean): Promise<void> => {
+    const relevant = tableInfos.length > 0 || cells.some((c) => c.role !== "") || cells.some((c) => c.kind !== "markdown" && withUses(sourceOf(c), null, c.kind === "sql") !== sourceOf(c));
+    if (!relevant) return;
+    const mine = ++asked;
+    const at = version;
+    const body = {
+      kind: "notebook",
+      cells: cells.map((c) => ({ kind: c.kind, source: sourceOf(c), number: c.number, role: c.role, table: c.table, grouped: c.grouped })),
+      tables: tableInfos.map((t) => t.name),
+      next_cell: nextNumber,
+      move,
+    };
+    try {
+      const done = await api<{ cells: ArrangedCell[]; tables: TableLine[]; next_cell: number }>("/workbench/tables/arrange", "POST", body);
+      if (mine !== asked) return; // a newer question is on its way
+      if (at !== version) return void (move ? arrange(true) : typedSoon()); // the text changed meanwhile: ask again
+      apply(done, move);
+    } catch {
+      /* the server is away: the cells stay as they are */
+    }
+  };
+
+  function typedSoon(): void {
+    if (quiet !== null) window.clearTimeout(quiet);
+    quiet = window.setTimeout(() => {
+      quiet = null;
+      void arrange(false);
+    }, 600);
+  }
+
   for (const data of initial.length ? initial : [empty()]) make(data, cells.length);
+  building = false;
+  redraw();
+  if (cells.some((c) => c.role)) void arrange(true);
 
   const at = (index?: number): Cell | null => (index === undefined ? selected ?? cells[0] ?? null : cells[index] ?? null);
   return {
@@ -618,6 +1025,62 @@ export function notebookView(
     },
     setTheme: (t) => {
       for (const c of cells) c.editor?.setTheme(t);
+    },
+    setTables: (tables) => {
+      tableInfos = tables;
+      // A table opened again whose cell came with the file: the grid gets its steps back first, and
+      // the cell follows the grid from then on.
+      for (const info of tables) {
+        const cell = tableCell(info.name);
+        if (info.grid && !info.step_list.length && cell?.steps?.length && cameWithFile.has(info.name) && !restored.has(info.name)) {
+          restored.add(info.name);
+          hooks.restoreSteps?.(info.grid, cell.steps);
+          return; // the grid's change brings the tables back here
+        }
+        restored.add(info.name);
+      }
+      void arrange(true);
+    },
+    holdsTable: (name) => !!tableCell(name),
+    tables: () =>
+      cells
+        .filter((c) => c.role === "transformations" && c.table)
+        .map((c) => {
+          const state = stateOf(c);
+          const line = lineOf(c.table);
+          return { name: c.table!, cell: c.number, maker: line?.maker ?? null, moved: c.grouped, note: line?.note ?? null, steps: line?.steps ?? null, open: !!infoOf(c.table), code: sourceOf(c), state: state.kind, label: state.label };
+        }),
+    runTable: async (name) => {
+      const cell = tableCell(name);
+      if (!cell) throw new Error(`This notebook has no table named ${name}.`);
+      return run(cell);
+    },
+    runOutOfDate: async () => {
+      let ran = 0;
+      for (const cell of cells.filter((c) => c.role === "transformations")) {
+        if (!stateOf(cell).runnable) continue;
+        ran++;
+        if (!(await run(cell))) break;
+      }
+      return ran;
+    },
+    goTo,
+    nextCell: () => nextNumber,
+    foldTables: (folded, table) => {
+      if (table) {
+        if (folded) unfolded.delete(table);
+        else {
+          unfolded.add(table);
+          groupFolded = false;
+        }
+      } else groupFolded = folded;
+      redraw();
+    },
+    renameTable: (from, to) => {
+      for (const c of cells) if (c.table === from) c.table = to;
+      const record = records.get(from);
+      if (record) records.set(to, record);
+      records.delete(from);
     },
   };
 }

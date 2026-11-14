@@ -22,6 +22,10 @@
  *              documents; F1 on a name shows its help
  *   [RESTORE]  open documents and their unsaved text come back after a reload or a crashed tab (kept in
  *              this window's session storage, in the browser only: nothing is written to disk)
+ *   [TABLES]   every table open in the grid has a read-only cell in the document it belongs to
+ *              (docs/ideas.md, 2026-11-14): the document whose kernel sent it, else the one that
+ *              already holds its cell, else the one in front. The toolbar offers Run tables when a
+ *              table's cell is out of date or has not run
  *
  * ROUTING: /workbench/home, /open, /save, /pythons (routes_workbench.py); kernels in workbenchKernel.ts.
  */
@@ -39,6 +43,7 @@ import { newEnvironment } from "./workbenchEnvironment";
 import type { Fix } from "./workbenchErrors";
 import { mountLayout } from "./workbenchLayout";
 import { setDocumentName } from "./workbenchAgent";
+import { fetchTables, type TableInfo } from "./workbenchTables";
 import { variablesPanel } from "./workbenchVariables";
 import { Kernel, WINDOW_ID } from "./workbenchKernel";
 import { type CellData, notebookView, type NotebookView } from "./workbenchNotebook";
@@ -126,6 +131,81 @@ const hooks = {
   help: (): void => void showHelp(),
 };
 
+// ===== tables: each open table's read-only cell lives in one document =====
+
+let tables: TableInfo[] = [];
+const tableOwner = new Map<string, Doc>();
+const tablesSent = new Map<Doc, string>();
+const tablesHost = h("span", { class: "wb-tables-tool" });
+const viewOf = (doc: Doc): NotebookView | ScriptView | undefined => doc.notebook ?? doc.script;
+let assignTimer: number | null = null;
+
+/** Which document holds each table's cell: the one whose kernel sent the table to the grid; else one
+ *  that already holds its cell (from its file); else, for a table no Python made (a file, a paste, a
+ *  connection, a "+" tab's query), the document in front. Once given, it stays. A table sent by a
+ *  Python outside the Workbench (Jupyter, a script in another editor) has no cell here: the code that
+ *  makes it lives there, where the app cannot write. */
+function assignTables(): void {
+  const code = docs.filter((d) => d.notebook || d.script);
+  for (const [name, doc] of [...tableOwner]) if (!docs.includes(doc) || !tables.some((t) => t.name === name)) tableOwner.delete(name);
+  for (const table of tables) {
+    if (tableOwner.has(table.name)) continue;
+    const noPython = table.origin !== "python" && table.origin !== "unknown";
+    const found = (table.kernel ? code.find((d) => d.kernel?.id === table.kernel) : undefined) ?? code.find((d) => viewOf(d)!.holdsTable(table.name)) ?? (noPython && current && code.includes(current) ? current : undefined);
+    if (found) tableOwner.set(table.name, found);
+  }
+  for (const doc of code) {
+    const mine = tables.filter((t) => tableOwner.get(t.name) === doc);
+    const signature = JSON.stringify(mine.map((t) => [t.name, t.code, t.loaded, t.steps, t.grid]));
+    if (tablesSent.get(doc) === signature) continue;
+    tablesSent.set(doc, signature);
+    viewOf(doc)!.setTables(mine);
+  }
+  drawTablesTool();
+}
+
+function assignSoon(): void {
+  if (assignTimer !== null) return;
+  assignTimer = window.setTimeout(() => {
+    assignTimer = null;
+    assignTables();
+  }, 50);
+}
+
+let refreshTimer: number | null = null;
+function refreshTablesSoon(): void {
+  if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+  refreshTimer = window.setTimeout(() => {
+    refreshTimer = null;
+    void fetchTables().then(
+      (found) => {
+        tables = found;
+        assignTables();
+      },
+      () => undefined, // the server is away: the cells stay as they are
+    );
+  }, 120);
+}
+
+/** The toolbar's word on the front document's tables: Run tables, when one is not up to date. */
+function drawTablesTool(): void {
+  const view = current ? viewOf(current) : undefined;
+  const waiting = view ? view.tables().filter((t) => t.state === "outOfDate" || t.state === "notRun" || t.state === "notRunSinceOpening") : [];
+  const stale = waiting.filter((t) => t.state === "outOfDate").length;
+  clear(
+    tablesHost,
+    waiting.length
+      ? button(stale ? `Run tables: ${stale} out of date` : `Run tables: ${waiting.length} not run`, () => void view!.runOutOfDate().catch((e: Error) => toast(e.message, "error")), {
+          icon: "play",
+          class: stale ? "wb-tables-stale" : "",
+          title: `Run each table's cell that is not up to date: ${waiting.map((t) => t.name).join(", ")}`,
+        })
+      : null,
+  );
+}
+
+const restoreSteps = (grid: string, steps: unknown[]): void => void api(`/grids/${encodeURIComponent(grid)}/steps`, "POST", { steps }).catch((e: Error) => toast(e.message, "error"));
+
 function makeDoc(kind: Doc["kind"], title: string, path: string | null, modified: number | null): Doc {
   const doc: Doc = { id: ++counter, kind, title, path, modified, dirty: false, kernel: null, python: null, element: h("div", { class: `wb-doc-body kind-${kind}` }) };
   if (kind === "notebook" || kind === "script") {
@@ -136,6 +216,7 @@ function makeDoc(kind: Doc["kind"], title: string, path: string | null, modified
         drawToolbar();
         drawStatus();
       }
+      assignSoon(); // a started kernel has its id: the tables it sends belong to this document
     });
     doc.console = consoleView(kernel, () => effectiveTheme(), {
       complete: pythonCompleter(kernel, names),
@@ -223,9 +304,18 @@ const markChanged = (doc: Doc) => (): void => {
   remember();
 };
 
-function openNotebook(path: string | null, cells: CellData[], modified: number | null): Doc {
+function openNotebook(path: string | null, cells: CellData[], modified: number | null, nextCell?: number): Doc {
   const doc = makeDoc("notebook", path ? baseName(path) : `Untitled notebook ${counter + 1}`, path, modified);
-  doc.notebook = notebookView(cells, doc.kernel!, () => connectionNames, () => effectiveTheme(), markChanged(doc), () => bladeNames, () => codeNames, { ...hooks, fix: pageFix(doc), openGrid: (name) => void openGrid(doc, name), openResult: (n, name) => void openResult(doc, n, name) });
+  doc.notebook = notebookView(cells, doc.kernel!, () => connectionNames, () => effectiveTheme(), markChanged(doc), () => bladeNames, () => codeNames, {
+    ...hooks,
+    fix: pageFix(doc),
+    openGrid: (name) => void openGrid(doc, name),
+    openResult: (n, name) => void openResult(doc, n, name),
+    nextCell,
+    opened: cells.length > 0, // from a file or a reload: its tables' cells have not run since
+    restoreSteps,
+    tablesChanged: () => doc === current && drawTablesTool(),
+  });
   doc.element.append(doc.notebook.element);
   show(doc);
   // A new notebook is for typing: the cursor waits in its first cell.
@@ -241,7 +331,7 @@ function openScript(path: string | null, text: string, modified: number | null):
     // from a private copy).
     saveFirst: async (): Promise<boolean> => (!doc.path || !doc.dirty ? true : save(doc)),
   };
-  doc.script = scriptView(text, doc.kernel!, doc.console!, () => effectiveTheme(), markChanged(doc), names, file, { ...hooks, fix: pageFix(doc), openFile: (path, line) => void openAt(path, line), openGrid: (name) => void openGrid(doc, name), openResult: (n, name) => void openResult(doc, n, name) });
+  doc.script = scriptView(text, doc.kernel!, doc.console!, () => effectiveTheme(), markChanged(doc), names, file, { ...hooks, fix: pageFix(doc), openFile: (path, line) => void openAt(path, line), openGrid: (name) => void openGrid(doc, name), openResult: (n, name) => void openResult(doc, n, name), tablesChanged: () => doc === current && drawTablesTool() });
   doc.element.append(doc.script.element);
   show(doc);
   return doc;
@@ -266,12 +356,14 @@ function show(doc: Doc): void {
   drawStatus();
   document.title = `${doc.title} · Workbench`;
   remember();
+  assignSoon(); // a table with no document yet goes to the one in front
 }
 
 function close(doc: Doc): void {
   if (doc.dirty && !confirm(`${doc.title} has changes that are not saved. Close it anyway?`)) return;
   doc.kernel?.stop();
   docs.splice(docs.indexOf(doc), 1);
+  tablesSent.delete(doc);
   remember();
   if (doc.kind === "blade") editingBlade = false;
   if (current === doc) {
@@ -303,8 +395,8 @@ async function open(path?: string): Promise<void> {
   const already = docs.find((d) => d.path === chosen);
   if (already) return show(already);
   try {
-    const found = await api<{ path: string; kind: "notebook" | "script"; modified: number; cells?: CellData[]; text?: string; python: string | null }>("/workbench/open", "POST", { path: chosen });
-    if (found.kind === "notebook") openNotebook(found.path, found.cells ?? [], found.modified);
+    const found = await api<{ path: string; kind: "notebook" | "script"; modified: number; cells?: CellData[]; text?: string; python: string | null; next_cell?: number }>("/workbench/open", "POST", { path: chosen });
+    if (found.kind === "notebook") openNotebook(found.path, found.cells ?? [], found.modified, found.next_cell);
     else openScript(found.path, found.text ?? "", found.modified);
     // Its own environment, as remembered (or the .venv beside it): the picker shows it, Run uses it.
     if (found.python && current) {
@@ -329,7 +421,8 @@ async function save(doc: Doc | null, as = false): Promise<boolean> {
     const ending = doc.kind === "notebook" ? ".ipynb" : ".py";
     if (!path.toLowerCase().endsWith(ending)) path += ending;
   }
-  const body = doc.kind === "notebook" ? { cells: doc.notebook!.cells() } : { text: doc.script!.text() };
+  // A notebook keeps the next cell number with it, so a deleted cell's number is never given again.
+  const body = doc.kind === "notebook" ? { cells: doc.notebook!.cells(), next_cell: doc.notebook!.nextCell() } : { text: doc.script!.text() };
   const send = async (force: boolean): Promise<void> => {
     const saved = await api<{ path: string; modified: number }>("/workbench/save", "POST", { path, ...body, modified: as ? null : doc.modified, force });
     const first = doc.path === null;
@@ -486,10 +579,12 @@ function drawToolbar(): void {
       button("Interrupt", () => void kernel.interrupt(), { icon: "stop" }),
       button("Restart", () => void restartKernel(kernel), { icon: "back" }),
       pythonPicker(doc),
+      tablesHost,
       right,
       palette,
     ),
   );
+  drawTablesTool();
 }
 
 async function restartKernel(kernel: Kernel): Promise<boolean> {
@@ -562,6 +657,7 @@ interface Remembered {
   python: string | null;
   text?: string;
   cells?: CellData[];
+  next_cell?: number;
 }
 const SESSION_KEY = "workbench-documents";
 let rememberTimer: number | null = null;
@@ -581,7 +677,7 @@ function rememberNow(): void {
         dirty: d.dirty,
         python: d.python,
         // A saved document comes back from its file; only changed ones keep their text here.
-        ...(d.dirty || !d.path ? (d.notebook ? { cells: d.notebook.cells().map((c) => (withOutputs ? c : { ...c, outputs: [] })) } : { text: d.script!.text() }) : {}),
+        ...(d.dirty || !d.path ? (d.notebook ? { cells: d.notebook.cells().map((c) => (withOutputs ? c : { ...c, outputs: [] })), next_cell: d.notebook.nextCell() } : { text: d.script!.text() }) : {}),
       }));
   const at = current ? docs.filter((d) => d.notebook || d.script).indexOf(current) : -1;
   try {
@@ -619,7 +715,7 @@ async function restore(): Promise<boolean> {
       if (reopened) opened.push(reopened);
       continue;
     }
-    const doc = r.kind === "notebook" ? openNotebook(r.path, r.cells ?? [], r.modified) : openScript(r.path, r.text ?? "", r.modified);
+    const doc = r.kind === "notebook" ? openNotebook(r.path, r.cells ?? [], r.modified, r.next_cell) : openScript(r.path, r.text ?? "", r.modified);
     doc.python = r.python;
     if (r.python && !pythons.some((p) => p.python === r.python)) pythons.push({ python: r.python, version: "", ipykernel: true, swissarmygrid: true });
     doc.dirty = r.dirty;
@@ -682,6 +778,12 @@ const text = (args: Record<string, unknown>, name: string): string | undefined =
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw new Error(`${name} is text.`);
   return value;
+};
+/** The front document's tables: a notebook's or a script's. */
+const tablesView = (): NotebookView | ScriptView => {
+  const view = current ? viewOf(current) : undefined;
+  if (!view) throw new Error("No notebook or script is in front.");
+  return view;
 };
 const kindArg = (args: Record<string, unknown>): "code" | "sql" | "markdown" => {
   const kind = text(args, "kind") ?? "code";
@@ -762,6 +864,22 @@ const COMMANDS: Command[] = [
   { id: "cell.clearOutput", group: "Cell", title: "Clear the cell's output", args: "index (default: the selected one)", when: isNotebook, whyNot: "the document in front is not a notebook", run: (a) => notebook().clearOutput(num(a, "index")) },
   { id: "cell.clearAll", group: "Cell", title: "Clear every output", when: isNotebook, whyNot: "the document in front is not a notebook", run: () => notebook().clearAll() },
   { id: "cell.toggleOutput", group: "Cell", title: "Hide or show the cell's output", keys: "O", when: isNotebook, whyNot: "the document in front is not a notebook", run: () => notebook().toggleOutput() },
+  { id: "cell.goTo", group: "Cell", title: "Go to a cell by its number", args: "number: the cell's own number (as @cell7 links to it)", when: isCode, whyNot: "no notebook or script is in front", run: (a) => {
+    const number = num(a, "number");
+    if (number === undefined) throw new Error("Send the cell's number.");
+    if (!tablesView().goTo(number)) throw new Error(`There is no cell ${number} in the document in front.`);
+    return { cell: number };
+  } },
+  // Tables: every table open in the grid has a read-only cell in its document
+  { id: "tables.list", agentOnly: true, group: "Tables", title: "The document's tables and each cell's state", when: isCode, whyNot: "no notebook or script is in front", run: () => ({ document: current!.title, tables: tablesView().tables() }) },
+  { id: "tables.run", group: "Tables", title: "Run a table's cell", args: "table: the table's name", when: isCode, whyNot: "no notebook or script is in front", run: async (a) => {
+    const table = text(a, "table");
+    if (!table) throw new Error("Send the table's name.");
+    return { table, ok: await tablesView().runTable(table) };
+  } },
+  { id: "tables.runOutOfDate", group: "Tables", title: "Run every table's cell that is not up to date", when: isCode, whyNot: "no notebook or script is in front", run: async () => ({ ran: await tablesView().runOutOfDate(), tables: tablesView().tables().map((t) => ({ name: t.name, state: t.state })) }) },
+  { id: "tables.fold", group: "Tables", title: "Fold the Tables group (or one table)", args: "table: one table (default: the whole group)", when: isCode, whyNot: "no notebook or script is in front", run: (a) => tablesView().foldTables(true, text(a, "table")) },
+  { id: "tables.unfold", group: "Tables", title: "Open the Tables group (or one table)", args: "table: one table (default: the group, one level)", when: isCode, whyNot: "no notebook or script is in front", run: (a) => tablesView().foldTables(false, text(a, "table")) },
   // Console
   { id: "console.focus", group: "Console", title: "Go to the console", keys: "Ctrl+2", when: isCode, whyNot: "no notebook or script is in front", run: () => layout.focus("console") },
   { id: "console.run", group: "Console", title: "Run code in the console", args: "code", when: isCode, whyNot: "no notebook or script is in front", run: (a) => {
@@ -854,6 +972,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
 void rail.loadBlades().then(() => rail.loadCatalogs());
 connect((live) => {
   if (!live) return;
+  refreshTablesSoon(); // what is open in the grid now
   void loadApprovals(); // an agent's request (a new blade, say) asks here too
   if (document.hasFocus()) tellFocus();
 }, { catalog: "1", workbench: "1", window: WINDOW_ID });
@@ -871,6 +990,17 @@ onNotice((notice) => {
     void rail.loadBlades();
     void loadConnections();
   }
+  // A table opened, closed or renamed, or its grid's steps changed: its cell here follows.
+  if (notice.type === "dataset_renamed") {
+    const { dataset, to } = notice as unknown as { dataset: string; to: string };
+    const owned = tableOwner.get(dataset);
+    for (const doc of docs) viewOf(doc)?.renameTable(dataset, to);
+    if (owned) {
+      tableOwner.set(to, owned);
+      tableOwner.delete(dataset);
+    }
+  }
+  if (["grid_updated", "grid_shown", "grid_closed", "dataset_updated", "dataset_closed", "dataset_renamed"].includes(notice.type)) refreshTablesSoon();
 });
 
 void Promise.all([

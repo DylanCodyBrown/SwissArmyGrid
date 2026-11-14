@@ -4896,33 +4896,40 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   padding: 14px 20px 40vh;
 }
 
-.wb-cell {
+.wb-cell,
+.wb-tcell {
   border: 1px solid var(--border);
   border-left: 3px solid var(--border);
   border-radius: 8px;
   background: var(--raised);
 }
 
-.wb-cell.selected {
+.wb-cell.selected,
+.wb-tcell.selected {
   border-left-color: var(--accent);
 }
 
-.wb-cell.running {
+.wb-cell.running,
+.wb-tcell.running {
   border-left-color: var(--warn);
 }
 
-.wb-cell.failed {
+.wb-cell.failed,
+.wb-tcell.failed {
   border-left-color: var(--error);
 }
 
 /* Command mode: the cell itself has the focus (Jupyter's keys act on it). */
 .wb-cell:focus-visible,
-.wb-cell.selected:focus {
+.wb-cell.selected:focus,
+.wb-tcell:focus-visible,
+.wb-tcell.selected:focus {
   outline: none;
   box-shadow: 0 0 0 2px var(--accent);
 }
 
-.wb-cell.output-hidden > .wb-outputs {
+.wb-cell.output-hidden > .wb-outputs,
+.wb-tcell.output-hidden > .wb-outputs {
   display: none;
 }
 
@@ -4931,7 +4938,8 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   margin: 4px 10px 6px;
 }
 
-.wb-cell.output-hidden > .wb-output-hidden {
+.wb-cell.output-hidden > .wb-output-hidden,
+.wb-tcell.output-hidden > .wb-output-hidden {
   display: block;
 }
 
@@ -5555,4 +5563,167 @@ body.dropping-file::after {
   min-width: 60px;
   font: inherit;
   padding: 0 4px;
+}
+
+/* ===== The Workbench: cell numbers, the Tables group, a table's read-only cell (2026-11-14) ===== */
+
+/* A cell's own number: it never changes (not the run count beside it). */
+.wb-number {
+  min-width: 2.4em;
+  color: var(--muted);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.8em;
+  font-weight: 600;
+}
+
+.wb-part {
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The group's line and each table's line: one line each when folded. */
+.wb-tcell.wb-heading {
+  border-left-color: var(--accent);
+  background: var(--surface);
+}
+
+.wb-tcell.wb-heading.role-table,
+.wb-cell.in-tables {
+  margin-left: 22px;
+}
+
+.wb-cell.in-tables.role-maker,
+.wb-tcell.in-tables.role-transformations {
+  margin-left: 44px;
+}
+
+.wb-group-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  padding: 2px 10px;
+}
+
+.wb-group-bar .spacer {
+  flex: 1;
+}
+
+.wb-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb-fold.still {
+  cursor: default;
+  padding-left: 22px;
+}
+
+.wb-fold:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.wb-chevron {
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+}
+
+.wb-table-note {
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+/* Out of date: yellow, on the table's cell, its line and the group's line. */
+.wb-tcell.wb-heading.stale {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.wb-tcell.stale {
+  border-left-color: var(--warn);
+}
+
+.wb-tcell.role-transformations > .wb-cell-head {
+  background: var(--surface);
+}
+
+.wb-tcell.role-transformations.stale > .wb-cell-head {
+  background: var(--warn-soft);
+}
+
+.wb-table-state {
+  padding: 1px 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.wb-table-state.outOfDate {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* A table open in the grid keeps its cell: Delete shows only once the table is closed. */
+.wb-tcell.role-transformations:not(.closed) .wb-delete-table {
+  display: none;
+}
+
+/* A link to a cell (`@cell7` in a comment, in a table's note). */
+.wb-cell-link,
+.monaco-editor .wb-cell-link {
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.wb-cell.wb-arrived,
+.wb-tcell.wb-arrived {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* A script: each cell's marker line, and the words after a table's marker. */
+.monaco-editor .wb-marker-line {
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 7%, transparent);
+}
+
+.monaco-editor .wb-marker-line.stale {
+  background: var(--warn-soft);
+}
+
+.monaco-editor .wb-line-note {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.monaco-editor .wb-line-note.stale {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.wb-tables-tool:empty {
+  display: none;
+}
+
+.wb-tables-tool .wb-tables-stale {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--text);
 }

@@ -175,7 +175,7 @@ async function start(): Promise<void> {
   const workspace = $(".workspace");
   // The grid has the whole page (plan decision 13): no Table Transformations panel and no SQL box here.
   // The ribbon adds steps; the strip under the title shows them, and opens the panel in a tab of its
-  // own; the steps go to your Python as DuckDB code (To Python).
+  // own; the steps as code are the table's read-only cell in the Workbench.
   $("#steps-panel").remove();
   const strip = h("div", { class: "steps-strip" });
   $(".titlebar").append(strip);

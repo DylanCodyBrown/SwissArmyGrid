@@ -3,7 +3,7 @@
  * the clipboard and queued: in Jupyter or IPython, `sag.paste()` puts the newest in the cell (or at the
  * prompt), imports first. Nothing is run for the user.
  */
-import { api, gridPath } from "./api";
+import { api } from "./api";
 import { toast } from "./dom";
 
 interface Sent {
@@ -34,12 +34,3 @@ export async function toPython(code: string, imports: string[], label: string): 
   }
 }
 
-/** A grid's steps as checked DuckDB code over the user's own table. */
-export async function gridToPython(grid: string): Promise<void> {
-  try {
-    const sent = await api<Sent>(`${gridPath(grid)}/python`, "POST");
-    told(sent, await copied(sent.code));
-  } catch (e) {
-    toast((e as Error).message, "error");
-  }
-}

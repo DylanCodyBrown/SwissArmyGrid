@@ -40,8 +40,112 @@ export interface Problem {
 }
 export type Helper = (text: string, offset: number) => Promise<string>;
 
+/** `@cell7` in a comment links to cell 7: what the editor asks of its document. */
+export interface CellLinks {
+  /** The cell's first line of code (null: there is no such cell). */
+  first: (number: number) => string | null;
+  go: (number: number) => void;
+}
+
+/** A script's cells, for folding and drawing (domain/table_cells.py outline). Lines are 1-based. */
+export interface ScriptOutline {
+  region: [number, number] | null;
+  cells: { number: number | null; line: number; end: number; role: string; table: string | null; grouped: boolean; first: string }[];
+}
+
+/** What a script's editor draws beside its Tables group: the words after a line, and its colour. */
+export interface LineNote {
+  line: number;
+  text: string;
+  /** stale: out of date (yellow). */
+  tone: "plain" | "stale";
+  /** Draw the line as a cell's marker. */
+  marker?: boolean;
+}
+
 // Each editor's own completer and help (a notebook cell's kernel and connection, a script's kernel).
 const completers = new WeakMap<monaco.editor.ITextModel, { complete?: Completer; help?: Helper }>();
+const cellLinks = new WeakMap<monaco.editor.ITextModel, CellLinks>();
+const outlines = new WeakMap<monaco.editor.ITextModel, ScriptOutline>();
+const CELL_LINK = /@cell(\d+)\b/g;
+
+/** Where a line's comment starts (0-based column; -1: it has none). Python's `#`, SQL's `--`; a
+ *  Markdown cell is all words. A `#` inside a quoted text on the line is not a comment. */
+function commentStart(line: string, language: string): number {
+  if (language === "markdown") return 0;
+  const mark = language === "sql" ? "--" : "#";
+  let quote = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = "";
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (line.startsWith(mark, i)) return i;
+  }
+  return -1;
+}
+
+/** The cell links on a line: each one's number and columns (1-based, end exclusive). */
+function linksOn(line: string, language: string): { number: number; start: number; end: number }[] {
+  const from = commentStart(line, language);
+  if (from < 0) return [];
+  const found: { number: number; start: number; end: number }[] = [];
+  for (const match of line.matchAll(CELL_LINK)) {
+    if (match.index >= from) found.push({ number: Number(match[1]), start: match.index + 1, end: match.index + 1 + match[0].length });
+  }
+  return found;
+}
+
+function linkAt(model: monaco.editor.ITextModel, position: monaco.IPosition): { number: number; range: monaco.Range } | null {
+  if (!cellLinks.has(model)) return null;
+  const hit = linksOn(model.getLineContent(position.lineNumber), model.getLanguageId()).find((l) => position.column >= l.start && position.column <= l.end);
+  return hit ? { number: hit.number, range: new monaco.Range(position.lineNumber, hit.start, position.lineNumber, hit.end) } : null;
+}
+
+// Fired when a script's outline changes: Monaco asks for the folds again.
+const foldsChanged = new monaco.Emitter<monaco.languages.FoldingRangeProvider>();
+
+/** Folding by indentation (what Monaco does by itself for Python), as ranges. */
+function indentRanges(model: monaco.editor.ITextModel): monaco.languages.FoldingRange[] {
+  const count = model.getLineCount();
+  const indents: number[] = [];
+  for (let line = 1; line <= count; line++) {
+    const text = model.getLineContent(line);
+    indents.push(text.trim() ? text.length - text.trimStart().length : -1);
+  }
+  const ranges: monaco.languages.FoldingRange[] = [];
+  const open: { line: number; indent: number }[] = [];
+  let lastCode = 0;
+  for (let line = 1; line <= count + 1; line++) {
+    const indent = line <= count ? indents[line - 1]! : 0;
+    if (indent < 0) continue;
+    while (open.length && open[open.length - 1]!.indent >= indent) {
+      const started = open.pop()!;
+      if (lastCode > started.line) ranges.push({ start: started.line, end: lastCode });
+    }
+    if (line <= count) open.push({ line, indent });
+    lastCode = line;
+  }
+  return ranges;
+}
+
+/** Python folds: its blocks, a script's Tables group, each table of it, each cell. */
+function foldingRanges(model: monaco.editor.ITextModel): monaco.languages.FoldingRange[] {
+  const ranges = indentRanges(model);
+  const outline = outlines.get(model);
+  if (!outline) return ranges;
+  if (outline.region) ranges.push({ start: outline.region[0], end: outline.region[1], kind: monaco.languages.FoldingRangeKind.Region });
+  for (const [i, cell] of outline.cells.entries()) {
+    // A table's own cells fold as one: its maker's marker down to the end of its transformations.
+    const next = outline.cells[i + 1];
+    const pair = cell.grouped && cell.role === "maker" && next?.role === "transformations" && next.table === cell.table;
+    const end = pair ? next.end : cell.end;
+    const alone = cell.role !== "transformations" || outline.cells[i - 1]?.role !== "maker" || outline.cells[i - 1]?.table !== cell.table || !cell.grouped;
+    if ((pair || alone) && end > cell.line) ranges.push({ start: cell.line, end });
+  }
+  return ranges;
+}
 // Each editor's problems from its last failed run (cleared by the next edit or run).
 const problems = new WeakMap<monaco.editor.ITextModel, Problem[]>();
 const PROBLEMS = "sag-run";
@@ -109,12 +213,20 @@ function register(language: string): void {
       // A problem under the pointer: its card first (Monaco's own marker hover sits above it).
       const here = (problems.get(model) ?? []).find((p) => rangeOf(model, p).containsPosition(position));
       if (here) return { range: rangeOf(model, here), contents: [{ value: here.hover, supportHtml: false }] };
+      // A link to a cell: that cell's first line.
+      const link = linkAt(model, position);
+      if (link) {
+        const first = cellLinks.get(model)!.first(link.number);
+        const words = first === null ? `There is no cell ${link.number} in this document.` : `Cell ${link.number}` + (first ? "\n```\n" + first.replace(/```/g, "ˋˋˋ") + "\n```" : " (empty)");
+        return { range: link.range, contents: [{ value: words, supportHtml: false }] };
+      }
       const help = completers.get(model)?.help;
       if (!help) return null;
       const text = await help(model.getValue(), model.getOffsetAt(position));
       return text ? { contents: [{ value: "```\n" + text.replace(/```/g, "ˋˋˋ") + "\n```" }] } : null;
     },
   });
+  if (language === "python") monaco.languages.registerFoldingRangeProvider("python", { onDidChange: foldsChanged.event, provideFoldingRanges: (model) => foldingRanges(model) });
   // Quick fixes (Ctrl+., the light bulb, the hover's "Quick Fix…"): a close name, an import.
   monaco.languages.registerCodeActionProvider(language, {
     provideCodeActions: (model, range) => {
@@ -147,6 +259,45 @@ function fixEdit(model: monaco.editor.ITextModel, at: monaco.Range, fix: Problem
   return null;
 }
 
+/** The changed pieces between two lists of lines: `removed` old lines from line `start` (1-based)
+ *  become `lines`. The same lines at the start and the end are left alone; a small middle is compared
+ *  line by line (longest common run), a large one is one piece. */
+export function lineHunks(before: string[], after: string[]): { start: number; removed: number; lines: string[] }[] {
+  let head = 0;
+  while (head < before.length && head < after.length && before[head] === after[head]) head++;
+  let tail = 0;
+  while (tail < before.length - head && tail < after.length - head && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail++;
+  const a = before.slice(head, before.length - tail);
+  const b = after.slice(head, after.length - tail);
+  if (!a.length && !b.length) return [];
+  if (a.length * b.length > 250_000 || !a.length || !b.length) return [{ start: head + 1, removed: a.length, lines: b }];
+  // Longest common subsequence of the middle's lines.
+  const width = b.length + 1;
+  const table = new Uint32Array((a.length + 1) * width);
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) table[i * width + j] = a[i] === b[j] ? table[(i + 1) * width + j + 1]! + 1 : Math.max(table[(i + 1) * width + j]!, table[i * width + j + 1]!);
+  }
+  const hunks: { start: number; removed: number; lines: string[] }[] = [];
+  let i = 0;
+  let j = 0;
+  let open: { start: number; removed: number; lines: string[] } | null = null;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      open = null;
+      i++;
+      j++;
+      continue;
+    }
+    if (!open) hunks.push((open = { start: head + i + 1, removed: 0, lines: [] }));
+    if (j < b.length && (i >= a.length || table[i * width + j + 1]! >= table[(i + 1) * width + j]!)) open.lines.push(b[j++]!);
+    else {
+      open.removed++;
+      i++;
+    }
+  }
+  return hunks;
+}
+
 export interface CodeEditor {
   value: () => string;
   setValue: (text: string) => void;
@@ -160,6 +311,19 @@ export interface CodeEditor {
   lines: (start: number, end: number) => string;
   /** The cursor to the start of a line, scrolled into view. */
   moveTo: (line: number) => void;
+  /** Make the text `text` by changing only the lines that differ, in one edit that undoes with the
+   *  typing before it. The cursor stays on its own text and that text stays where it is on screen.
+   *  False: nothing differed. */
+  replaceText: (text: string) => boolean;
+  /** Typing is refused (a table's read-only cell); the app still writes with replaceText. */
+  setReadOnly: (readOnly: boolean) => void;
+  /** A script's cells: folds for the Tables group, each table and each cell. */
+  setOutline: (outline: ScriptOutline | null) => void;
+  /** Fold the lines that start at these line numbers (a script's Tables group, a table). */
+  fold: (lines: number[]) => void;
+  unfold: (lines: number[]) => void;
+  /** Words drawn after lines (a table's state beside its marker), and cell markers drawn as rules. */
+  setLineNotes: (notes: LineNote[]) => void;
   /** A new line as Enter makes it (keeping the indent). */
   insertNewline: () => void;
   /** The cursor at the very end of the text. */
@@ -180,7 +344,8 @@ export interface CodeEditor {
   setLanguage: (language: "python" | "sql" | "markdown") => void;
   focus: () => void;
   setTheme: (theme: string) => void;
-  onChange: (listener: () => void) => void;
+  /** Told of every change; `undo`: it was an undo or a redo (the app does not answer those with edits). */
+  onChange: (listener: (change: { undo: boolean }) => void) => void;
   layout: () => void;
   dispose: () => void;
 }
@@ -208,6 +373,9 @@ export interface CodeEditorOptions {
   /** Completions at the cursor (the kernel, a connection's catalog), and help on hover. */
   complete?: Completer;
   help?: Helper;
+  /** `@cell7` in a comment is a link: a click goes there, a hover shows the cell's first line. */
+  cellLinks?: CellLinks;
+  readOnly?: boolean;
   /** The right-click menu's Send to the agent: the selected code, or the error under the cursor. */
   sendToAgent?: (what: { text: string; startLine: number; endLine: number; problem: Problem | null }, withQuestion: boolean) => void;
 }
@@ -238,12 +406,43 @@ export function createCodeEditor(host: HTMLElement, options: CodeEditorOptions):
     wordBasedSuggestions: "currentDocument",
     fixedOverflowWidgets: true,
     placeholder: options.placeholder,
+    readOnly: options.readOnly ?? false,
+    // A read-only cell says nothing when typed in: its head says why.
+    readOnlyMessage: { value: "This cell follows the grid: change the table's steps there." },
   });
   const model = editor.getModel();
-  if (model && (options.complete || options.help)) {
+  if (model && (options.complete || options.help || options.cellLinks)) {
     completers.set(model, { complete: options.complete, help: options.help });
     for (const language of ["python", "sql", "markdown"]) register(language);
   }
+  // Cell links: drawn as links, followed on a plain click.
+  const linkMarks = editor.createDecorationsCollection([]);
+  const drawLinks = (): void => {
+    const m = editor.getModel();
+    if (!m || !cellLinks.has(m)) return;
+    const marks: monaco.editor.IModelDeltaDecoration[] = [];
+    for (let line = 1; line <= m.getLineCount(); line++) {
+      const text = m.getLineContent(line);
+      if (!text.includes("@cell")) continue;
+      for (const link of linksOn(text, m.getLanguageId())) marks.push({ range: new monaco.Range(line, link.start, line, link.end), options: { inlineClassName: "wb-cell-link" } });
+    }
+    linkMarks.set(marks);
+  };
+  if (model && options.cellLinks) {
+    cellLinks.set(model, options.cellLinks);
+    drawLinks();
+    editor.onDidChangeModelContent(drawLinks);
+    editor.onDidChangeModelLanguage(drawLinks);
+    editor.onMouseUp((e) => {
+      const m = editor.getModel();
+      const at = e.target.position;
+      if (!m || !at || e.event.leftButton === false || e.event.ctrlKey || e.event.shiftKey || e.event.altKey) return;
+      if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !editor.getSelection()?.isEmpty()) return;
+      const link = linkAt(m, at);
+      if (link) options.cellLinks!.go(link.number);
+    });
+  }
+  const notes = editor.createDecorationsCollection([]);
   const keys = options.keys ?? {};
   // The run keys come first, even with the suggestion list open (it would take Ctrl+Enter for itself):
   // the list closes and the code runs.
@@ -344,6 +543,78 @@ export function createCodeEditor(host: HTMLElement, options: CodeEditorOptions):
       editor.setPosition({ lineNumber: at, column: 1 });
       editor.revealLineInCenterIfOutsideViewport(at);
     },
+    replaceText: (text) => {
+      const m = editor.getModel();
+      if (!m || m.getValue() === text) return false;
+      const before = m.getLinesContent();
+      const after = text.split("\n");
+      const hunks = lineHunks(before, after);
+      if (!hunks.length) return false;
+      // Where each old line lands: a line in a changed piece goes to that piece's new place.
+      const mapLine = (line: number): number => {
+        let shift = 0;
+        for (const hunk of hunks) {
+          if (line < hunk.start) break;
+          if (line < hunk.start + hunk.removed) return Math.max(1, Math.min(hunk.start + shift + Math.min(line - hunk.start, Math.max(0, hunk.lines.length - 1)), after.length));
+          shift += hunk.lines.length - hunk.removed;
+        }
+        return Math.max(1, Math.min(line + shift, after.length));
+      };
+      const at = editor.getPosition();
+      const topBefore = at ? editor.getTopForLineNumber(at.lineNumber) - editor.getScrollTop() : 0;
+      const selections = (editor.getSelections() ?? []).map((sel) => new monaco.Selection(mapLine(sel.selectionStartLineNumber), sel.selectionStartColumn, mapLine(sel.positionLineNumber), sel.positionColumn));
+      const last = before.length;
+      const edits = hunks.map((hunk) => {
+        // Whole lines: from the start of the first changed line (or the end of the line before, at the
+        // end of the text) so that no stray newline is left behind.
+        if (hunk.start > last) return { range: new monaco.Range(last, m.getLineMaxColumn(last), last, m.getLineMaxColumn(last)), text: "\n" + hunk.lines.join("\n") };
+        const end = hunk.start + hunk.removed;
+        if (end > last) {
+          const from = hunk.start > 1 && !hunk.lines.length ? new monaco.Position(hunk.start - 1, m.getLineMaxColumn(hunk.start - 1)) : new monaco.Position(hunk.start, 1);
+          return { range: new monaco.Range(from.lineNumber, from.column, last, m.getLineMaxColumn(last)), text: hunk.lines.join("\n") };
+        }
+        return { range: new monaco.Range(hunk.start, 1, end, 1), text: hunk.lines.length ? hunk.lines.join("\n") + "\n" : "" };
+      });
+      const wasReadOnly = editor.getOption(monaco.editor.EditorOption.readOnly);
+      if (wasReadOnly) editor.updateOptions({ readOnly: false });
+      editor.executeEdits("sag-tables", edits, selections.length ? selections : undefined);
+      if (wasReadOnly) editor.updateOptions({ readOnly: true });
+      // The line the cursor is on stays where it was on screen (a script scrolls by the lines added above).
+      const now = editor.getPosition();
+      if (at && now && !options.grow) editor.setScrollTop(editor.getTopForLineNumber(now.lineNumber) - topBefore);
+      return true;
+    },
+    setReadOnly: (readOnly) => {
+      if (editor.getOption(monaco.editor.EditorOption.readOnly) !== readOnly) editor.updateOptions({ readOnly });
+    },
+    setOutline: (outline) => {
+      const m = editor.getModel();
+      if (!m) return;
+      if (outline) outlines.set(m, outline);
+      else outlines.delete(m);
+      foldsChanged.fire({ provideFoldingRanges: (model) => foldingRanges(model) });
+    },
+    fold: (lines) => {
+      if (lines.length) void editor.getAction("editor.fold")?.run({ selectionLines: lines.map((l) => l - 1), levels: 1 });
+    },
+    unfold: (lines) => {
+      if (lines.length) void editor.getAction("editor.unfold")?.run({ selectionLines: lines.map((l) => l - 1), levels: 1 });
+    },
+    setLineNotes: (list) => {
+      const m = editor.getModel();
+      if (!m) return;
+      notes.set(
+        list
+          .filter((n) => n.line >= 1 && n.line <= m.getLineCount())
+          .flatMap((n) => {
+            const end = m.getLineMaxColumn(n.line);
+            const marks: monaco.editor.IModelDeltaDecoration[] = [];
+            if (n.marker) marks.push({ range: new monaco.Range(n.line, 1, n.line, 1), options: { isWholeLine: true, className: n.tone === "stale" ? "wb-marker-line stale" : "wb-marker-line" } });
+            if (n.text) marks.push({ range: new monaco.Range(n.line, Math.max(1, end - 1), n.line, end), options: { showIfCollapsed: true, after: { content: `   ${n.text}`, inlineClassName: n.tone === "stale" ? "wb-line-note stale" : "wb-line-note" } } });
+            return marks;
+          }),
+      );
+    },
     insertNewline: () => editor.trigger("keyboard", "type", { text: "\n" }),
     atEnd: () => {
       const model = editor.getModel();
@@ -409,7 +680,7 @@ export function createCodeEditor(host: HTMLElement, options: CodeEditorOptions):
     },
     focus: () => editor.focus(),
     setTheme: (theme) => monaco.editor.setTheme(THEMES[theme] ?? "vs"),
-    onChange: (listener) => void editor.onDidChangeModelContent(listener),
+    onChange: (listener) => void editor.onDidChangeModelContent((e) => listener({ undo: e.isUndoing || e.isRedoing })),
     layout: () => (options.grow ? fit() : editor.layout()),
     dispose: () => {
       editor.getModel()?.dispose();

@@ -3,46 +3,16 @@
  *
  * The Table Transformations panel and the SQL box left the grid page, which gives the grid the whole
  * page. The ribbon adds steps. This strip says how many are on and offers:
- *   Undo (drop the last step) · Clear · Edit steps (the full panel, in a tab of its own) ·
- *   Copy as SQL / Copy as Python (only code the server ran and matched) · To Python (the same code,
- *   copied and queued for sag.paste() in Jupyter or IPython).
+ *   Undo (drop the last step) · Clear · Edit steps (the full panel, in a tab of its own).
+ *
+ * The steps as code are the table's own read-only cell in the Workbench (docs/ideas.md, 2026-11-14):
+ * Copy as SQL, Copy as Python and To Python left this strip, and were not moved anywhere.
  */
-import { api, gridPath, token } from "./api";
-import { gridToPython } from "./toPython";
+import { api, token } from "./api";
 import { button, clear, h, toast } from "./dom";
 import { state } from "./state";
 
 let host: HTMLElement;
-
-function copy(text: string, what: string): void {
-  void navigator.clipboard.writeText(text).then(
-    () => toast(`Copied ${what}.`),
-    () => toast("The browser did not allow copying.", "error"),
-  );
-}
-
-interface Code {
-  code: string;
-  sql: string;
-  verified: boolean;
-  difference: string | null;
-  note: string | null;
-}
-
-async function copyCode(target: "duckdb", part: "sql" | "code"): Promise<void> {
-  const info = state.info;
-  if (!info) return;
-  try {
-    const answer = await api<Code>(`${gridPath(info.grid)}/code?target=${target}`);
-    if (!answer.verified) {
-      toast(`Not copied: the code did not match the grid (${answer.difference ?? answer.note ?? "unchecked"}).`, "error");
-      return;
-    }
-    copy(part === "sql" ? answer.sql : answer.code, part === "sql" ? "the SQL" : "the Python");
-  } catch (error) {
-    toast((error as Error).message, "error");
-  }
-}
 
 function openStepsWindow(): void {
   const info = state.info;
@@ -94,13 +64,6 @@ function render(): void {
     }),
     button("Clear the steps", () => void state.saveSteps([]).catch((e: Error) => toast(e.message, "error")), { icon: "trash", iconOnly: true, class: "ghost" }),
     button("Edit steps", openStepsWindow, { icon: "steps", class: "ghost" }),
-    button("Copy as SQL", () => void copyCode("duckdb", "sql"), { icon: "sql", class: "ghost" }),
-    button("Copy as Python", () => void copyCode("duckdb", "code"), { icon: "copy", class: "ghost" }),
-    button("To Python", () => void gridToPython(info.grid), {
-      icon: "code",
-      class: "ghost",
-      title: "Queued for sag.paste()",
-    }),
   );
   for (const btn of host.querySelectorAll<HTMLButtonElement>("button")) {
     const name = btn.getAttribute("aria-label");

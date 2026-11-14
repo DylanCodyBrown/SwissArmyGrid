@@ -21,8 +21,9 @@ export type RunOrigin = { kind: "file"; path: string | null } | { kind: "lines";
 
 export interface ConsoleView {
   element: HTMLElement;
-  /** Run in the document's kernel, shown in the log under `label` (the code, or "%run file.py"). */
-  run: (body: RunBody, label: string, origin?: RunOrigin) => Promise<void>;
+  /** Run in the document's kernel, shown in the log under `label` (the code, or "%run file.py").
+   *  True: the run ended without an error. */
+  run: (body: RunBody, label: string, origin?: RunOrigin) => Promise<boolean>;
   /** A line of the page's own (the script is empty, say). */
   note: (message: string) => void;
   clear: () => void;
@@ -58,7 +59,7 @@ export function consoleView(
     if (stick) log.scrollTop = log.scrollHeight;
   };
 
-  const run = async (body: RunBody, label: string, origin?: RunOrigin): Promise<void> => {
+  const run = async (body: RunBody, label: string, origin?: RunOrigin): Promise<boolean> => {
     options.ran?.(); // a run shows the console at its size
     // A table result is named after the code's last variable (`orders` -> the grid "orders").
     const hooks = options.errors?.(origin);
@@ -70,7 +71,7 @@ export function consoleView(
     stick = true;
     follow();
     try {
-      await runInto(kernel, body, area);
+      return (await runInto(kernel, body, area)).ok;
     } finally {
       running.delete(entry);
       entry.classList.remove("running");

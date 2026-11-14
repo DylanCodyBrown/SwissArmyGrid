@@ -97,10 +97,11 @@ class TableCells:
         }
 
     async def listing(self, names: list[str] | None = None) -> dict[str, Any]:
-        """Every open table (or the ones named) as its cell's text."""
+        """Every open table (or the ones named) as its cell's text. Open means it has a tab in the grid:
+        a table whose last tab was closed (its data is kept for a while) has no steps to follow."""
         ws = self.ws
         wanted = [i for i in ws.store.all() if names is None or i.name in names]
-        pairs = [(info, ws.grids.first_for(info.name)) for info in wanted]
+        pairs = [(info, grid) for info in wanted if (grid := ws.grids.first_for(info.name)) is not None]
 
         def read() -> list[dict[str, Any]]:
             cursor = ws.store.cursor()

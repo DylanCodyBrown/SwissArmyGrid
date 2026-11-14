@@ -366,13 +366,22 @@ def test_copy_as_sql_and_python_run_on_the_users_own_table(
     page.evaluate("() => { navigator.clipboard.writeText = async (text) => { window.__copied = text; }; }")
     strip = page.locator(".steps-strip")
     expect(strip.locator(".steps-count")).to_have_text("4 steps")
-    strip.get_by_role("button", name="Copy as SQL").click()
-    page.wait_for_function("window.__copied !== undefined", timeout=30000)
-    sql = page.evaluate("window.__copied")
-    page.evaluate("() => { window.__copied = undefined; }")
-    strip.get_by_role("button", name="Copy as Python").click()
-    page.wait_for_function("window.__copied !== undefined", timeout=30000)
-    code = page.evaluate("window.__copied")
+    # The copy buttons left the strip (2026-11-14): the table's cell in the Workbench is the code.
+    expect(strip.get_by_role("button", name="Edit steps")).to_be_visible()
+    for gone in ("Copy as SQL", "Copy as Python", "To Python"):
+        expect(strip.get_by_role("button", name=gone)).to_have_count(0)
+    # The steps window's Code tab still copies the one query, checked against the grid.
+    window = open_steps(browser, orders_url)
+    window.evaluate("() => { navigator.clipboard.writeText = async (text) => { window.__copied = text; }; }")
+    window.get_by_role("button", name="Copy transformations as SQL or Python").click()
+    expect(window.locator(".code-view")).to_contain_text("Verified identical", timeout=30000)
+    window.locator(".code-view").get_by_role("button", name="Copy as SQL").click()
+    window.wait_for_function("window.__copied !== undefined", timeout=30000)
+    sql = window.evaluate("window.__copied")
+    window.evaluate("() => { window.__copied = undefined; }")
+    window.locator(".code-view").get_by_role("button", name="Copy as Python").click()
+    window.wait_for_function("window.__copied !== undefined", timeout=30000)
+    code = window.evaluate("window.__copied")
     assert code.startswith('import duckdb\n\norders_view = duckdb.sql("""')
     assert "__sag" not in code and sql.strip() in code
 
@@ -388,8 +397,6 @@ def test_copy_as_sql_and_python_run_on_the_users_own_table(
     assert relation is not None and relation.df()["order_id"].tolist() == pasted["order_id"].tolist()
 
     # The steps window's Code tab keeps every form, the longer pandas translation too.
-    window = open_steps(browser, orders_url)
-    window.get_by_role("button", name="Copy transformations as SQL or Python").click()
     view = window.locator(".code-view")
     expect(view).to_contain_text("Verified identical", timeout=30000)
     expect(window.locator(".steps-panel")).to_contain_text("Reads a pandas DataFrame named orders")
