@@ -417,3 +417,10 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   Key Finder's percent test failed in that full run (as in the run before), yet all 130 browser tests
   passed when run on their own (`pytest tests/e2e`) and each of the two passed twice alone. A
   load-order flake of the full run, not of the app; left open in docs/ideas.md.
+- (2026-11-14) The 1.7.0b1 wheel (7.0 MB, `python build.py`) installed with its own `install.sh` as a uv
+  tool on Linux, then tools/smoke_install.py against the installed server: ten made-up tables pushed and
+  arrived, the page served, blades and a catalog, copied code verified, To Python and sag.paste(); and,
+  new in the smoke test so every release checks it: a Workbench kernel in the tool's Python ran code
+  (42), a failed run came with the error panel's reading ("Use 'north'"), and a Send to the agent came
+  back through the installed `swissarmygrid-context` prompt hook. Not tried here: Windows and macOS
+  (the release workflow installs on Windows), and the VS Code extension.

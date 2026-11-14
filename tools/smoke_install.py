@@ -51,6 +51,48 @@ def post(info: dict[str, Any], route: str, body: Any) -> Any:
         return json.load(response)
 
 
+def run_code(info: dict[str, Any], kernel: str, code: str) -> list[dict[str, Any]]:
+    """A Workbench run: its outputs, one JSON object a line, the last {"done": ...}."""
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{info['port']}/workbench/kernels/{kernel}/execute",
+        data=json.dumps({"code": code}).encode(),
+        method="POST",
+        headers={"Authorization": f"Bearer {info['token']}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310 (fixed local URL)
+        return [json.loads(line) for line in response.read().decode().splitlines() if line.strip()]
+
+
+def workbench(info: dict[str, Any]) -> None:
+    """The Workbench on the installed server: a kernel in its own Python runs code, a failed run comes
+    with the error panel's explanation, and Send to the agent reaches the prompt hook."""
+    kernel = post(info, "/workbench/kernels", {})["kernel"]
+    try:
+        outputs = run_code(info, kernel, "rates = {'north': 2}\nrates['north'] * 21")
+        if outputs[0].get("data", {}).get("text/plain") != "42":
+            sys.exit(f"The Workbench's kernel did not run the code: {outputs}")
+        failed = run_code(info, kernel, "rates['nroth']")
+        detail = next((o["error_detail"] for o in failed if "error_detail" in o), None)
+        if not detail or "Use 'north'" not in [f["title"] for f in detail["chain"][-1]["fixes"]]:
+            sys.exit(f"A failed run came without the error panel's reading: {failed}")
+        print("The Workbench's kernel runs code, and a failed run is explained (\"Use 'north'\").")
+    finally:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{info['port']}/workbench/kernels/{kernel}",
+            method="DELETE",
+            headers={"Authorization": f"Bearer {info['token']}"},
+        )
+        urllib.request.urlopen(request, timeout=30).close()  # noqa: S310 (fixed local URL)
+    post(info, "/agent/inbox", {"kind": "code", "title": "Code from smoke.py, line 1", "text": "x = 1"})
+    hook = shutil.which("swissarmygrid-context")
+    if hook is None:
+        sys.exit("swissarmygrid-context (the prompt hook) is not on PATH.")
+    said = subprocess.run([hook], capture_output=True, text=True, timeout=30, check=False).stdout
+    if "Code from smoke.py, line 1" not in said:
+        sys.exit(f"The prompt hook did not hand on what was sent to the agent: {said!r}")
+    print("Send to the agent reaches the agent through the prompt hook.")
+
+
 def main() -> None:
     command = shutil.which("swissarmygrid")
     if command is None:
@@ -169,6 +211,7 @@ def main() -> None:
         if sag.paste() != "print('smoke')":
             sys.exit("sag.paste() did not take the queued code.")
         print("To Python queues code and sag.paste() takes it.")
+        workbench(info)
     finally:
         subprocess.run([command, "stop"], check=False)
         try:
