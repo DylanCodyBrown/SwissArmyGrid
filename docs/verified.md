@@ -501,3 +501,14 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   new connection by itself, with one list and one set of buttons (an overlap of two redraws had doubled
   them; fixed), and a SQL cell on the folder connection suggested `region` from its catalog before any
   kernel ran. The non-browser suite: 1,863 passed; the Workbench and blades page browser tests: 32 passed.
+- (2026-11-14) Round 1 of the usability test's fixes (docs/ideas.md has the findings and the owner's
+  decisions). The SQL cell's error entry carries every field a Python error's does (the panel failed on
+  "notes"); a cell turned to SQL shows its connection; a connection form tests before it is named; a
+  form's Not installed note follows its code; the not-running message no longer says VS Code. A server
+  stop with two Workbench kernels open took about 1 second and logged no traceback (4 seconds and three
+  cancelled waits before; the test saw 10 seconds and a crash with six); a window's kernels stop a minute
+  after it is gone, the agent's never. Find relationships searches open tabs and names a one-to-one join
+  once; the crown checks every known join (order_date, the active one, now has it). Step forms open with
+  the cursor in the first empty field and Enter adds the step. Then: ruff, format, mypy (228 files), the
+  TypeScript check, the non-browser suite (1,868 passed) and every browser test (132 passed). The compare
+  bugs (Diff's one-sided jump, the key chosen, a reload ending it) go with round 3's compare work.

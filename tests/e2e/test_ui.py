@@ -1426,8 +1426,10 @@ def test_split_view_by_dragging_a_tab_onto_the_grid(browser: Browser, server: di
 
     # A step added now lands on the active grid only.
     page.locator(".ribbon").get_by_role("button", name="Keep first rows").click()
-    page.locator("dialog").get_by_label("Rows to keep").fill("1")
-    page.locator("dialog").get_by_role("button", name="Add step").click()
+    # The cursor is in the field (not on Close) and Enter adds the step: 3 actions, no mouse needed.
+    expect(page.locator("dialog").get_by_label("Rows to keep")).to_be_focused()
+    page.keyboard.type("1")
+    page.keyboard.press("Enter")
     expect(panes.nth(1).locator(".ag-row")).to_have_count(1, timeout=15000)
     expect(panes.nth(0).locator(".ag-row")).to_have_count(3)
 

@@ -428,4 +428,20 @@ export function editStep(kind: string, index?: number, preset: Params = {}): voi
     }
   };
   foot.append(button("Cancel", close), button(existing ? "Save step" : "Add step", () => void save(), { class: "primary" }));
+  // The cursor starts in the first empty field (the dialog put it on Close), and Enter adds the step
+  // (Escape closes): every form one action shorter.
+  const fields = [...form.element.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea")].filter(
+    (f) => !f.disabled && f.offsetParent !== null && !(f instanceof HTMLInputElement && ["hidden", "checkbox", "radio"].includes(f.type)),
+  );
+  const first = fields.find((f) => f instanceof HTMLInputElement && !f.value) ?? fields.find((f) => f instanceof HTMLInputElement) ?? fields[0];
+  if (first) {
+    first.focus();
+    if (first instanceof HTMLInputElement) first.select();
+  }
+  form.element.addEventListener("keydown", (e) => {
+    const target = e.target as HTMLElement;
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing || target instanceof HTMLTextAreaElement || target instanceof HTMLButtonElement) return;
+    e.preventDefault();
+    void save();
+  });
 }
