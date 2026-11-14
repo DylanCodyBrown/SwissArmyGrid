@@ -4,7 +4,7 @@
 #
 # 1. build:   the checks, then python build.py --vsix (the page, the one wheel, the installers, the
 #             VS Code extension), on Linux.
-# 2. install: the installer itself, on Linux and Windows, from the built wheel, then the smoke test
+# 2. install: the installer itself, on Linux, Windows and macOS, from the built wheel, then the smoke test
 #             (start the installed server, push the made-up store from a client-only environment).
 # 3. release: only when both pass, a GitHub release with the wheel, the .vsix and the two installers.
 # 4. pypi:    the same wheel to PyPI, by trusted publishing (no token: PyPI trusts this workflow file,
@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

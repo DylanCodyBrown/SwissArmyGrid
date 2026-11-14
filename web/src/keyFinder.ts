@@ -123,18 +123,25 @@ export async function renderKeyFinder(body: HTMLElement): Promise<void> {
   const results = h("div", { class: "kf-results" });
   const status = h("p", { class: "hint", role: "status" });
 
+  // Only the newest search's answer is shown: the one started on opening (every other grid) can come
+  // back after the one the user asked for, and must not replace it.
+  let asked = 0;
   const run = async (): Promise<void> => {
     const options = { trim: trim.checked, ignore_case: ignoreCase.checked, max_length: Math.floor(Number(maxLength.value) || 128) };
+    const target = picker.value;
+    const mine = ++asked;
     clear(status, "Comparing every column's distinct values…");
     status.className = "hint";
     clear(results);
     try {
-      const result = await api<Result>(`${grid}/key-finder`, "POST", { target: picker.value, options });
-      last = { result, options, target: picker.value };
+      const result = await api<Result>(`${grid}/key-finder`, "POST", { target, options });
+      if (mine !== asked) return; // a newer search is under way
+      last = { result, options, target };
       showAll = false;
       open = null;
       draw();
     } catch (e) {
+      if (mine !== asked) return;
       status.textContent = (e as Error).message;
       status.className = "status-error";
     }

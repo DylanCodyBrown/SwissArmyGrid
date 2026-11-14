@@ -1248,14 +1248,25 @@ def test_the_grid_scrolls_freely_through_a_column_wider_than_the_view(
     view_width = viewport.evaluate("e => e.clientWidth")
     note_width = page.locator(".ag-header-cell[col-id='note']").evaluate("e => e.clientWidth")
     assert note_width > view_width, (view_width, note_width)
-    page.mouse.move(450, 300)
+    # Over the grid's body wherever the layout puts it (a fixed point was off the grid on a slow start).
+    body = page.locator(".ag-body-viewport").bounding_box()
+    assert body
+    page.mouse.move(body["x"] + body["width"] / 2, body["y"] + body["height"] / 2)
+
+    def settles_at(wanted: int) -> bool:
+        """The scroll arrives at `wanted` and stays there (an old snapping pulled it back after 300 ms)."""
+        for _ in range(40):
+            if abs(viewport.evaluate("e => e.scrollLeft") - wanted) < 3:
+                page.wait_for_timeout(450)  # longer than the old snapping's delay
+                return bool(abs(viewport.evaluate("e => e.scrollLeft") - wanted) < 3)
+            page.wait_for_timeout(50)
+        return False
+
     for notch in range(1, 6):
         page.mouse.wheel(150, 0)
-        page.wait_for_timeout(450)  # longer than the old snapping's delay
-        assert abs(viewport.evaluate("e => e.scrollLeft") - 150 * notch) < 3, notch
+        assert settles_at(150 * notch), (notch, viewport.evaluate("e => e.scrollLeft"))
     page.mouse.wheel(-150, 0)  # and back again, a notch at a time
-    page.wait_for_timeout(450)
-    assert abs(viewport.evaluate("e => e.scrollLeft") - 600) < 3
+    assert settles_at(600), viewport.evaluate("e => e.scrollLeft")
 
 
 def test_percent_is_the_only_wildcard(browser: Browser, orders_url: str, server: dict[str, Any]) -> None:
