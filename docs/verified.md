@@ -494,3 +494,10 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   trust_server_certificate = True. Not tried: a real SQL Server or Azure SQL (no server or Microsoft account
   here; the connection strings are Microsoft's ODBC Driver 18 keywords). The non-browser suite: 1,858
   passed; the Workbench and blades page browser tests: 30 of 31, then 15 of 15 three times (see ideas.md).
+- (2026-11-14) Catalogs that load themselves: a saved CSV connection's catalog arrived with no Refresh
+  (the completion's /catalogs had it); on a restart every connection loaded again, a missing file failed
+  with its reason on the connection, one whose code signs in with a browser window waited, and its first
+  use (the agent's POST) loaded it. In the browser: the Connections window showed "catalog loaded" for a
+  new connection by itself, with one list and one set of buttons (an overlap of two redraws had doubled
+  them; fixed), and a SQL cell on the folder connection suggested `region` from its catalog before any
+  kernel ran. The non-browser suite: 1,863 passed; the Workbench and blades page browser tests: 32 passed.

@@ -10,6 +10,7 @@ answer holds a password's value:
   GET    /connections/vaults          the vault blades a password can come from, with their entries
   POST   /connections/vaults/secrets  the secrets' names in a vault (saved, or the form's draft)
   POST   /connections/source          point a password at the keyring, an environment variable or a vault
+  POST   /connections/{name}/catalog  load its catalog in the background now (first use: a SQL cell asks)
 
 Removing, secrets, Refresh, favourites and export are the blade routes' (routes_blades.py).
 The use cases are services/connections.py.
@@ -23,12 +24,13 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.domain.blades import VaultUnavailableError
 from swissarmygrid.server.blade_runner import RefreshError
-from swissarmygrid.server.http import error_response, json_response, read_json
+from swissarmygrid.server.http import actor, error_response, json_response, read_json
 from swissarmygrid.services.blades import BladeService, NeedsValues
+from swissarmygrid.services.catalog_loading import CatalogLoading
 from swissarmygrid.services.connections import ConnectionService
 
 
-def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRoute]:
+def routes(connections: ConnectionService, blades: BladeService, loading: CatalogLoading) -> list[BaseRoute]:
     async def listing(request: Request) -> Response:
         try:
             return json_response(connections.listing())
@@ -72,6 +74,12 @@ def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRou
         except Exception as error:
             return error_response(error)
 
+    async def load_catalog(request: Request) -> Response:
+        try:
+            return json_response(loading.load(request.path_params["name"], actor(request)))
+        except Exception as error:
+            return error_response(error)
+
     async def source(request: Request) -> Response:
         try:
             return json_response(await connections.source(await read_json(request)))
@@ -96,6 +104,7 @@ def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRou
         Route("/connections/vaults", vaults),
         Route("/connections/vaults/secrets", vault_names, methods=["POST"]),
         Route("/connections/source", source, methods=["POST"]),
+        Route("/connections/{name}/catalog", load_catalog, methods=["POST"]),
         Route("/connections/{name}", details),
         Route("/connections/{name}", save, methods=["PUT"]),
     ]

@@ -54,6 +54,12 @@ def test_a_connection_is_added_with_a_form_tested_and_saved(
     page.locator("dialog .dialog-foot").get_by_role("button", name="Save").click()
     expect(page.locator(".connection-list")).to_contain_text("orders")
     expect(page.locator(".connection-list")).to_contain_text('sag.connection("orders")')
+    # Its catalog loads itself in the background (no Refresh pressed) and the list says so when it lands.
+    row = page.locator(".connection-row", has_text="orders")
+    expect(row).to_contain_text("catalog loaded", timeout=60000)
+    # Drawn again as it landed, once: one list, one set of buttons.
+    expect(page.locator("dialog .dialog-foot").get_by_role("button", name="Close")).to_have_count(1)
+    expect(page.locator(".connection-row")).to_have_count(1)
     listed = call(server, "GET", "/connections")["connections"]
     assert [(c["name"], c["connection"]) for c in listed] == [("orders", "file")]
 

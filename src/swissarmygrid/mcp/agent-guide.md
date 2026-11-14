@@ -233,6 +233,13 @@ dialect.
 - The source is not in the grid's DuckDB: its tables cannot be queried with `agent_query`. Write the
   SQL for the user to run in their Python (`conn = sag.blade("<name>")` gives them the connection).
 
+## Catalogs load themselves
+
+A connection's catalog loads in the background when it is saved, when the app starts (but not one that
+signs in with a browser window), and on first use. `connections_list` shows each one's `catalog_loaded`
+and `catalog_state` (loading, waiting, failed with its error). `connections_load_catalog(name=...)` loads
+one now; catalog_* tools read it once it is there.
+
 ## Key vaults
 
 A key vault is a connection (`connections_list` shows it with `connection: "vault"` and its entries: each

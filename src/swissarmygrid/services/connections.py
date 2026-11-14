@@ -7,7 +7,7 @@ the Add connection form: each database and file starter as fields, passwords and
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from swissarmygrid.domain import connections as rules
@@ -16,9 +16,18 @@ from swissarmygrid.services.blades import BladeService
 
 
 class ConnectionService:
-    def __init__(self, blades: BladeService, templates: Sequence[Template]) -> None:
+    def __init__(
+        self,
+        blades: BladeService,
+        templates: Sequence[Template],
+        on_saved: Callable[[str], None] = lambda name: None,
+        catalog_state: Callable[[str], dict[str, str] | None] = lambda name: None,
+    ) -> None:
         self._blades = blades
         self._templates = templates
+        # A saved connection's catalog loads itself; each one's loading state (services/catalog_loading.py).
+        self._on_saved = on_saved
+        self._catalog_state = catalog_state
 
     def listing(self) -> dict[str, Any]:
         """Every connection: databases first, then files, then key vaults (each with its entries: a
@@ -32,6 +41,7 @@ class ConnectionService:
                 more: dict[str, Any] = {
                     "connection": kind,
                     "type": labels.get(str(b.get("template") or ""), ""),
+                    "catalog_state": self._catalog_state(str(b["name"])),  # loading, waiting, failed
                 }
                 if kind == "vault":
                     vault = self._blades.get(str(b["name"]))
@@ -92,7 +102,9 @@ class ConnectionService:
 
     async def save(self, body: Any, previous: str | None) -> dict[str, Any]:
         self._check(body)
-        return await self._blades.save(body, previous)
+        saved = await self._blades.save(body, previous)
+        self._on_saved(str(saved["name"]))  # its catalog loads itself, in the background
+        return saved
 
     # ===== where a password comes from: the keyring, an environment variable, or a key vault =====
 

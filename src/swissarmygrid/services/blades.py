@@ -285,14 +285,15 @@ class BladeService:
             raise NeedsValues(missing)
         return {k: v for k, v in typed.items() if k in wanted}
 
-    async def refresh(self, blade: Blade, body: Any) -> dict[str, Any]:
-        """Run it and its catalog command in a child process; load the catalog."""
+    async def refresh(self, blade: Blade, body: Any, who: str = "user") -> dict[str, Any]:
+        """Run it and its catalog command in a child process; load the catalog. `who`: "user", or
+        "app" for a catalog that loads itself (services/catalog_loading.py)."""
         typed = self._typed_values(blade, body)
         answer = await self._run_blade(blade, "catalog", typed)
         info = await self._catalogs.load_from_blade(
             blade.name, answer["columns"], answer["rows"], blade.dialect
         )
-        self.ws.audit.write("user", "refresh_blade", blade.name)
+        self.ws.audit.write(who, "refresh_blade", blade.name)
         await self._catalogs.blade_refreshed()
         return {"catalog": info.to_json()}
 

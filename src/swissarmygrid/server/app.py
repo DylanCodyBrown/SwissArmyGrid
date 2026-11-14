@@ -128,6 +128,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: Starlette) -> AsyncIterator[None]:
         pruner = asyncio.create_task(drop_silent_sessions())
+        ctx.catalog_loading.at_start()  # every connection's catalog, in the background
         yield
         pruner.cancel()
         await ctx.workbench.stop_all()  # no kernel outlives the server
@@ -144,7 +145,7 @@ def create_app(
             *routes_cards.routes(ctx.cards),
             *routes_catalog.routes(ctx.catalogs),
             *routes_blades.routes(ctx.blades),
-            *routes_connections.routes(ctx.connections, ctx.blades),
+            *routes_connections.routes(ctx.connections, ctx.blades, ctx.catalog_loading),
             *routes_folders.routes(ctx.folders),
             *routes_workbench.routes(ctx.workbench, ctx.workbench_window),
             *routes_handoff.routes(ctx.handoff),

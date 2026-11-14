@@ -258,7 +258,12 @@ where it comes from: saved on this computer (the system keyring), an environment
 vault. SQL Server and Azure SQL have a **Sign in** choice: Windows, a user name and password, or MFA
 (Microsoft Entra), each its own connection string, switched keeping what you typed. **Trust server
 certificate** and **Encrypt** are checkboxes (SQL Server, Azure SQL, Trino). **Test connection** runs
-the form before anything is saved. Connections are kept with the
+the form before anything is saved. A connection's **catalog** (its tables and columns) loads itself
+in the background: when the connection is saved, when SwissArmyGrid starts, and the first time a SQL
+cell, the side bar or an agent uses it. Each load runs in its own process, a couple at a time, so nothing
+waits, and the SQL cell's suggestions pick it up as it lands. One that signs in with a browser window
+(MFA) is not loaded at start-up, only on first use. **Refresh catalog** reads it again after the
+database changes. Catalogs stay in memory only. Connections are kept with the
 blades (so folders, packs, the catalog and Refresh work the same) but listed apart.
 
 A **key vault** (Azure Key Vault, AWS Secrets Manager or Parameter Store, Google Secret Manager,

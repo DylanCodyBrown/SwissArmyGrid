@@ -49,6 +49,7 @@ from swissarmygrid.server.kernels import Launcher
 from swissarmygrid.services.agent import AgentService, Approvals, ExportTickets
 from swissarmygrid.services.analysis import Analysis
 from swissarmygrid.services.blades import BladeService
+from swissarmygrid.services.catalog_loading import CatalogLoading
 from swissarmygrid.services.catalogs import CatalogService
 from swissarmygrid.services.charts import Cards
 from swissarmygrid.services.codegen import CodeService
@@ -98,6 +99,7 @@ class Services:
     catalogs: CatalogService
     blades: BladeService
     connections: ConnectionService
+    catalog_loading: CatalogLoading
     folders: Folders
     workbench: Workbench
     handoff: Handoff
@@ -210,6 +212,9 @@ def bootstrap(
         python=sys.executable,
         environ=os.environ,
     )
+    catalog_loading = CatalogLoading(
+        ws, blades, catalogs, settings.auto_load_catalogs, settings.catalogs_at_once
+    )
     # Tangs come from the person's own folder and the shared folders, which are the blade folders:
     # one team folder carries blades and tangs alike.
     compares = Compares(ws)
@@ -239,7 +244,10 @@ def bootstrap(
         sessions=Sessions(processes, store, live),
         catalogs=catalogs,
         blades=blades,
-        connections=ConnectionService(blades, TEMPLATES),
+        connections=ConnectionService(
+            blades, TEMPLATES, on_saved=catalog_loading.saved, catalog_state=catalog_loading.state
+        ),
+        catalog_loading=catalog_loading,
         folders=Folders(folder_listing),
         workbench=Workbench(
             ws,

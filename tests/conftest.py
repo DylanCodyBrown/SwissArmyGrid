@@ -31,6 +31,8 @@ def make_client(tmp_path: Path, **overrides: Any) -> TestClient:
         # Never this machine's own Claude Code plugins: a test lays out its own packs here.
         claude_dir=overrides.pop("claude_dir", tmp_path / "claude"),
         max_total_bytes=overrides.pop("max_total_bytes", 512 * 1024 * 1024),
+        # Catalogs loading themselves start child processes: off unless a test is about them.
+        auto_load_catalogs=overrides.pop("auto_load_catalogs", False),
         **overrides,
     )
     return TestClient(create_app(PORT, TOKEN, settings), base_url=BASE)

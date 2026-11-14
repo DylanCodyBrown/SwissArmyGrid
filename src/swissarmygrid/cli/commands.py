@@ -2035,6 +2035,16 @@ def connections_vaults(a: dict[str, Any]) -> Any:
 
 
 @command(
+    "connections_load_catalog",
+    "Load a connection's catalog (its tables and columns) in the background now; it arrives for completion "
+    "and catalog_* tools. Catalogs also load themselves when a connection is saved and when the app starts.",
+    req("name", "The connection's name."),
+)
+def connections_load_catalog(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/connections/{_q(a['name'])}/catalog")
+
+
+@command(
     "connections_vault_secrets",
     "The secrets' names in a key vault, each with a variable name to map it to (names only, no value)",
     opt("name", "A saved vault's name."),

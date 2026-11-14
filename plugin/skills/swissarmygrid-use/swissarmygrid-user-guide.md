@@ -349,6 +349,10 @@ their own, run in an IPython kernel on this computer.
 - **Every Workbench kernel starts with those variables set.** `os.environ["WAREHOUSE_PASSWORD"]` works in any notebook or script, and so does a connection whose password is `secret("WAREHOUSE_PASSWORD")`. The Variables pane's Environment section shows each one as set or not set, never its value. A vault that cannot be read (signed out of Azure, say) says so when the kernel starts, and the kernel starts without its variables.
 - No vault yet? Choose **A key vault** for a password and press **New vault**: the connection's form waits and comes back with the new vault in its list.
 
+### Catalogs load themselves
+
+A connection's catalog (its tables and columns, for the side bar's tree and the SQL cell's suggestions) loads in the background: when you save the connection, when SwissArmyGrid starts, and the first time you use it in a SQL cell. The Connections window shows **loading catalog…**, **catalog loaded**, or **catalog not loaded** (hover for why). A connection that signs in with MFA is never loaded at start-up, so no sign-in window appears out of nowhere: it loads the first time you use it. **Refresh catalog** reads it again after the database changes.
+
 ## What the agent may see
 
 A connected agent sees everything the page shows: every table, its rows and columns (up to 1,048,576 rows per read, one Excel sheet), its steps and their values. An export by the agent always waits for your click: a window asks you to Allow or Deny it, and closing the window denies it.

@@ -11,7 +11,8 @@
  * The catalog answers are kept in the page (by what was asked), so typing on asks the server little.
  * Before the kernel starts nothing runs on the user's computer to complete: the catalog still answers.
  *
- * ROUTING: GET /catalogs, /catalogs/{name}/search, /catalogs/{name}/columns; POST /workbench/kernels/{id}/complete
+ * ROUTING: GET /catalogs, /catalogs/{name}/search, /catalogs/{name}/columns; POST /workbench/kernels/{id}/complete;
+ *          POST /connections/{name}/catalog (a cell's connection with no catalog yet: it loads itself)
  */
 import { api } from "./api";
 import type { Suggestion } from "./lazy/codeEditor";
@@ -73,9 +74,18 @@ function columnsOf(catalog: string, schema: string | null, table: string): Promi
 }
 
 /** The SQL names at the cursor from the connection's catalog (all catalogs when it has none). */
+/** Connections whose catalog this page asked to load (first use), so it asks once. */
+const askedToLoad = new Set<string>();
+
 async function catalogSuggestions(token: string, connection: string | null): Promise<Suggestion[]> {
   const names = await catalogs();
   const own = names.filter((c) => connection && c.toLowerCase() === connection.toLowerCase());
+  // First use: the cell's connection has no catalog yet; it loads in the background and arrives
+  // (catalogs_changed) for the next keystroke. Meanwhile the other catalogs answer.
+  if (connection && !own.length && !askedToLoad.has(connection.toLowerCase())) {
+    askedToLoad.add(connection.toLowerCase());
+    void api(`/connections/${encodeURIComponent(connection)}/catalog`, "POST").catch(() => undefined);
+  }
   const asked = own.length ? own : names.slice(0, 4);
   const out: Suggestion[] = [];
   const dot = token.lastIndexOf(".");

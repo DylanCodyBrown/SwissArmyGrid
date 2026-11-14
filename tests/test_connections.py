@@ -462,3 +462,68 @@ def test_the_form_offers_the_ways_to_sign_in_new_and_saved(client: TestClient) -
     assert client.post("/connections", json=body, headers=AUTH).status_code == 200
     saved = client.get("/connections/Sales", headers=AUTH).json()
     assert len(saved["sign_ins"]) == 3 and mfa["mark"] in saved["code"]
+
+
+def test_a_sign_in_that_opens_a_window_is_told_apart() -> None:
+    from swissarmygrid.domain.connections import signs_in_interactively
+
+    assert signs_in_interactively('"Authentication=ActiveDirectoryInteractive;"')
+    assert signs_in_interactively('snowflake.connector.connect(authenticator="externalbrowser")')
+    assert not signs_in_interactively('"Trusted_Connection=yes;"')
+    assert not signs_in_interactively('"Authentication=ActiveDirectoryIntegrated;"')  # Windows: no window
+
+
+def _wait_for(client: TestClient, name: str, state: str | None, loaded: bool) -> dict[str, Any]:
+    """The connection once its catalog is loaded (or in the state asked), within a minute."""
+    import time
+
+    deadline = time.monotonic() + 60
+    while True:
+        listed = {c["name"]: c for c in client.get("/connections", headers=AUTH).json()["connections"]}
+        found: dict[str, Any] = listed[name]
+        catalog_state = (found["catalog_state"] or {}).get("state")
+        if found["catalog_loaded"] == loaded and catalog_state == state:
+            return found
+        assert time.monotonic() < deadline, found
+        time.sleep(0.2)
+
+
+def csv_with_catalog(client: TestClient, path: Path, name: str, comment: str = "") -> dict[str, Any]:
+    kind = next(t for t in client.get("/connections/types", headers=AUTH).json()["types"] if t["id"] == "csv")
+    return csv_connection(path, name) | {
+        "catalog": kind["catalog"],
+        "code": f"{comment}\n" + csv_connection(path, name)["code"],
+    }
+
+
+def test_catalogs_load_themselves_when_saved_at_start_up_and_on_first_use(tmp_path: Path) -> None:
+    from tests.conftest import make_client
+
+    (tmp_path / "orders.csv").write_text("order_id,region,amount\n1,North,10.5\n", encoding="utf-8")
+    # Saved: the catalog follows in the background, and the completion's /catalogs has it.
+    with make_client(tmp_path, auto_load_catalogs=True) as client:
+        saved = client.post(
+            "/connections", json=csv_with_catalog(client, tmp_path / "orders.csv", "Orders"), headers=AUTH
+        )
+        assert saved.status_code == 200, saved.text
+        _wait_for(client, "Orders", None, True)
+        assert [c["name"] for c in client.get("/catalogs", headers=AUTH).json()["catalogs"]] == ["Orders"]
+        # One that signs in with a browser window, and one whose file is gone (made with loading off).
+        mfa = csv_with_catalog(
+            client, tmp_path / "orders.csv", "Entra", "# Authentication=ActiveDirectoryInteractive"
+        )
+        gone = csv_with_catalog(client, tmp_path / "gone.csv", "Gone")
+    with make_client(tmp_path) as client:  # loading off: saved, not loaded
+        for body in (mfa, gone):
+            assert client.post("/connections", json=body, headers=AUTH).status_code == 200
+    # Start-up: every connection loads itself, but the one with a sign-in window waits for first use.
+    with make_client(tmp_path, auto_load_catalogs=True) as client:
+        _wait_for(client, "Orders", None, True)
+        failed = _wait_for(client, "Gone", "failed", False)
+        assert "gone.csv" in failed["catalog_state"]["error"]  # the reason, shown on the connection
+        _wait_for(client, "Entra", "waiting", False)
+        # First use (a SQL cell's completion, or the agent): it loads now.
+        asked = client.post("/connections/Entra/catalog", headers=AGENT)
+        assert asked.status_code == 200 and asked.json()["state"] in ("loading", "loaded")
+        _wait_for(client, "Entra", None, True)
+        assert client.post("/connections/Nope/catalog", headers=AUTH).status_code == 404

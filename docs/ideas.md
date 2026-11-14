@@ -636,3 +636,16 @@ trust_server_certificate in code (True/False); no other True/False becomes a fie
 TrustServerCertificate=no (they said yes): a server with a self-signed certificate needs the tick.
 Open: one Workbench browser test (the console's step-by-step run, "row 1") failed once in a combined run and
 passed three runs after; a timing race to look at.
+
+## Catalogs load themselves (2026-11-14, the owner's call)
+
+"We should auto load the catalog in a separate thread so it can background load and feed the
+autocomplete." services/catalog_loading.py: each load is Refresh's own run (a child process, so the
+server never waits), a few at once (settings.catalogs_at_once, 2), never twice at once for a connection.
+When: a connection saved (who: the user); start-up, every connection but one that signs in with a browser
+window or device code (ActiveDirectoryInteractive, externalbrowser...), which waits, and none past the
+catalog limit; first use (a SQL cell's completion asks POST /connections/{name}/catalog once per page, the
+agent's connections_load_catalog). A failure is kept with its reason and not retried unasked. The
+Connections window redraws as loads land; only the newest draw paints (two overlapping draws had doubled
+its buttons). Catalogs stay in memory: a restart loads them again rather than keeping table names on disk.
+The tests' server has it off unless a test is about it (child processes in every test would slow the suite).

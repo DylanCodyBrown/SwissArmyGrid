@@ -22,7 +22,7 @@
  *          [TEST]  POST /connections/test        [SAVE] POST /connections, PUT /connections/{name}
  *          [VAULT] POST /connections/vaults/secrets (the names in it); GET /connections/vaults (a password's)
  */
-import { api } from "./api";
+import { api, onNotice } from "./api";
 import { button, clear, h, openDialog, toast } from "./dom";
 import { chooseFile } from "./fileChooser";
 
@@ -85,6 +85,8 @@ interface Connection {
   type: string;
   dialect: string;
   has_catalog: boolean;
+  /** Its catalog loading in the background: loading, waiting (first use), failed and why; none: loaded or not asked. */
+  catalog_state: { state: "loading" | "waiting" | "failed"; error?: string } | null;
   catalog_loaded: boolean;
   description: string;
   source: string;
@@ -118,6 +120,21 @@ const envFor = (secret: string): string => {
 /** What a Test answers: a vault reads its variables; a connection makes something (a file: is there). */
 const worked = (r: { type?: string; found?: string; variables?: string[] }): string => (r.variables ? `read ${r.variables.join(", ")}` : (r.found ?? `made a ${r.type}`));
 
+// The list, while it shows: drawn again as catalogs load in the background (the notices below).
+let listShowing: (() => void) | null = null;
+onNotice((notice) => {
+  if (notice.type === "catalog_loading" || notice.type === "catalogs_changed") listShowing?.();
+});
+
+/** What a connection's catalog is doing, in a word or two (the reason on hover). */
+function catalogWord(c: Connection): HTMLElement | null {
+  const state = c.catalog_state?.state;
+  if (state === "loading") return h("span", { class: "hint" }, "loading catalog…");
+  if (state === "failed") return h("span", { class: "status-error", title: c.catalog_state?.error ?? "" }, "catalog not loaded");
+  if (c.catalog_loaded) return h("span", { class: "hint" }, "catalog loaded");
+  return null;
+}
+
 /** The Application row's button. */
 export function connectionsButton(): HTMLButtonElement {
   return button("Connections", () => void openConnections(), { icon: "link", class: "ribbon-btn" });
@@ -125,17 +142,28 @@ export function connectionsButton(): HTMLButtonElement {
 
 export async function openConnections(): Promise<void> {
   const { body, foot, close } = openDialog("Connections", true);
+  let drawing = 0;
   const showList = async (): Promise<void> => {
-    clear(foot);
-    clear(body, h("p", { class: "hint" }, "Loading…"));
+    listShowing = () => (body.isConnected ? void showList() : (listShowing = null));
+    // Drawn again as catalogs load: only the newest draw paints (never twice, never over a form opened
+    // meanwhile), and "Loading…" shows only the first time (no flicker).
+    const mine = ++drawing;
+    if (!body.querySelector(".connection-list, .empty-note")) {
+      clear(foot);
+      clear(body, h("p", { class: "hint" }, "Loading…"));
+    }
     let found: Connection[];
     try {
       found = (await api<{ connections: Connection[] }>("/connections")).connections;
     } catch (e) {
+      if (mine !== drawing) return;
+      clear(foot);
       clear(body, h("p", { class: "status-error" }, (e as Error).message));
       foot.append(button("Close", close));
       return;
     }
+    if (mine !== drawing) return;
+    clear(foot);
     const row = (c: Connection): HTMLElement => {
       const path = encodeURIComponent(c.name);
       const readOnly = c.source === "pack";
@@ -145,7 +173,7 @@ export async function openConnections(): Promise<void> {
         h(
           "div",
           { class: "connection-text" },
-          h("div", { class: "pack-title" }, h("strong", {}, c.name), h("span", { class: "badge" }, c.type ? plain(c.type) : { database: "Database", file: "File", vault: "Key vault" }[c.connection]), c.catalog_loaded ? h("span", { class: "hint" }, "catalog loaded") : null),
+          h("div", { class: "pack-title" }, h("strong", {}, c.name), h("span", { class: "badge" }, c.type ? plain(c.type) : { database: "Database", file: "File", vault: "Key vault" }[c.connection]), catalogWord(c)),
           c.description ? h("div", { class: "hint" }, c.description) : null,
           c.entries
             ? h("div", { class: "vault-entries" }, c.every ? h("span", { class: "badge" }, "Every secret") : null, ...c.entries.map((e) => h("code", { class: "hint", title: `${e.secret} in the vault` }, `${e.env} ← ${e.secret}`)))
@@ -211,6 +239,8 @@ export async function openConnections(): Promise<void> {
 
   // ===== ADD: the types =====
   const showTypes = async (then?: Then): Promise<void> => {
+    listShowing = null;
+    drawing++; // a list draw still on its way paints nothing now
     clear(foot);
     clear(body, h("p", { class: "hint" }, "Loading…"));
     let types: Form[];
@@ -230,6 +260,8 @@ export async function openConnections(): Promise<void> {
 
   // ===== FORM =====
   const showForm = async (what: { type?: Form; edit?: string; then?: Then }): Promise<void> => {
+    listShowing = null;
+    drawing++;
     clear(foot);
     let form: Form;
     if (what.edit) {

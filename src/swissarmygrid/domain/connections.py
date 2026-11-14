@@ -48,6 +48,24 @@ def is_connection(kind: str, template: str | None) -> bool:
     return connection_kind(kind, template) is not None
 
 
+# Code that signs in by asking the person (a browser window, a phone prompt): its catalog is never
+# loaded unasked at start-up, only on first use (the owner, 2026-11-14: no sign-in window out of nowhere).
+_INTERACTIVE = re.compile(
+    r"ActiveDirectoryInteractive|externalbrowser|InteractiveBrowserCredential|DeviceCodeCredential",
+    re.IGNORECASE,
+)
+
+
+def signs_in_interactively(code: str) -> bool:
+    """Whether the code's sign-in asks the person (MFA in a browser, a device code)."""
+    return bool(_INTERACTIVE.search(code))
+
+
+def has_catalog(connection: str | None) -> bool:
+    """A database or file connection lists its tables (a vault has none)."""
+    return connection in ("database", "file")
+
+
 def opens_in_code(connection: str | None) -> bool:
     """Whether the connection is a variable in the Workbench and a SQL cell's source: a database or a
     file. A vault is not: its secrets are already environment variables there."""

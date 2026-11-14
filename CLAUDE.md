@@ -111,6 +111,8 @@ src/swissarmygrid/
     agent.py             the agent door: approvals, export tickets, its reads, the current table,
                          listing and proposing blades (saved on the user's Allow)
     catalogs.py          load, remove, the tree, search
+    catalog_loading.py   catalogs that load themselves in the background: on save, at start-up (not a
+                         browser-window sign-in), on first use; each a child process, a few at once
     blades.py            save, inspect, fill, refresh, test, install, favourites, folders, export, import
     handoff.py           code handed to the user's Python: To Python's queue, taken by sag.paste()
     connections.py       connections: the list, the forms, test before saving, password sources
@@ -168,7 +170,7 @@ src/swissarmygrid/
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (178 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (179 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
