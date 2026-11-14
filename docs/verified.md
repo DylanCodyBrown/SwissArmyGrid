@@ -424,3 +424,15 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   (42), a failed run came with the error panel's reading ("Use 'north'"), and a Send to the agent came
   back through the installed `swissarmygrid-context` prompt hook. Not tried here: Windows and macOS
   (the release workflow installs on Windows), and the VS Code extension.
+- (2026-11-14) The beta's Workbench drew Monaco without its styles in a clean build: its page linked
+  build/workbench.css, which only an old build had left in the folder (a clean build has the editor's
+  styles in build/lazy/codeEditor.css). The first 1.7.0b1 wheel sent to the owner had that defect; the
+  page now links the real file and the smoke test fetches every file each page links (it named
+  /static/build/workbench.css for the first wheel). The two browser tests that failed only in full runs
+  were real: the Key Finder's search on opening could answer after the user's own search and replace it
+  (the window now keeps only the newest answer), and the scroll test aimed at a fixed point. The owner's
+  "rid the app of over explanatory text and instructions that are in the gui": help paragraphs, how-to
+  hints, long placeholders and repeated tooltips came off every screen (the tour, Show the math, the
+  Data shape sheets and the error panel's explanation stay). Then: ruff, format, mypy (227 files), the
+  TypeScript check, and the full suite, 1,965 passed and none failed; the rebuilt wheel installed with
+  install.sh and passed the smoke test, every page's linked files included.
