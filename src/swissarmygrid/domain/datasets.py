@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 MIB: int = 1024 * 1024
 
@@ -30,6 +31,7 @@ SOURCE_KINDS: tuple[str, ...] = (
     "excel_file",
     "clipboard",
     "sql_result",
+    "connection",
     "unknown",
 )
 
@@ -53,6 +55,29 @@ class Column:
 
 
 @dataclass(frozen=True)
+class Opened:
+    """A table opened from a connection with fewer rows than the source holds: the grid says so and
+    offers the rest (Load all rows opens it again whole)."""
+
+    connection: str
+    database: str
+    schema: str
+    table: str
+    shown: int
+    total: int
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "connection": self.connection,
+            "database": self.database,
+            "schema": self.schema,
+            "table": self.table,
+            "shown": self.shown,
+            "total": self.total,
+        }
+
+
+@dataclass(frozen=True)
 class DatasetInfo:
     name: str
     version: int
@@ -65,6 +90,9 @@ class DatasetInfo:
     # Which load of the store this is: no two loads share one, so a table closed and opened again
     # under its old name (version 1 once more) is never taken for the table it replaced.
     serial: int = 0
+    # Opened from a connection's table with fewer rows than it holds (None: all of them, or not a
+    # connection's table).
+    opened: Opened | None = None
 
     @property
     def table(self) -> str:

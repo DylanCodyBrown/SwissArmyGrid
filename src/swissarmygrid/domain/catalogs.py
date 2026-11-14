@@ -185,20 +185,31 @@ def quote_identifier(name: str, dialect: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _source(dialect: str, database: str, schema: str, table: str) -> str:
+    return ".".join(quote_identifier(p, dialect) for p in (database, schema, table) if p)
+
+
 def select_sql(
-    dialect: str, database: str, schema: str, table: str, columns: list[str], rows: int = 100
+    dialect: str, database: str, schema: str, table: str, columns: list[str], rows: int | None = 100
 ) -> str:
-    """A first SELECT over one table, quoted for the source's dialect, limited to `rows` rows. Name the
-    database only when the catalog spans more than one (the connection already sits in it)."""
+    """A first SELECT over one table, quoted for the source's dialect, limited to `rows` rows (None:
+    every row). Name the database only when the catalog spans more than one (the connection already sits
+    in it)."""
     dialect = normalize_dialect(dialect)
-    parts = [p for p in (database, schema, table) if p]
-    source = ".".join(quote_identifier(p, dialect) for p in parts)
+    source = _source(dialect, database, schema, table)
     picked = ", ".join(quote_identifier(c, dialect) for c in columns) or "*"
+    if rows is None:
+        return f"SELECT {picked}\nFROM {source}"
     if dialect == "sqlserver":
         return f"SELECT TOP {rows} {picked}\nFROM {source}"
     if dialect == "oracle":
         return f"SELECT {picked}\nFROM {source}\nFETCH FIRST {rows} ROWS ONLY"
     return f"SELECT {picked}\nFROM {source}\nLIMIT {rows}"
+
+
+def count_sql(dialect: str, database: str, schema: str, table: str) -> str:
+    """How many rows the table holds (the grid says how many it was not shown)."""
+    return f"SELECT COUNT(*) FROM {_source(normalize_dialect(dialect), database, schema, table)}"  # noqa: S608
 
 
 # ===== Script as (the catalog's right-click, like SSMS) =====

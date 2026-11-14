@@ -44,6 +44,7 @@ from swissarmygrid.domain.datasets import (
     DatasetInfo,
     DatasetLimitError,
     DatasetTooLargeError,
+    Opened,
     mib,
     quote,
     reserved_column_name,
@@ -187,7 +188,14 @@ class DatasetStore:
     def used_bytes(self) -> int:
         return sum(info.nbytes for info in self._datasets.values())
 
-    def replace(self, name: str, table: pa.Table, source_kind: str, query: str | None = None) -> DatasetInfo:
+    def replace(
+        self,
+        name: str,
+        table: pa.Table,
+        source_kind: str,
+        query: str | None = None,
+        opened: Opened | None = None,
+    ) -> DatasetInfo:
         """Create or replace dataset `name` with `table`, bump its version, and describe it."""
         validate_name(name)
         table = check_table(table)
@@ -249,6 +257,7 @@ class DatasetStore:
                 nbytes=size,
                 query=query,
                 serial=next(self._serial),
+                opened=opened,
             )
             self._datasets[name] = info
             return info

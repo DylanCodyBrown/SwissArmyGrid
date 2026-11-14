@@ -535,3 +535,64 @@ def test_a_form_not_named_yet_can_be_tested(client: TestClient, tmp_path: Path) 
     tested = client.post("/connections/test", json=draft, headers=AUTH)
     assert tested.status_code == 200, tested.text  # once: "Blade name '' is not allowed"
     assert "blade" not in tested.text.lower()
+
+
+def sqlite_connection(path: Path, row_limit: int | None = None) -> dict[str, Any]:
+    code = (
+        "import sqlite3\nfrom pathlib import Path\n\n"
+        f'path = Path(r"{path}")\n'
+        'conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)\n'
+    )
+    return {"name": "Shop", "kind": "sql", "template": "sqlite", "dialect": "sqlite", "code": code} | (
+        {"row_limit": row_limit} if row_limit else {}
+    )
+
+
+def test_a_database_table_opens_as_a_grid_its_first_rows_then_all(client: TestClient, tmp_path: Path) -> None:
+    database = tmp_path / "shop.sqlite"
+    with sqlite3.connect(database) as made_up:
+        made_up.execute("CREATE TABLE orders (order_id INTEGER, region TEXT, ordered DATE)")
+        made_up.executemany(
+            "INSERT INTO orders VALUES (?, ?, ?)",
+            [(i, "North", "2026-01-0" + str(i % 9 + 1)) for i in range(30)],
+        )
+    assert client.post("/connections", json=sqlite_connection(database, 10), headers=AUTH).status_code == 200
+    assert client.get("/connections/Shop", headers=AUTH).json()["code"]  # saved, Rows to open 10
+    opened = client.post("/connections/Shop/open", json={"table": "orders"}, headers=AGENT)  # the agent too
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["shown"] == 10 and opened.json()["total"] == 30
+    grid = client.get(f"/grids/{opened.json()['grid']}", headers=AUTH).json()
+    assert grid["row_count"] == 10
+    assert grid["opened"] == {
+        "connection": "Shop", "database": "", "schema": "", "table": "orders", "shown": 10, "total": 30,
+    }  # fmt: skip
+    # Load all rows: the same table again, whole; the grid no longer says it was cut short.
+    every = client.post("/connections/Shop/open", json={"table": "orders", "all": True}, headers=AUTH)
+    grid = client.get(f"/grids/{every.json()['grid']}", headers=AUTH).json()
+    assert grid["row_count"] == 30 and grid["opened"] is None and grid["dataset"] == "orders"
+    preview = client.post("/connections/Shop/preview", json={"table": "orders"}, headers=AUTH).json()
+    assert preview["columns"] == ["order_id", "region", "ordered"] and len(preview["rows"]) == 30
+    assert client.post("/connections/Shop/open", json={}, headers=AUTH).status_code == 400  # name it
+
+
+def test_a_file_connection_and_a_folders_file_open_as_grids(client: TestClient, tmp_path: Path) -> None:
+    folder = tmp_path / "exports"
+    folder.mkdir()
+    (folder / "orders.csv").write_text("order_id,amount\n1,10.5\n2,7\n", encoding="utf-8")
+    (folder / "returns.csv").write_text("order_id\n2\n", encoding="utf-8")
+    assert (
+        client.post("/connections", json=csv_connection(folder / "orders.csv"), headers=AUTH).status_code
+        == 200
+    )
+    one = client.post("/connections/Orders%20file/open", json={}, headers=AUTH)
+    assert one.status_code == 200, one.text
+    assert one.json()["dataset"] == "Orders_file"
+    exports = {"name": "Exports", "kind": "other", "template": "folder"}
+    exports["code"] = f'from pathlib import Path\nfolder = Path(r"{folder}")'
+    assert client.post("/connections", json=exports, headers=AUTH).status_code == 200
+    returns = client.post("/connections/Exports/open", json={"table": "returns.csv"}, headers=AUTH)
+    assert returns.json()["dataset"] == "returns"
+    peek = client.post("/connections/Exports/preview", json={"table": "orders.csv"}, headers=AUTH).json()
+    assert peek == {"columns": ["order_id", "amount"], "rows": [[1, 10.5], [2, 7.0]]}
+    bad = client.post("/connections/Exports/open", json={"table": "../secrets.csv"}, headers=AUTH)
+    assert bad.status_code == 400

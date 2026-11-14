@@ -8,10 +8,12 @@ the Add connection form: each database and file starter as fields, passwords and
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Protocol
 
 from swissarmygrid.domain import connections as rules
-from swissarmygrid.domain.blades import BladeError, Template
+from swissarmygrid.domain.blades import Blade, BladeError, Template
+from swissarmygrid.domain.catalogs import count_sql, select_sql
+from swissarmygrid.domain.datasets import Opened
 from swissarmygrid.services.blades import BladeService
 
 
@@ -22,12 +24,15 @@ class ConnectionService:
         templates: Sequence[Template],
         on_saved: Callable[[str], None] = lambda name: None,
         catalog_state: Callable[[str], dict[str, str] | None] = lambda name: None,
+        tables: Tables | None = None,
     ) -> None:
         self._blades = blades
         self._templates = templates
         # A saved connection's catalog loads itself; each one's loading state (services/catalog_loading.py).
         self._on_saved = on_saved
         self._catalog_state = catalog_state
+        # Where an opened table goes: the datasets (services/datasets.py), as a grid.
+        self._tables = tables
 
     def listing(self) -> dict[str, Any]:
         """Every connection: databases first, then files, then key vaults (each with its entries: a
@@ -182,3 +187,79 @@ class ConnectionService:
         if not str(body.get("name") or "").strip():
             body = {**body, "name": "Untitled"}
         return await self._blades.test_draft(body)
+
+    # ===== a connection's table as a grid (the catalog, the connection's row, the agent) =====
+
+    def _target(self, name: str, body: Any) -> tuple[Blade, str, dict[str, str]]:
+        blade = self._blades.get(name)
+        kind = rules.connection_kind(blade.kind, blade.template)
+        if not rules.has_catalog(kind):
+            raise BladeError(f"{blade.name} has no tables to open.")
+        where = body if isinstance(body, dict) else {}
+        place = {k: str(where.get(k) or "") for k in ("database", "schema", "table")}
+        return blade, str(kind), place
+
+    async def open_table(self, name: str, body: Any, who: str) -> dict[str, Any]:
+        """A connection's table as a grid: a database's first Rows to open rows (every row with
+        `"all": true`), the grid told how many the source holds; a file connection's file (a sheet, a
+        file of a folder) whole. A workbook with several sheets and none named answers its sheets."""
+        if self._tables is None:
+            raise BladeError("Opening a table needs the datasets.")
+        blade, kind, place = self._target(name, body)
+        every = isinstance(body, dict) and body.get("all") is True
+        if kind == "file":
+            reached = await self._blades.rows(blade, None, None, body)
+            path, sheet = rules.file_to_open(blade.template, str(reached["path"]), place["table"])
+            if blade.template == "excel" and sheet is None:
+                sheets = await self._tables.sheets(path)
+                if len(sheets) > 1:
+                    return {"sheets": sheets}
+                sheet = sheets[0] if sheets else None
+            dataset = rules.dataset_name(place["table"] or blade.name)
+            return await self._tables.load_file(dataset, path, sheet, who)
+        if not place["table"]:
+            raise ValueError("Name the table to open.")
+        limit = None if every else (blade.row_limit or rules.DEFAULT_OPEN_ROWS)
+        sql = select_sql(blade.dialect, place["database"], place["schema"], place["table"], [], limit)
+        count = (
+            None if every else count_sql(blade.dialect, place["database"], place["schema"], place["table"])
+        )
+        answer = await self._blades.rows(blade, sql, count, body)
+        table, total = answer["table"], answer.get("total")
+        shown = int(table.num_rows)
+        opened = (
+            Opened(blade.name, place["database"], place["schema"], place["table"], shown, int(total))
+            if limit is not None and isinstance(total, int) and total > shown
+            else None
+        )
+        dataset = rules.dataset_name(place["table"])
+        return await self._tables.store(dataset, table, who, opened) | {"shown": shown, "total": total}
+
+    async def preview(self, name: str, body: Any) -> dict[str, Any]:
+        """A table's first rows, for the catalog page beside its columns (nothing is kept)."""
+        if self._tables is None:
+            raise BladeError("A preview needs the datasets.")
+        blade, kind, place = self._target(name, body)
+        if kind == "file":
+            reached = await self._blades.rows(blade, None, None, body)
+            path, sheet = rules.file_to_open(blade.template, str(reached["path"]), place["table"])
+            return await self._tables.peek(path, sheet, rules.PREVIEW_ROWS)
+        if not place["table"]:
+            raise ValueError("Name the table to preview.")
+        sql = select_sql(
+            blade.dialect, place["database"], place["schema"], place["table"], [], rules.PREVIEW_ROWS
+        )
+        table = (await self._blades.rows(blade, sql, None, body))["table"]
+        return {"columns": list(table.column_names), "rows": [list(r.values()) for r in table.to_pylist()]}
+
+
+class Tables(Protocol):
+    """Where a connection's table goes as a grid (services/datasets.py)."""
+
+    async def store(self, name: str, table: Any, who: str, opened: Opened | None) -> dict[str, Any]: ...
+
+    async def load_file(self, name: str, path: str, sheet: str | None, who: str) -> dict[str, Any]: ...
+
+    async def sheets(self, path: str) -> list[str]: ...
+
+    async def peek(self, path: str, sheet: str | None, rows: int) -> dict[str, Any]: ...

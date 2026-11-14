@@ -313,6 +313,12 @@ class BladeService:
         values = {k: v for k, v in (typed or {}).items() if v}
         return await self._run_blade(blade, "test", self._typed_values(blade, data), {"secrets": values})
 
+    async def rows(self, blade: Blade, sql: str | None, count: str | None, body: Any) -> dict[str, Any]:
+        """A connection's table rows (a SELECT and its COUNT in its own SQL), or with no SQL the file a
+        file connection reaches, run in a child process as Refresh is: {"table", "total"} or {"path"}."""
+        typed = self._typed_values(blade, body)
+        return await self._run_blade(blade, "rows", typed, {"sql": sql, "count_sql": count})
+
     async def vault_names(self, data: Any) -> dict[str, Any]:
         """A vault's secret names (its names()), saved (`{"name"}`) or a draft (the form: code, variable,
         typed passwords), in a child process. Names only: `{"names": [{"secret", "env"}] or None}`, None

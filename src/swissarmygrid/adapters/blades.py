@@ -105,6 +105,7 @@ class BladeStore:
                 r["env"]: r["secret"] for r in data.get("vault_mapping", []) if isinstance(r, dict)
             },
             vault_all=data.get("vault_all") is True,
+            row_limit=data["row_limit"] if isinstance(data.get("row_limit"), int) else None,
             env_names=list(data.get("env_names", [])),
             template=data.get("template"),
             description=str(data.get("description") or ""),

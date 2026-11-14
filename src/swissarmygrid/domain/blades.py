@@ -434,6 +434,8 @@ def _header_lines(blade: dict[str, Any]) -> list[str]:
         lines.append("tags = [" + ", ".join(_toml_string(str(t)) for t in blade["tags"]) + "]")
     if kind == "sql":
         lines.append(f"dialect = {_toml_string(str(blade.get('dialect') or 'other'))}")
+        if blade.get("row_limit"):
+            lines.append(f"row_limit = {int(blade['row_limit'])}")
     if kind == "vault" and blade.get("vault_all"):
         lines.append("vault_all = true  # every secret in the vault, each under its own name")
     if kind != "secret":
@@ -557,6 +559,8 @@ def read_blade(text: str) -> dict[str, Any]:
         blade |= {"code": code, "variable": str(header.get("variable") or "")}
         if kind == "sql":
             blade["dialect"] = str(header.get("dialect") or "other")
+            if isinstance(header.get("row_limit"), int):
+                blade["row_limit"] = header["row_limit"]
         catalog = header.get("catalog")
         if isinstance(catalog, dict) and isinstance(catalog.get("command"), str):
             blade["catalog"] = {
@@ -1146,6 +1150,8 @@ class Blade:
     # A vault: every secret it holds (its names(), read each time), each under its own name; the mapping
     # then only renames.
     vault_all: bool = False
+    # A database connection: how many rows a table opens with as a grid (None: the app's default).
+    row_limit: int | None = None
     env_names: list[str] = field(default_factory=list)  # a secret blade's variables
     template: str | None = None
     description: str = ""
@@ -1183,6 +1189,7 @@ class Blade:
             ),
             "vault_mapping": [{"env": e, "secret": s} for e, s in self.vault_mapping.items()],
             "vault_all": self.vault_all,
+            "row_limit": self.row_limit,
             "env_names": list(self.env_names),
             "template": self.template,
             "description": self.description,
@@ -1312,6 +1319,17 @@ def parse_blade(data: Any, previous: Blade | None = None, now: float = 0.0) -> B
             blade.dialect = normalize_dialect(_text(data, "dialect", 32) or None)
         except CatalogError as error:
             raise BladeError(str(error)) from None
+        limit = data.get("row_limit")
+        if limit not in (None, ""):
+            if (
+                isinstance(limit, bool)
+                or not isinstance(limit, int | str)
+                or not str(limit).strip().isdigit()
+            ):
+                raise BladeError("Rows to open is a whole number of rows.")
+            if not 1 <= int(limit) <= 50_000_000:
+                raise BladeError("Rows to open is between 1 and 50,000,000.")
+            blade.row_limit = int(limit)
 
     if kind == "vault":
         mapping = data.get("vault_mapping") or []

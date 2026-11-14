@@ -99,7 +99,9 @@ class FakeStore:
             for name in names
         }
 
-    def replace(self, name: str, table: Any, source_kind: str, query: str | None = None) -> DatasetInfo:
+    def replace(
+        self, name: str, table: Any, source_kind: str, query: str | None = None, opened: Any = None
+    ) -> DatasetInfo:
         raise AssertionError("not used here")
 
     def close(self, name: str) -> bool:

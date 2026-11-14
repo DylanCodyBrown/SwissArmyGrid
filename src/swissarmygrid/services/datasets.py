@@ -12,7 +12,7 @@ import threading
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from swissarmygrid.domain.datasets import DatasetError, DatasetInfo, mib, quote
+from swissarmygrid.domain.datasets import DatasetError, DatasetInfo, Opened, mib, quote
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import SqlRefused, guard
 from swissarmygrid.services.ports import BACKGROUND, INTERACTIVE, Recipes, SqlSession
@@ -112,6 +112,7 @@ class DatasetService:
         who: str,
         query: str | None = None,
         follow: bool = False,
+        opened: Opened | None = None,
     ) -> dict[str, Any]:
         """The common end of every way data arrives: store, pick a grid, notify, audit.
 
@@ -120,7 +121,7 @@ class DatasetService:
         closed the old one (the data stays fresh for when they open it again)."""
         ws = self.ws
         info: DatasetInfo = await ws.workers.run(
-            BACKGROUND, ws.store.replace, name, table, source_kind, query
+            BACKGROUND, ws.store.replace, name, table, source_kind, query, opened
         )
         ws.views.forget_dataset(name)
         existing = ws.grids.first_for(name)
@@ -237,6 +238,16 @@ class DatasetService:
         ws.audit.write(who, "load_file", name, file=self._reader.file_name(path), sheet=sheet)
         return result
 
+    async def peek_file(self, path: str, sheet: str | None, rows: int) -> dict[str, Any]:
+        """A file's first rows (the catalog page's preview): nothing is kept."""
+        ws = self.ws
+        self._refuse_own_file(path)
+        table, _ = await ws.workers.run(
+            BACKGROUND, self._reader.load_file, path, ws.settings.max_dataset_bytes, sheet
+        )
+        first = table.slice(0, rows)
+        return {"columns": list(first.column_names), "rows": [list(r.values()) for r in first.to_pylist()]}
+
     async def sheets(self, path: str) -> dict[str, Any]:
         """The sheet names of a workbook, so VS Code can ask which to load."""
         self._refuse_own_file(path)
@@ -312,3 +323,25 @@ class DatasetService:
         result = await self.store_table(name, table, "sql_result", False, who, query=text)
         ws.audit.write(who, "sql_query", name, query=text, rows=table.num_rows)
         return result | {"rows": table.num_rows}
+
+
+class ConnectionTables:
+    """A connection's table as a grid, for services/connections.py (its Tables port): stored as any
+    table is, a file loaded as Open file loads it, a file's first rows for the catalog's preview."""
+
+    def __init__(self, datasets: DatasetService) -> None:
+        self._datasets = datasets
+
+    async def store(self, name: str, table: Any, who: str, opened: Opened | None) -> dict[str, Any]:
+        result = await self._datasets.store_table(name, table, "connection", True, who, opened=opened)
+        self._datasets.ws.audit.write(who, "open_connection_table", name)
+        return result
+
+    async def load_file(self, name: str, path: str, sheet: str | None, who: str) -> dict[str, Any]:
+        return await self._datasets.load_file(name, path, sheet, True, who)
+
+    async def sheets(self, path: str) -> list[str]:
+        return list((await self._datasets.sheets(path))["sheets"])
+
+    async def peek(self, path: str, sheet: str | None, rows: int) -> dict[str, Any]:
+        return await self._datasets.peek_file(path, sheet, rows)

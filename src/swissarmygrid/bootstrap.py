@@ -54,7 +54,7 @@ from swissarmygrid.services.catalogs import CatalogService
 from swissarmygrid.services.charts import Cards
 from swissarmygrid.services.codegen import CodeService
 from swissarmygrid.services.connections import ConnectionService
-from swissarmygrid.services.datasets import DatasetService
+from swissarmygrid.services.datasets import ConnectionTables, DatasetService
 from swissarmygrid.services.export import Exports
 from swissarmygrid.services.folders import Folders
 from swissarmygrid.services.grids import GridService
@@ -245,7 +245,11 @@ def bootstrap(
         catalogs=catalogs,
         blades=blades,
         connections=ConnectionService(
-            blades, TEMPLATES, on_saved=catalog_loading.saved, catalog_state=catalog_loading.state
+            blades,
+            TEMPLATES,
+            on_saved=catalog_loading.saved,
+            catalog_state=catalog_loading.state,
+            tables=ConnectionTables(datasets),
         ),
         catalog_loading=catalog_loading,
         folders=Folders(folder_listing),

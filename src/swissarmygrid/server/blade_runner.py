@@ -76,6 +76,10 @@ def payload(
             for v in vaults
         ],
         "env": typed,
+        # mode "rows": a table's rows (a SELECT and its COUNT in the source's own SQL); none: a file
+        # connection, whose answer is the file it reaches.
+        "sql": (extra or {}).get("sql"),
+        "count_sql": (extra or {}).get("count_sql"),
     }
 
 
@@ -133,6 +137,8 @@ async def run(job: dict[str, Any], timeout: float) -> dict[str, Any]:
         raise RefreshError(f"{job['label']} stopped unexpectedly: {tail[0][:500]}")
     if "error" in answer:
         raise RefreshError(str(answer["error"]), answer.get("missing_module"))
+    if "arrow" in answer:  # a table's rows, typed: Arrow IPC in base64
+        answer["table"] = ipc.open_stream(io.BytesIO(base64.b64decode(answer.pop("arrow")))).read_all()
     return answer
 
 
@@ -199,6 +205,8 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
             hidden.update({f"vault:{k}": v for k, v in values.items()})
         if job["mode"] == "names":
             return _names(job, secrets)
+        if job["mode"] == "rows":
+            return _rows(job, secrets)
         if job["kind"] == "vault":
             every = bool(job.get("vault_all"))
             values = run_vault(
@@ -224,6 +232,38 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
             if secret and len(secret) >= 3:
                 message = message.replace(secret, "****")
         return {"error": message, "missing_module": error.missing_module}
+
+
+def _rows(job: dict[str, Any], secrets: dict[str, str]) -> dict[str, Any]:
+    """A table's rows for Open as grid: the SELECT (limited, or every row) and the COUNT, run on the
+    connection; the rows as typed Arrow. A file connection (no SQL): the file it reaches."""
+    import pyarrow as pa
+
+    from swissarmygrid.adapters.blade_run import _sql_rows, close_quietly, run_code
+
+    value, _ = run_code(job["code"], job["variable"], secrets, job["label"])
+    try:
+        if not job.get("sql"):
+            return {"path": str(value)}
+        columns, rows = _sql_rows(value, job["sql"])
+        total = None
+        if job.get("count_sql"):
+            _, counted = _sql_rows(value, job["count_sql"])
+            total = int(counted[0][0]) if counted and counted[0] else None
+    finally:
+        close_quietly(value)
+    arrays = []
+    for i in range(len(columns)):
+        values = [row[i] for row in rows]
+        try:
+            arrays.append(pa.array(values))
+        except (pa.ArrowInvalid, pa.ArrowTypeError, OverflowError):
+            arrays.append(pa.array([None if v is None else str(v) for v in values], pa.string()))
+    table = pa.Table.from_arrays(arrays, names=columns)
+    sink = io.BytesIO()
+    with ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table)
+    return {"arrow": base64.b64encode(sink.getvalue()).decode("ascii"), "total": total}
 
 
 def _names(job: dict[str, Any], secrets: dict[str, str]) -> dict[str, Any]:

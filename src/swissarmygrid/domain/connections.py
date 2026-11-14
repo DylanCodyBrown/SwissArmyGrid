@@ -133,6 +133,34 @@ def env_name_for(connection: str, secret: str) -> str:
 
 MAX_VAULT_NAMES: int = 5_000
 
+# Rows a database table opens with as a grid, unless its connection says otherwise (Rows to open):
+# the grid then says how many the source holds and offers the rest.
+DEFAULT_OPEN_ROWS: int = 10_000
+PREVIEW_ROWS: int = 50  # the catalog page's preview of a table, beside its columns
+
+
+def dataset_name(text: str) -> str:
+    """A table's name as a dataset's: dbo.Order Lines -> Order_Lines (letters, digits, _ and -)."""
+    bare = re.sub(r"\.[A-Za-z0-9]{1,8}$", "", text.strip())  # orders.csv -> orders
+    name = re.sub(r"[^A-Za-z0-9_-]+", "_", bare).strip("_")[:64]
+    return name or "table"
+
+
+MAX_OPEN_ROWS: int = 50_000_000
+
+
+def file_to_open(template: str | None, path: str, table: str) -> tuple[str, str | None]:
+    """Which file (and sheet) a file connection's catalog table is: a CSV, Parquet or JSON connection is
+    its one file; a workbook's tables are its sheets; a folder's are its files."""
+    if template == "folder":
+        if not table or "/" in table or "\\" in table or table in (".", ".."):
+            raise ValueError("Name the file in the folder to open.")
+        separator = "\\" if "\\" in path and "/" not in path else "/"
+        return path.rstrip("/\\") + separator + table, None
+    if template == "excel":
+        return path, table or None
+    return path, None
+
 
 def vault_names(found: Any) -> list[dict[str, str]]:
     """What a vault's names() gave, as rows to map: each secret's name and a variable for it. Sorted,

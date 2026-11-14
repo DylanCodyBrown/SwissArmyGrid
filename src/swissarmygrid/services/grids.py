@@ -95,6 +95,8 @@ class GridService:
             "row_count": info.row_count,
             "source_kind": info.source_kind,
             "query": info.query,
+            # Opened from a connection with fewer rows than it holds: the grid offers the rest.
+            "opened": info.opened.to_json() if info.opened else None,
             "source_columns": [{"name": c.name, "type": c.type} for c in info.columns],
             "columns": [{"name": c.name, "type": c.type} for c in compiled.columns],
             # Columns after each step (index 0 = the source), for previewing a step.

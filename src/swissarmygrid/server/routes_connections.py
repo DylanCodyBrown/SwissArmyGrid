@@ -11,6 +11,8 @@ answer holds a password's value:
   POST   /connections/vaults/secrets  the secrets' names in a vault (saved, or the form's draft)
   POST   /connections/source          point a password at the keyring, an environment variable or a vault
   POST   /connections/{name}/catalog  load its catalog in the background now (first use: a SQL cell asks)
+  POST   /connections/{name}/open     a table as a grid {database, schema, table, all} (a file: its file)
+  POST   /connections/{name}/preview  a table's first rows {database, schema, table} (nothing kept)
 
 Removing, secrets, Refresh, favourites and export are the blade routes' (routes_blades.py).
 The use cases are services/connections.py.
@@ -80,6 +82,30 @@ def routes(connections: ConnectionService, blades: BladeService, loading: Catalo
         except Exception as error:
             return error_response(error)
 
+    async def open_table(request: Request) -> Response:
+        try:
+            body = await read_json(request)
+            return json_response(
+                await connections.open_table(request.path_params["name"], body, actor(request))
+            )
+        except NeedsValues as error:
+            return json_response({"needs": error.missing, "message": str(error)}, status_code=409)
+        except RefreshError as error:
+            return json_response(blades.run_failure(str(error), error.missing_module), status_code=422)
+        except Exception as error:
+            return error_response(error)
+
+    async def preview(request: Request) -> Response:
+        try:
+            body = await read_json(request)
+            return json_response(await connections.preview(request.path_params["name"], body))
+        except NeedsValues as error:
+            return json_response({"needs": error.missing, "message": str(error)}, status_code=409)
+        except RefreshError as error:
+            return json_response(blades.run_failure(str(error), error.missing_module), status_code=422)
+        except Exception as error:
+            return error_response(error)
+
     async def source(request: Request) -> Response:
         try:
             return json_response(await connections.source(await read_json(request)))
@@ -105,6 +131,8 @@ def routes(connections: ConnectionService, blades: BladeService, loading: Catalo
         Route("/connections/vaults/secrets", vault_names, methods=["POST"]),
         Route("/connections/source", source, methods=["POST"]),
         Route("/connections/{name}/catalog", load_catalog, methods=["POST"]),
+        Route("/connections/{name}/open", open_table, methods=["POST"]),
+        Route("/connections/{name}/preview", preview, methods=["POST"]),
         Route("/connections/{name}", details),
         Route("/connections/{name}", save, methods=["PUT"]),
     ]

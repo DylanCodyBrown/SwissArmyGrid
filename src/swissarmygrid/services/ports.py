@@ -15,7 +15,7 @@ from contextlib import AbstractContextManager
 from typing import Any, Protocol, TypeVar
 
 from swissarmygrid.domain.codegen import Outcome, Pasted
-from swissarmygrid.domain.datasets import Column, DatasetInfo
+from swissarmygrid.domain.datasets import Column, DatasetInfo, Opened
 from swissarmygrid.domain.grids import Window
 from swissarmygrid.domain.steps import CompiledView, Step, ViewSettings
 
@@ -152,7 +152,14 @@ class Datasets(Protocol):
     @property
     def max_datasets(self) -> int: ...
 
-    def replace(self, name: str, table: Any, source_kind: str, query: str | None = None) -> DatasetInfo: ...
+    def replace(
+        self,
+        name: str,
+        table: Any,
+        source_kind: str,
+        query: str | None = None,
+        opened: Opened | None = None,
+    ) -> DatasetInfo: ...
 
     def close(self, name: str) -> bool: ...
 

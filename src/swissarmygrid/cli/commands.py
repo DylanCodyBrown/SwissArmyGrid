@@ -2034,6 +2034,34 @@ def connections_vaults(a: dict[str, Any]) -> Any:
     return api.call("GET", "/connections/vaults")
 
 
+_TABLE_ARGS = (
+    req("name", "The connection's name."),
+    opt("table", "The table (a database's table; a workbook's sheet; a file in a folder connection)."),
+    opt("schema", "The table's schema (as the catalog shows it)."),
+    opt("database", "The table's database, when the catalog spans more than one."),
+)
+
+
+@command(
+    "connections_open_table",
+    "Open a connection's table as a grid: a database table's first rows (the connection's Rows to open, "
+    "10,000 unless set; all=true for every row), the grid told how many the source holds; a file "
+    "connection's file whole. A workbook with several sheets and no table named answers its sheets.",
+    *_TABLE_ARGS,
+    opt("all", "Every row, not the first Rows to open.", "bool"),
+)
+def connections_open_table(a: dict[str, Any]) -> Any:
+    keys = ("table", "schema", "database", "all")
+    body = {k: a[k] for k in keys if a.get(k) is not None}
+    return api.call("POST", f"/connections/{_q(a['name'])}/open", body)
+
+
+@command("connections_preview_table", "A connection's table's first 50 rows (nothing is kept)", *_TABLE_ARGS)
+def connections_preview_table(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("table", "schema", "database") if a.get(k) is not None}
+    return api.call("POST", f"/connections/{_q(a['name'])}/preview", body)
+
+
 @command(
     "connections_load_catalog",
     "Load a connection's catalog (its tables and columns) in the background now; it arrives for completion "
