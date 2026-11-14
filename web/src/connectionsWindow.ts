@@ -272,7 +272,8 @@ export async function openConnections(): Promise<void> {
         input.addEventListener("change", () => void fill(fields[i]!, input.value));
         const browse = field.picker
           ? button("Browse…", () => {
-              void chooseFile({ title: field.picker === "folder" ? "Choose folder" : "Choose file", mode: field.picker!, suffixes: FILE_KINDS[form.id], start: field.placeholder ? undefined : String(field.value) }).then((path) => {
+              const suffixes = field.name === "certificate file" ? [".pem", ".crt", ".cer"] : FILE_KINDS[form.id];
+              void chooseFile({ title: field.picker === "folder" ? "Choose folder" : "Choose file", mode: field.picker!, suffixes, start: field.placeholder ? undefined : String(field.value) }).then((path) => {
                 if (!path) return;
                 input.value = path;
                 if (!named) name.value = stem(path);

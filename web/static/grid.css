@@ -4224,6 +4224,7 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
 
 .connection-fields .field.wide {
   grid-column: 1 / -1;
+  order: 1; /* a path with Browse… sits under the short fields, not between them */
 }
 
 .connection-fields {

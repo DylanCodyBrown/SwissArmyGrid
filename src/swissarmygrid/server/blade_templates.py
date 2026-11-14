@@ -312,14 +312,24 @@ conn = teradatasql.connect(host="my-server", user="my_user", password=secret("pa
         "trino",
         "Trino / Presto",
         "trino",
-        """import trino
+        """import requests
+import trino
+
+user = "my_user"
+verify = r"C:\\certs\\my-company-ca.pem"
+
+session = requests.Session()
+session.verify = verify
+session.trust_env = False  # this .pem, even where REQUESTS_CA_BUNDLE names another
 
 conn = trino.dbapi.connect(
     host="my-server",
     port=443,
-    user="my_user",
+    user=user,
     catalog="hive",
     http_scheme="https",
+    auth=trino.auth.BasicAuthentication(user, secret("password")),
+    http_session=session,
 )""",
         INFORMATION_SCHEMA,
     ),

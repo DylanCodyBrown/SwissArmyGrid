@@ -683,6 +683,13 @@ KEYWORDS: dict[str, str] = {
     "base_url": "address",
     "service_name": "service",
     "sid": "service",
+    # Encryption (SSL/TLS): the scheme, and the certificate authority's file (.pem) the client trusts.
+    "http_scheme": "scheme",
+    "verify": "certificate file",
+    "sslrootcert": "certificate file",
+    "ssl_ca": "certificate file",
+    "ca": "certificate file",
+    "sslmode": "encryption",
 }
 # The parts of a connection string (ODBC, DB2, OLE DB) that are settings, by their key ignoring case.
 CONNECTION_KEYS: dict[str, str] = {
@@ -920,8 +927,12 @@ def _detect(code: str) -> list[_Found]:
             continue
         literal = _literal(value)
         if isinstance(target, ast.Name) and literal is not None:
+            # A known setting's own word first (verify = r"...pem" is a certificate file, not any path).
+            known = KEYWORDS.get(target.id.casefold())
             name = (
-                "path"
+                known
+                if known
+                else "path"
                 if isinstance(literal.value, str) and _LOOKS_LIKE_PATH.search(literal.value)
                 else target.id
             )

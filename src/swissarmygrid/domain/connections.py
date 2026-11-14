@@ -29,7 +29,7 @@ FILE_STARTERS: dict[str, str] = {
     "folder": "Folder of files",
 }
 # A setting with one of these names holds a path the form offers a picker for.
-_FILE_SETTINGS = frozenset({"path", "file", "dbq", "database_file"})
+_FILE_SETTINGS = frozenset({"path", "file", "dbq", "database_file", "certificate file"})
 _FOLDER_SETTINGS = frozenset({"folder", "directory"})
 
 

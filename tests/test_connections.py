@@ -378,3 +378,35 @@ def test_a_vault_may_load_every_secret_under_its_own_name(client: TestClient) ->
     assert client.post("/connections", json=plain, headers=AUTH).status_code == 200
     failed = client.post("/blades/Plain/test", json={}, headers=AUTH)
     assert failed.status_code == 422 and "no names()" in failed.text
+
+
+def test_trino_links_a_pem_over_https_with_a_password() -> None:
+    from swissarmygrid.domain.blades import detect_settings, read_code
+    from swissarmygrid.server.blade_templates import TEMPLATES
+
+    code = next(t for t in TEMPLATES if t.id == "trino").code
+    found = {s.name: s for s in detect_settings(code)}
+    assert set(found) == {"user", "server", "port", "catalog", "scheme", "certificate file"}
+    assert found["scheme"].value == "https" and found["certificate file"].placeholder
+    assert picker(found["certificate file"].to_json(), "trino") == "file"  # Browse… offers .pem files
+    assert read_code(code).secrets == ["password"]  # the Password box: keyring, variable or vault
+    # The .pem wins even where REQUESTS_CA_BUNDLE names another bundle (requests prefers that otherwise).
+    assert "session.trust_env = False" in code and "http_session=session" in code
+
+
+@pytest.mark.parametrize(
+    ("code", "key"),
+    [
+        (
+            'conn = psycopg.connect(host="h", sslrootcert=r"C:\\certs\\ca.pem")',
+            "sslrootcert",
+        ),
+        ('conn = pymysql.connect(host="h", ssl_ca="/etc/ssl/company-ca.pem")', "ssl_ca"),
+        ('conn = trino.dbapi.connect(host="h", verify="/etc/ssl/company-ca.pem")', "verify"),
+    ],
+)
+def test_a_certificate_file_is_a_field_with_a_file_picker(code: str, key: str) -> None:
+    from swissarmygrid.domain.blades import detect_settings
+
+    [cert] = [s for s in detect_settings(code) if s.key == key]
+    assert cert.name == "certificate file" and picker(cert.to_json(), None) == "file"

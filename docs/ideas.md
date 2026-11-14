@@ -614,3 +614,11 @@ you can choose to map those to environment variables or you can just leave them 
 form reads the list itself once it can (every setting filled in, or a saved vault opened to edit), and a
 secret's box starts empty with the vault's name as its placeholder: empty means that name, typed means
 mapped.
+
+## Trino: a linked .pem and SSL (2026-11-14, the owner's request)
+
+The starter is https with a password (BasicAuthentication) and a certificate file, and passes trino its own
+requests session with trust_env off: otherwise REQUESTS_CA_BUNDLE wins over the linked .pem. The cost:
+that session also ignores HTTPS_PROXY, so a Trino reached through a proxy needs `session.proxies` set in the
+code. Open: signing in with a client certificate (trino.auth.CertificateAuthentication, a .pem and its key)
+instead of a password, as a second starter, if the owner wants it.

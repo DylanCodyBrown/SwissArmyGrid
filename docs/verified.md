@@ -474,3 +474,16 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   listed with no button pressed, each box empty with the vault's name as its placeholder; a typed name
   (CRM_KEY) was the only entry saved; opened to edit, the list came back at once with CRM_KEY in its box
   and the others empty. The Workbench and blades page browser tests passed (31).
+- (2026-11-14) Trino with a linked .pem over SSL (the owner: "make sure the trino supports linking a .pem
+  and ssl"). The starter, filled in as the form fills it, run by the app's own runner with the real
+  trino client (0.340.0, a scratch environment; not a project dependency) against a made-up Trino over
+  HTTPS signed by a made-up certificate authority: with the authority's .pem it connected and signed in
+  with the password (BasicAuthentication); a .pem path that was not there and no .pem at all were both
+  refused. Two findings that shaped the starter: (1) requests, under trino, prefers REQUESTS_CA_BUNDLE
+  (often set on company computers) over the .pem it is given, so the linked .pem was silently ignored;
+  the starter now gives trino its own session that ignores that setting (trust_env off), and the check
+  passed with REQUESTS_CA_BUNDLE set. (2) Python 3.13 refuses a certificate authority whose certificate
+  has no key usage entry (some older company authorities lack it): the made-up one had to carry it.
+  Then: the form shows Certificate file (verify) with Browse… for .pem, .crt and .cer, Scheme (https)
+  and the Password box; sslrootcert, ssl_ca and ca are certificate files too. The non-browser suite
+  (1,854 passed) and the Workbench and blades page browser tests (31 passed).
