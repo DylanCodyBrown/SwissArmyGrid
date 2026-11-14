@@ -16,6 +16,7 @@ and does nothing but read the request, call the use case and shape the answer:
   routes_connections.py    connections (database and file blades, seen apart): the user's alone
   routes_folders.py        the page's file chooser: a folder's contents, the user's alone
   routes_workbench.py      the Workbench: notebooks, scripts and their kernels, the user's alone
+  routes_table_cells.py    every table's read-only cell in a Workbench document, and its Tables group
   routes_handoff.py        code handed to the user's own Python (To Python, sag.paste())
   routes_relationships.py  the relationship model, the Key Finder, comparing two grids
   routes_processes.py      Python sessions offering tables: the Open list
@@ -56,6 +57,7 @@ from swissarmygrid.server import (
     routes_regression,
     routes_relationships,
     routes_snapshots,
+    routes_table_cells,
     routes_tieout,
     routes_timeseries,
     routes_workbench,
@@ -151,6 +153,7 @@ def create_app(
             *routes_connections.routes(ctx.connections, ctx.blades, ctx.catalog_loading),
             *routes_folders.routes(ctx.folders),
             *routes_workbench.routes(ctx.workbench, ctx.workbench_window),
+            *routes_table_cells.routes(ctx.table_cells),
             *routes_handoff.routes(ctx.handoff),
             *routes_relationships.routes(ctx.models, ctx.finder, ctx.keys, ctx.compares),
             *routes_tieout.routes(ctx.tie_out),

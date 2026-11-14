@@ -363,6 +363,10 @@ def push(
     }
     if _process:
         headers["X-Process"] = _process
+    # A Workbench kernel says which one it is: the table's cell goes into that kernel's document.
+    kernel = os.environ.get("SWISSARMYGRID_KERNEL", "")
+    if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", kernel):
+        headers["X-Kernel"] = kernel
     request = urllib.request.Request(
         url=f"http://127.0.0.1:{info['port']}/datasets/{name}?new_grid={int(new_grid)}&follow={int(_follow)}",
         data=body,

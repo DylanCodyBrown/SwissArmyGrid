@@ -15,8 +15,10 @@ from typing import Any, Protocol
 from swissarmygrid.domain.datasets import DatasetError, DatasetInfo, Opened, mib, quote, validate_name
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.domain.sql_guard import SqlRefused, guard
+from swissarmygrid.domain.table_cells import Origin
 from swissarmygrid.services.ports import BACKGROUND, INTERACTIVE, Recipes, SqlSession
 from swissarmygrid.services.processes import ProcessRegistry
+from swissarmygrid.services.table_cells import Origins
 from swissarmygrid.services.workspace import Conflict, NotFound, Refused, TimedOut, Workspace
 
 
@@ -63,6 +65,8 @@ class DatasetService:
         self._on_shutdown = on_shutdown
         # Who else names tables: each is told of a rename (the relationship model, bootstrap.py).
         self.renamed: list[Callable[[str, str], Awaitable[None]]] = []
+        # Where each table came from, for the load its Workbench cell starts with (table_cells.py).
+        self.origins = Origins()
 
     # ===== the server itself =====
 
@@ -99,6 +103,7 @@ class DatasetService:
         ws.views.forget_dataset(name)
         for grid in ws.grids.for_dataset(name):
             ws.grids.close(grid.id)
+        self.origins.forget(name)
         await ws.live.broadcast({"type": "dataset_closed", "dataset": name})
         ws.audit.write(who, "close", name)
         return {"closed": name, "budget": ws.budget()}
@@ -122,6 +127,7 @@ class DatasetService:
         ws.views.forget_dataset(name)  # its cached views name the old table
         info: DatasetInfo = await ws.workers.run(INTERACTIVE, ws.store.rename, name, new)
         grids = ws.grids.rename_dataset(name, new)
+        self.origins.rename(name, new)
         for renamed in self.renamed:
             await renamed(name, new)
         await ws.live.broadcast(
@@ -142,6 +148,7 @@ class DatasetService:
         query: str | None = None,
         follow: bool = False,
         opened: Opened | None = None,
+        origin: Origin | None = None,
     ) -> dict[str, Any]:
         """The common end of every way data arrives: store, pick a grid, notify, audit.
 
@@ -153,6 +160,8 @@ class DatasetService:
             BACKGROUND, ws.store.replace, name, table, source_kind, query, opened
         )
         ws.views.forget_dataset(name)
+        if origin is not None:
+            self.origins.note(name, origin)
         existing = ws.grids.first_for(name)
         if follow and existing is None:
             await ws.live.dataset_updated(name, info.version)
@@ -230,8 +239,10 @@ class DatasetService:
         who: str,
         follow: bool,
         process_id: str,
+        kernel: str = "",
     ) -> dict[str, Any]:
-        """Store a pushed table: an Arrow stream (`arrow`), or pandas' orient="split" JSON (`payload`)."""
+        """Store a pushed table: an Arrow stream (`arrow`), or pandas' orient="split" JSON (`payload`).
+        `kernel` is the Workbench kernel it came from (its document holds the table's cell)."""
         ws = self.ws
         if arrow is not None:
             table = await ws.workers.run(
@@ -239,7 +250,8 @@ class DatasetService:
             )
         else:
             table = await ws.workers.run(INTERACTIVE, self._reader.split_json_to_arrow, payload)
-        result = await self.store_table(name, table, source_kind, new_grid, who, follow=follow)
+        origin = Origin("python", kernel=kernel or None)
+        result = await self.store_table(name, table, source_kind, new_grid, who, follow=follow, origin=origin)
         # A Python session's watcher says which session pushed this (X-Process): that session
         # now follows the dataset, and the Open list shows the table as open.
         if process_id and self._processes.note_loaded(process_id, name):
@@ -263,7 +275,8 @@ class DatasetService:
         table, kind = await ws.workers.run(
             BACKGROUND, self._reader.load_file, path, ws.settings.max_dataset_bytes, sheet
         )
-        result = await self.store_table(name, table, kind, new_grid, who)
+        origin = Origin("file", path=path, sheet=sheet)
+        result = await self.store_table(name, table, kind, new_grid, who, origin=origin)
         ws.audit.write(who, "load_file", name, file=self._reader.file_name(path), sheet=sheet)
         return result
 
@@ -291,7 +304,8 @@ class DatasetService:
         table, kind = await ws.workers.run(
             BACKGROUND, self._reader.load_bytes, data, filename, ws.settings.max_dataset_bytes, sheet
         )
-        result = await self.store_table(name, table, kind, True, who)
+        origin = Origin("dropped", filename=filename)
+        result = await self.store_table(name, table, kind, True, who, origin=origin)
         ws.audit.write(who, "load_file", name, file=filename, sheet=sheet)
         return result
 
@@ -305,7 +319,7 @@ class DatasetService:
         table = await ws.workers.run(
             INTERACTIVE, self._reader.parse_pasted, text, ws.settings.max_dataset_bytes
         )
-        return await self.store_table(name, table, "clipboard", True, who)
+        return await self.store_table(name, table, "clipboard", True, who, origin=Origin("paste"))
 
     # ===== the "+" tab: a table from a query =====
 
@@ -349,7 +363,8 @@ class DatasetService:
             raise TimedOut(
                 f"The query was stopped: it ran past {settings.query_timeout_seconds:.0f} seconds."
             ) from None
-        result = await self.store_table(name, table, "sql_result", False, who, query=text)
+        origin = Origin("query", sql=text)
+        result = await self.store_table(name, table, "sql_result", False, who, query=text, origin=origin)
         ws.audit.write(who, "sql_query", name, query=text, rows=table.num_rows)
         return result | {"rows": table.num_rows}
 
@@ -361,8 +376,13 @@ class ConnectionTables:
     def __init__(self, datasets: DatasetService) -> None:
         self._datasets = datasets
 
-    async def store(self, name: str, table: Any, who: str, opened: Opened | None) -> dict[str, Any]:
-        result = await self._datasets.store_table(name, table, "connection", True, who, opened=opened)
+    async def store(
+        self, name: str, table: Any, who: str, opened: Opened | None, connection: str = "", sql: str = ""
+    ) -> dict[str, Any]:
+        origin = Origin("connection", connection=connection or None, sql=sql or None)
+        result = await self._datasets.store_table(
+            name, table, "connection", True, who, opened=opened, origin=origin
+        )
         self._datasets.ws.audit.write(who, "open_connection_table", name)
         return result
 

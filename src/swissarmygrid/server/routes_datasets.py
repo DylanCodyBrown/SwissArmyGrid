@@ -98,6 +98,8 @@ def routes(datasets: DatasetService) -> list[BaseRoute]:
                     actor(request),
                     follow,
                     process_id,
+                    # The Workbench kernel that sent it (client/push_client.py): its document holds the cell.
+                    request.headers.get("x-kernel", "")[:64],
                 )
             )
         except Exception as error:  # every failure becomes a plain-language status

@@ -2230,17 +2230,19 @@ def _outputs(lines: list[Any]) -> dict[str, Any]:
 
 @command(
     "workbench_run",
-    "Run code in a kernel (kind sql: a SQL cell on its connection; kind file: a script as python would)",
+    "Run code in a kernel (kind sql: a SQL cell on its connection; kind file: a script as python would; "
+    "kind table: a table's cell)",
     req("kernel", "The kernel's id."),
     opt("code", "Python; SQL with kind sql; an unsaved script's text with kind file."),
-    opt("kind", "code (default), sql or file."),
+    opt("kind", "code (default), sql, file or table."),
     opt("connection", "A SQL cell's connection."),
+    opt("table", "kind table: the table (its cell starts from the table as made, so a rerun is safe)."),
     opt("path", "kind file: a saved script to run (its __file__)."),
     opt("args", "kind file: its command-line arguments (sys.argv)."),
     values=True,
 )
 def workbench_run(a: dict[str, Any]) -> Any:
-    body = {k: a[k] for k in ("code", "kind", "connection", "path", "args") if a.get(k) is not None}
+    body = {k: a[k] for k in ("code", "kind", "connection", "path", "args", "table") if a.get(k) is not None}
     # This call waits for the run's end, so it could never answer input(): there input() raises instead.
     body["stdin"] = False
     return _outputs(api.call_lines("POST", f"/workbench/kernels/{_q(a['kernel'])}/execute", body))
@@ -2289,6 +2291,61 @@ def workbench_window(a: dict[str, Any]) -> Any:
     return api.call("POST", "/workbench/window", {"command": a["command"], "args": a.get("args") or {}})[
         "result"
     ]
+
+
+@command(
+    "workbench_table_cells",
+    "Every open table's read-only Workbench cell: its steps as one DuckDB query, its grid and kernel",
+)
+def workbench_table_cells(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/workbench/tables")
+
+
+@command(
+    "workbench_tables_arrange",
+    "A notebook's cells or a script's text with its Tables group (the tables' cells, on top) as it should be",
+    req("kind", "notebook or script."),
+    opt("cells", "A notebook's cells.", "json"),
+    opt("text", "A script's text."),
+    opt("tables", "The document's open tables (names).", "json"),
+    opt("next_cell", "A notebook's next cell number (workbench_open gave it).", "int"),
+    opt("move", "false: move nothing.", "bool"),
+)
+def workbench_tables_arrange(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("kind", "cells", "text", "tables", "next_cell", "move") if a.get(k) is not None}
+    return api.call("POST", "/workbench/tables/arrange", body)
+
+
+def _window(command_id: str, args: dict[str, Any]) -> Any:
+    return api.call("POST", "/workbench/window", {"command": command_id, "args": args})["result"]
+
+
+@command(
+    "workbench_tables",
+    "The front Workbench document's tables: each one's cell, steps, and whether it is up to date",
+)
+def workbench_tables(a: dict[str, Any]) -> Any:
+    return _window("tables.list", {})
+
+
+@command(
+    "workbench_table_run",
+    "Run a table's cell in the front Workbench document (default: every one not up to date)",
+    opt("table", "The table."),
+)
+def workbench_table_run(a: dict[str, Any]) -> Any:
+    if a.get("table"):
+        return _window("tables.run", {"table": a["table"]})
+    return _window("tables.runOutOfDate", {})
+
+
+@command(
+    "workbench_cell_goto",
+    "Go to a cell of the front Workbench document by its number (as @cell7 links to it)",
+    req("number", "The cell's number.", "int"),
+)
+def workbench_cell_goto(a: dict[str, Any]) -> Any:
+    return _window("cell.goTo", {"number": a["number"]})
 
 
 @command(

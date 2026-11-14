@@ -67,6 +67,7 @@ from swissarmygrid.services.regression import Regression
 from swissarmygrid.services.relationships import Compares, Finder, KeyFinder, Models
 from swissarmygrid.services.snapshots import Snapshots
 from swissarmygrid.services.sql import SqlBox
+from swissarmygrid.services.table_cells import TableCells
 from swissarmygrid.services.tieout import TieOut
 from swissarmygrid.services.timeseries import TimeSeries
 from swissarmygrid.services.workbench import Workbench
@@ -111,6 +112,7 @@ class Services:
     tie_out: TieOut
     snapshots: Snapshots
     workbench_window: WorkbenchWindow
+    table_cells: TableCells
     live: LiveUpdates
     workers: PriorityWorkers
 
@@ -273,6 +275,7 @@ def bootstrap(
         tie_out=TieOut(compares),
         snapshots=Snapshots(ws),
         workbench_window=WorkbenchWindow(ws),
+        table_cells=TableCells(ws, datasets.origins),
         live=live,
         workers=workers,
     )

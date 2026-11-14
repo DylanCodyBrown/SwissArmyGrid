@@ -242,8 +242,11 @@ class Workbench:
         problems: list[str] = []
         if self._vault_environment is not None:
             from_vaults, problems = await self._vault_environment()
-        kernel = await self._kernels.start(str(python), folder, dict(self._environ) | from_vaults)
         kernel_id = tokens.token_hex(6)
+        # The kernel knows which one it is: a table it sends to the grid says so, and that table's
+        # read-only cell goes into this kernel's document (services/table_cells.py).
+        environ = dict(self._environ) | from_vaults | {"SWISSARMYGRID_KERNEL": kernel_id}
+        kernel = await self._kernels.start(str(python), folder, environ)
         self._running[kernel_id] = kernel
         window = body.get("window")
         if isinstance(window, str) and 0 < len(window) <= 64:
@@ -263,9 +266,11 @@ class Workbench:
         return kernel
 
     def execute(self, kernel_id: str, body: Any) -> AsyncIterator[dict[str, Any]]:
-        """Run code (kind code), a SQL cell (kind sql, its connection) or a script file (kind file: `path`
-        of a saved script, or `code` of an unsaved one, run with %run: its own __main__, __file__ and
-        sys.argv, as `python script.py` would). A kernel that dies is dropped."""
+        """Run code (kind code), a SQL cell (kind sql, its connection), a table's read-only cell (kind
+        table, with `table`: it starts from the original the user's code made, so running it again
+        never transforms a transformed table) or a script file (kind file: `path` of a saved script,
+        or `code` of an unsaved one, run with %run: its own __main__, __file__ and sys.argv, as
+        `python script.py` would). A kernel that dies is dropped."""
         if not isinstance(body, dict):
             raise ValueError('Send {"code": "..."}.')
         kind = body.get("kind") or "code"
@@ -277,9 +282,19 @@ class Workbench:
                 path = self._documents.scratch(body["code"])
             args = body.get("args") if isinstance(body.get("args"), str) else ""
             line = rules.quote_path(path) + (" " + args if args else "")
-            code = f"get_ipython().run_line_magic('run', {line!r})"
+            # %sag_run is %run with the script's table cells run safely (client/table_cells.py); a
+            # Python without the package runs the file as it is.
+            code = (
+                "get_ipython().run_line_magic("
+                f"'sag_run' if 'sag_run' in get_ipython().magics_manager.magics['line'] else 'run', {line!r})"
+            )
         elif not isinstance(body.get("code"), str):
             raise ValueError('Send {"code": "..."}.')
+        elif kind == "table":
+            table = body.get("table")
+            if not isinstance(table, str) or not table.isidentifier():
+                raise ValueError('A table\'s cell runs with {"kind": "table", "table": "its name", "code"}.')
+            code = f"get_ipython().run_cell_magic('sag_table', {table!r}, {body['code']!r})"
         elif kind == "sql":
             connection = body.get("connection")
             named = connection if isinstance(connection, str) else None

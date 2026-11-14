@@ -313,9 +313,14 @@ class Kernel:
         return found if isinstance(found, dict) and found.get("chain") else None
 
     async def grid(self, expression: str, name: str) -> str | None:
-        """Open a table (a variable, or a cell's result Out[n]) as grid `name` (sag.push, from the
-        kernel); its address."""
-        url = await self.evaluate(f"__import__('swissarmygrid').push({expression}, name={name!r})")
+        """Open a table (a variable, or a cell's result Out[n]) as grid `name` (sent from the kernel);
+        its address. A variable is kept current from then on, and has its own read-only cell
+        (client/table_cells.py); a result is sent as it is."""
+        if expression == name:
+            helper = "__import__('swissarmygrid.client.table_cells', fromlist=['open_grid'])"
+            url = await self.evaluate(f"{helper}.open_grid({name!r})")
+        else:
+            url = await self.evaluate(f"__import__('swissarmygrid').push({expression}, name={name!r})")
         return None if url is None else str(url)
 
     async def interrupt(self) -> None:

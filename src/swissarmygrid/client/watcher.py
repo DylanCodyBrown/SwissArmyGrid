@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
-from swissarmygrid.client import push_client
+from swissarmygrid.client import push_client, table_cells
 
 log = logging.getLogger("swissarmygrid.watcher")
 
@@ -339,8 +339,18 @@ class Watcher:
             if table is None or value is None:
                 self._fail(name, f"{name} is not a table in this Python session any more.")
                 return
+            if follow and table_cells.is_result(name, value) and not table_cells.pending(name):
+                # The table's own read-only cell made this from the original the grid already holds:
+                # sending it back would apply the grid's steps a second time.
+                with self._lock:
+                    self._pushed[name] = table.fingerprint
+                return
+            # Its cell has run: the grid gets the original (new, when the maker ran again just before
+            # the cell did), and applies the steps itself.
+            value = table_cells.original_for(name, value)
             try:
                 push_client.push(value, name=name, _process=self.id, _follow=follow)
+                table_cells.note_original(name, value)
             except push_client.TableNotOpenError:
                 with self._lock:
                     self._pushed.pop(name, None)
@@ -352,6 +362,14 @@ class Watcher:
                 self._fail(name, str(error))
             # Success or a reported failure: either way this is the object we are done with, so a
             # table that cannot be sent is not retried until its variable is assigned again.
+            with self._lock:
+                self._pushed[name] = table.fingerprint
+
+    def mark_sent(self, name: str) -> None:
+        """What `name` holds now is what the grid has (it was just sent another way): not sent again
+        until the variable is assigned again."""
+        table = next((t for t in find_tables(self._namespace()) if t.name == name), None)
+        if table is not None:
             with self._lock:
                 self._pushed[name] = table.fingerprint
 
@@ -423,7 +441,7 @@ class Watcher:
                 for name in following:
                     with self._lock:
                         last = self._pushed.get(name)
-                    if name in current and last != current[name]:
+                    if name in current and last != current[name] and not table_cells.is_busy(name):
                         self.load(name, follow=True)
             except _ServerDown:
                 sent, following = None, []
@@ -470,6 +488,12 @@ def start(namespace: Callable[[], dict[str, Any]] | None = None, label: str | No
             _watcher = Watcher(namespace or _main_namespace, label)
             _watcher.start()
         return _watcher
+
+
+def running() -> Watcher | None:
+    """This process's watcher, when it is on."""
+    with _guard:
+        return _watcher if _watcher is not None and _watcher.alive() else None
 
 
 def stop() -> None:

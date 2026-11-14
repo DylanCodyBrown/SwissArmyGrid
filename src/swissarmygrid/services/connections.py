@@ -234,7 +234,8 @@ class ConnectionService:
             else None
         )
         dataset = rules.dataset_name(place["table"])
-        return await self._tables.store(dataset, table, who, opened) | {"shown": shown, "total": total}
+        stored = await self._tables.store(dataset, table, who, opened, blade.name, sql)
+        return stored | {"shown": shown, "total": total}
 
     async def preview(self, name: str, body: Any) -> dict[str, Any]:
         """A table's first rows, for the catalog page beside its columns (nothing is kept)."""
@@ -257,7 +258,9 @@ class ConnectionService:
 class Tables(Protocol):
     """Where a connection's table goes as a grid (services/datasets.py)."""
 
-    async def store(self, name: str, table: Any, who: str, opened: Opened | None) -> dict[str, Any]: ...
+    async def store(
+        self, name: str, table: Any, who: str, opened: Opened | None, connection: str = "", sql: str = ""
+    ) -> dict[str, Any]: ...
 
     async def load_file(self, name: str, path: str, sheet: str | None, who: str) -> dict[str, Any]: ...
 

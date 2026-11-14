@@ -518,8 +518,10 @@ def test_every_command_is_one_lean_typed_tool(live: Live, clients: str) -> None:
     # what-if, data shape, time series and forecast tools are each one short schema; then the Sandbox's
     # formats and saved dashboards, sandbox_add's own rows, file and key, and Compare's tie-out.
     # 26,500 leaves room for Compare's diff.
-    # The golden rule (2026-11-14) gave the agent every user action: about 170 tools.
-    assert size < 45_000, f"the tool list is {size} characters"
+    # The golden rule (2026-11-14) gave the agent every user action: about 170 tools (45,000).
+    # Every table's read-only cell (2026-11-14) added five: the tables' cells, arranging a document,
+    # a document's tables and their state, running a table's cell, going to a cell by its number.
+    assert size < 46_000, f"the tool list is {size} characters"
     # Typed: the schema carries the command's real arguments, required ones marked.
     schema = tools["steps_add"].input_schema
     assert set(schema["properties"]) == {"grid", "kind", "params", "index"}
