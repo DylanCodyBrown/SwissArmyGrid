@@ -107,6 +107,9 @@ class FakeStore:
     def close(self, name: str) -> bool:
         return self.infos.pop(name, None) is not None
 
+    def rename(self, old: str, new: str) -> DatasetInfo:
+        raise AssertionError("not used here")
+
     def get(self, name: str) -> DatasetInfo | None:
         return self.infos.get(name)
 

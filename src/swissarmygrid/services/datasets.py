@@ -115,7 +115,8 @@ class DatasetService:
         validate_name(new)
         if new == name:
             return {"dataset": name, "renamed_from": name}
-        clash = next((i.name for i in ws.store.all() if i.name != name and i.name.lower() == new.lower()), None)
+        others = [i.name for i in ws.store.all() if i.name != name]
+        clash = next((n for n in others if n.lower() == new.lower()), None)
         if clash is not None:
             raise Conflict(f"A table named {clash!r} is open. Pick another name, or close that one first.")
         ws.views.forget_dataset(name)  # its cached views name the old table

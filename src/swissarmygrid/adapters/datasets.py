@@ -14,6 +14,7 @@ against file access (database.py). CSV, tab-separated text, JSON, Parquet, Arrow
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import itertools
 import json
@@ -23,7 +24,6 @@ import threading
 import uuid
 import zipfile
 from collections.abc import Callable, Iterable, Iterator
-import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
