@@ -470,3 +470,7 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   plainly, the portable file kept `vault_all = true` with no [vault] table, and the Variables pane listed
   the names it set. In the browser: Every secret is on for a new vault, a box renames, the PostgreSQL
   form came back with the vault and the secret's name still shown after Use it.
+- (2026-11-14) The hybrid vault form in the browser: with the code filled in, the three made-up secrets were
+  listed with no button pressed, each box empty with the vault's name as its placeholder; a typed name
+  (CRM_KEY) was the only entry saved; opened to edit, the list came back at once with CRM_KEY in its box
+  and the others empty. The Workbench and blades page browser tests passed (31).

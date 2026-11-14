@@ -608,3 +608,9 @@ then only renames. This replaced the upper-case suggestion (warehouse-password -
 the vault's own name is what the cloud's code most often reads. A vault whose code has no names() cannot
 load every secret and says so. The Variables pane lists what the vaults set at the last kernel start
 (names only), since such a vault names its variables only when it runs.
+
+The hybrid (the owner, 2026-11-14): "whenever you add a vault it gives you a list of the secrets names and
+you can choose to map those to environment variables or you can just leave them as is". So the vault's
+form reads the list itself once it can (every setting filled in, or a saved vault opened to edit), and a
+secret's box starts empty with the vault's name as its placeholder: empty means that name, typed means
+mapped.

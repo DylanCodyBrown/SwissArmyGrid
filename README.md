@@ -262,8 +262,10 @@ A **key vault** (Azure Key Vault, AWS Secrets Manager or Parameter Store, Google
 HashiCorp, 1Password, a `.env` file, the operating system's vault) is a connection whose secrets become
 environment variables. By default it loads **every secret in the vault**, new ones included, each under
 its own name: `SqlPassword` stays `SqlPassword`, `Sql--Password` becomes `Sql__Password` (Azure's
-convention for a section), any other character a variable cannot hold becomes `_`. **Read the vault**
-lists the secrets' names (never a value) so you can rename one; or untick Every secret and choose them.
+convention for a section), any other character a variable cannot hold becomes `_`. As soon as the vault
+can be read (its address filled in, or opened to edit) the form lists its secrets by name, never a
+value: leave a secret's box empty and it keeps the vault's name (shown faintly), or type another name
+to map it. Untick Every secret to choose them instead.
 Every Workbench kernel starts with those variables set, so `os.environ["WAREHOUSE_PASSWORD"]` and a
 connection's `secret("WAREHOUSE_PASSWORD")` just work. The values go straight into the kernel's
 environment: never saved, never shown, never sent to an agent. A password's **A key vault** offers

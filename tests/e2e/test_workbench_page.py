@@ -88,10 +88,12 @@ def test_a_key_vault_is_a_connection_made_from_a_password_and_mapped_to_variable
         code = dialog.get_by_role("textbox", name="The Python this connection runs")
         code.fill(MADE_UP_VAULT)
         code.dispatch_event("change")
-        dialog.get_by_role("button", name="Read the vault").click()
+        # The secrets are listed on their own, once the vault can be read (no button to press).
         secrets = dialog.locator(".vault-map tbody tr:not(.vault-new)")
         expect(secrets).to_have_count(3)
-        expect(secrets.first.get_by_role("textbox")).to_have_value("_3d_token")  # the vault's own name
+        # Left empty, a secret keeps the vault's own name (shown faintly); typed, it is mapped.
+        expect(secrets.first.get_by_role("textbox")).to_have_value("")
+        expect(secrets.first.get_by_role("textbox")).to_have_attribute("placeholder", "_3d_token")
         expect(dialog.locator(".vault-map")).not_to_contain_text("made-up")  # names only, never a value
         # Every secret is the default: nothing to tick; a box renames one.
         expect(dialog.get_by_role("checkbox", name="Every secret in the vault")).to_be_checked()
@@ -114,6 +116,14 @@ def test_a_key_vault_is_a_connection_made_from_a_password_and_mapped_to_variable
         expect(dialog.get_by_role("heading", name="Key vaults")).to_be_visible()
         expect(page.locator(".connection-list")).to_contain_text("Every secret")
         expect(page.locator(".connection-list")).to_contain_text("CRM_KEY ← api-key")
+        # Opened to edit, it is read at once: the mapped one shows its name, the rest are left as is.
+        page.locator(".connection-row", has_text="Azure Key Vault").get_by_role("button", name="Edit").click()
+        expect(dialog.locator(".vault-map tbody tr:not(.vault-new)")).to_have_count(3)
+        expect(dialog.get_by_role("textbox", name="api-key: the variable's name")).to_have_value("CRM_KEY")
+        expect(dialog.get_by_role("textbox", name="warehouse-password: the variable's name")).to_have_value(
+            ""
+        )
+        dialog.locator(".dialog-foot").get_by_role("button", name="Back").click()
         listed = call(server, "GET", "/connections")["connections"]
         assert [(c["name"], c["connection"], c["every"]) for c in listed] == [
             ("Azure Key Vault", "vault", True)

@@ -9,9 +9,10 @@
  *   [FORM]   a name; the starter's settings as fields (a file or folder field has Browse…); its
  *            passwords (kept in the system keyring); Test connection (runs the form, nothing saved);
  *            Save. The Python it makes shows underneath, editable for the unusual case
- *   [VAULT]  a vault's form adds its secrets: Every secret (each under its own name, new ones too), or
- *            the ones ticked; Read the vault lists their names (never a value) and a variable's box
- *            renames one. Every Workbench kernel starts with them set
+ *   [VAULT]  a vault's form lists its secrets by name (never a value) as soon as it can be read (its
+ *            address filled in, or opened to edit). Each becomes an environment variable: left empty,
+ *            under the vault's own name (shown faintly); typed, under that name. Every secret (new ones
+ *            too), or untick it and choose. Every Workbench kernel starts with them set
  *
  * ROUTING: [LIST]  GET /connections; Remove -> DELETE /blades/{name}; Refresh -> POST /blades/{name}/refresh
  *          [TYPES] GET /connections/types        [EDIT] GET /connections/{name}
@@ -258,6 +259,7 @@ export async function openConnections(): Promise<void> {
         // The ids follow the new code; the same settings in the same order keep their boxes.
         if (answer.settings.length === fields.length) fields = fields.map((f, i) => ({ ...f, ...answer.settings[i]!, picker: f.picker }));
         else drawFields(answer.settings.map((s) => ({ ...s, picker: fields.find((f) => f.name === s.name)?.picker ?? null })));
+        readWhenReady();
       } catch (e) {
         result.replaceChildren(h("p", { class: "status-error" }, (e as Error).message));
       }
@@ -392,10 +394,12 @@ export async function openConnections(): Promise<void> {
     const mapRows: { secret: string; env: HTMLInputElement; use: HTMLInputElement; row: HTMLElement }[] = [];
     const mapBody = h("tbody", {});
     const mapFilter = h("input", { type: "search", placeholder: "Filter", "aria-label": "Filter the secrets", hidden: true }) as HTMLInputElement;
-    const addMapping = (secret: string, env: string, use: boolean): void => {
+    /** A secret's row. `mapped`: the variable it was given; none, and it takes the vault's own name. */
+    const addMapping = (secret: string, mapped: string | null, use: boolean): void => {
       if (mapRows.some((r) => r.secret === secret)) return;
       const tick = h("input", { type: "checkbox", checked: use, "aria-label": `Use ${secret}` }) as HTMLInputElement;
-      const variable = h("input", { type: "text", class: "mono", value: env, spellcheck: false, "aria-label": `${secret}: the variable's name` }) as HTMLInputElement;
+      const own = envFor(secret);
+      const variable = h("input", { type: "text", class: "mono", value: mapped && mapped !== own ? mapped : "", placeholder: own, spellcheck: false, "aria-label": `${secret}: the variable's name` }) as HTMLInputElement;
       variable.addEventListener("input", () => (tick.checked = true));
       const row = h("tr", {}, h("td", {}, tick), h("td", {}, h("code", {}, secret)), h("td", {}, variable));
       mapRows.push({ secret, env: variable, use: tick, row });
@@ -406,7 +410,7 @@ export async function openConnections(): Promise<void> {
     const addTyped = (): void => {
       const secret = newSecret.value.trim();
       if (!secret) return;
-      addMapping(secret, envFor(secret), true);
+      addMapping(secret, null, true);
       newSecret.value = "";
       newSecret.focus();
     };
@@ -420,27 +424,34 @@ export async function openConnections(): Promise<void> {
     mapBody.append(newRow);
     mapFilter.addEventListener("input", () => {
       const words = mapFilter.value.toLowerCase();
-      for (const r of mapRows) r.row.hidden = Boolean(words) && !`${r.secret} ${r.env.value}`.toLowerCase().includes(words);
+      for (const r of mapRows) r.row.hidden = Boolean(words) && !`${r.secret} ${r.env.value} ${r.env.placeholder}`.toLowerCase().includes(words);
     });
     for (const m of form.vault_mapping ?? []) if (editing) addMapping(m.secret, m.env, true);
     const mapTable = h("table", { class: "vault-map" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", {}, "In the vault"), h("th", {}, "Environment variable"))), mapBody);
     const showEvery = (): void => void mapTable.classList.toggle("every", every.checked);
     every.addEventListener("change", showEvery);
     showEvery();
+    let reading = 0;
     const readVault = async (): Promise<void> => {
+      const mine = ++reading;
       result.replaceChildren(h("p", { class: "hint" }, "Reading the vault…"));
       try {
         const r = await api<{ names: Mapping[] | null }>("/connections/vaults/secrets", "POST", { ...sent(), secrets: typed() });
+        if (mine !== reading) return; // a newer read (the address changed again) answers instead
         if (r.names === null) {
           result.replaceChildren(h("p", { class: "hint" }, "This vault does not list its secrets: add them by name."));
           newSecret.focus();
           return;
         }
-        for (const m of r.names) addMapping(m.secret, m.env, false);
+        for (const m of r.names) addMapping(m.secret, null, false);
         result.replaceChildren(h("p", { class: "status-ok" }, `${r.names.length} secret${r.names.length === 1 ? "" : "s"}`));
       } catch (e) {
-        failed(e);
+        if (mine === reading) failed(e);
       }
+    };
+    /** Read the vault on its own once it can be: every setting filled in (not a starter's placeholder). */
+    const readWhenReady = (): void => {
+      if (isVault && fields.every((f) => !f.placeholder)) void readVault();
     };
     const secretsBox = isVault
       ? h(
@@ -464,6 +475,7 @@ export async function openConnections(): Promise<void> {
             passwordsSlot.replaceChildren(drawPasswords() ?? "");
           }
           result.replaceChildren();
+          readWhenReady();
         },
         (e: Error) => result.replaceChildren(h("p", { class: "status-error" }, e.message)),
       );
@@ -483,7 +495,10 @@ export async function openConnections(): Promise<void> {
       ...(isVault
         ? {
             vault_all: every.checked,
-            vault_mapping: mapRows.filter((r) => (every.checked ? r.env.value.trim() !== envFor(r.secret) : r.use.checked)).map((r) => ({ env: r.env.value.trim(), secret: r.secret })),
+            // A box left empty: the vault's own name. Every secret keeps only the ones given another.
+            vault_mapping: mapRows
+              .filter((r) => (every.checked ? r.env.value.trim() !== "" && r.env.value.trim() !== envFor(r.secret) : r.use.checked))
+              .map((r) => ({ env: r.env.value.trim() || envFor(r.secret), secret: r.secret })),
           }
         : {}),
     });
@@ -533,6 +548,7 @@ export async function openConnections(): Promise<void> {
     );
     name.focus();
     name.select();
+    readWhenReady(); // a vault opened to edit is read at once; a new one when its address is filled in
   };
 
   await showList();
