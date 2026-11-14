@@ -10,14 +10,17 @@
  *              writes over its line (progress bars); the newest 5,000 lines show, the rest are counted
  *   error      the traceback in its colours; a long one folds its middle frames
  *   data       a picture, Plotly, Markdown, HTML (a DataFrame) in a frame that runs no script and loads
- *              nothing, else the plain text; after 100 the rest are counted, not drawn
+ *              nothing, else the plain text; after 100 the rest are counted, not drawn. A picture or
+ *              chart has Send to Sandbox (the Sandbox is where they gather: POST /cards)
  *   input      the kernel asking for a line (input(), getpass, pdb): a box in place, answered with Enter
  *   notice     the page's own word (the kernel stopped, restarted, the run was cancelled): never saved
  *   error_detail  the error panel (workbenchErrors.ts) in place of the plain traceback: never saved (the
  *              notebook keeps Jupyter's own error record)
  */
-import { h } from "./dom";
+import { api } from "./api";
+import { button, h, toast } from "./dom";
 import { renderMarkdown } from "./markdown";
+import { currentDocument } from "./workbenchAgent";
 import { type ErrorActions, type ErrorDetail, errorPanel } from "./workbenchErrors";
 
 /** What a failed run's error panel can do, and who is told it was shown (to mark the editor). */
@@ -167,7 +170,36 @@ th{font-weight:600}thead th{border-bottom-width:2px}tbody tr:hover{background:${
   return frame;
 }
 
+/** A picture or chart as a Sandbox card: an image (PNG, JPEG, SVG) or a live Plotly figure. */
+function sandboxCard(data: Record<string, unknown>): { kind: string; body: string } | null {
+  const figure = data["application/vnd.plotly.v1+json"];
+  if (figure) return { kind: "plotly", body: JSON.stringify(figure) };
+  const png = data["image/png"];
+  if (typeof png === "string") return { kind: "image", body: `data:image/png;base64,${png.trim()}` };
+  const jpeg = data["image/jpeg"];
+  if (typeof jpeg === "string") return { kind: "image", body: `data:image/jpeg;base64,${jpeg.trim()}` };
+  const svg = data["image/svg+xml"];
+  if (svg) return { kind: "image", body: `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(text(svg))))}` };
+  return null;
+}
+
+function withSandbox(drawn: HTMLElement, data: Record<string, unknown>): HTMLElement {
+  const card = sandboxCard(data);
+  if (!card) return drawn;
+  const send = button("Send to Sandbox", () => {
+    void api("/cards", "POST", { ...card, title: `From ${currentDocument()}` }).then(
+      () => toast("Sent to the Sandbox (the grid page's Sandbox tab)."),
+      (e: Error) => toast(e.message, "error"),
+    );
+  }, { icon: "export", class: "ghost wb-to-sandbox", title: "Put this on the Sandbox, the grid page's dashboard" });
+  return h("figure", { class: "wb-figure" }, drawn, send);
+}
+
 function drawData(data: Record<string, unknown>, dark: boolean): HTMLElement {
+  return withSandbox(drawPlain(data, dark), data);
+}
+
+function drawPlain(data: Record<string, unknown>, dark: boolean): HTMLElement {
   const png = data["image/png"];
   if (typeof png === "string") return h("img", { class: "wb-image", src: `data:image/png;base64,${png.trim()}`, alt: "Figure" });
   const jpeg = data["image/jpeg"];
@@ -210,16 +242,6 @@ function drawError(o: Output): HTMLElement {
   more.addEventListener("click", () => more.replaceWith(colouredText(`${middle.join("\n")}\n`)));
   pre.append(colouredText(`${head.join("\n")}\n`), more, "\n", colouredText(tail.join("\n")));
   return pre;
-}
-
-/** A picture or chart, drawn on its own (the Plots pane). */
-export const drawPicture = (data: Record<string, unknown>, dark: boolean): HTMLElement => drawData(data, dark);
-
-const PICTURES = ["image/png", "image/jpeg", "image/svg+xml", "application/vnd.plotly.v1+json"];
-let pictureListener: ((data: Record<string, unknown>) => void) | null = null;
-/** Told of every picture or chart a run draws (not those of a notebook opened from its file). */
-export function onPicture(listener: (data: Record<string, unknown>) => void): void {
-  pictureListener = listener;
 }
 
 // ===== the area =====
@@ -420,8 +442,6 @@ export function outputArea(dark: () => boolean, grew: () => void = () => undefin
       return;
     }
     keep(o);
-    const data = o.data as Record<string, unknown> | undefined;
-    if (data && PICTURES.some((type) => type in data)) pictureListener?.(data);
     waiting.push(o);
     timer ??= window.setTimeout(flush, FLUSH_MS);
   };

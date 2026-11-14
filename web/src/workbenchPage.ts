@@ -2,8 +2,9 @@
  * workbenchPage.ts: the Workbench, in a window of its own (Plans/workbench-and-connections.plan.md;
  * opened from the grid page's Workbench tab). [COMPOSITION]
  *
- *   [PANES]    RStudio's four (workbenchLayout.ts): the source, its console under it, Variables top
- *              right, Plots and Help under it; splitters; a status bar (kernel, environment, cursor)
+ *   [PANES]    after RStudio (workbenchLayout.ts): the source, its console under it, Variables on the
+ *              right; splitters; a status bar (kernel, environment, cursor). Pictures go to the Sandbox
+ *   [AGENT]    right-click an error or selected code: Send to the agent (workbenchAgent.ts)
  *   [LEFT]     the side bar (catalogRail.ts, Ctrl+B folds it): Connections and Blades (drag one into a
  *              cell or the script for its line; Add connection; a new blade), and the data explorer
  *              (each connection's catalog: drag a table or column for its name)
@@ -17,7 +18,7 @@
  *              the agent's workbench_window tool
  *   [KEYS]     F5 runs (the file, or every cell) wherever the focus is, never reloading the window;
  *              Ctrl+S saves, Ctrl+O opens; Ctrl+Z outside an editor undoes a cell's delete or move;
- *              Ctrl+1 to Ctrl+4 (and F6) move between the panes; Ctrl+Alt+Page Up and Page Down switch
+ *              Ctrl+1 to Ctrl+3 (and F6) move between the panes; Ctrl+Alt+Page Up and Page Down switch
  *              documents; F1 on a name shows its help
  *   [RESTORE]  open documents and their unsaved text come back after a reload or a crashed tab (kept in
  *              this window's session storage, in the browser only: nothing is written to disk)
@@ -37,6 +38,7 @@ import { forgetCatalogs, pythonCompleter } from "./workbenchCompletion";
 import { newEnvironment } from "./workbenchEnvironment";
 import type { Fix } from "./workbenchErrors";
 import { mountLayout } from "./workbenchLayout";
+import { setDocumentName } from "./workbenchAgent";
 import { variablesPanel } from "./workbenchVariables";
 import { Kernel } from "./workbenchKernel";
 import { type CellData, notebookView, type NotebookView } from "./workbenchNotebook";
@@ -430,7 +432,7 @@ function drawToolbar(): void {
   const right = button("Variables", () => {
     if (layout.toggle("right")) void variables.refresh();
     drawToolbar();
-  }, { icon: "columns", pressed: layout.state().right, title: "Variables, Plots and Help on the right" });
+  }, { icon: "columns", pressed: layout.state().right, title: "The Variables pane on the right" });
   if (!doc || (doc.kind !== "notebook" && doc.kind !== "script")) {
     clear(toolbar, h("div", { class: "ribbon-tools" }, ...file), h("div", { class: "ribbon-tools" }, right, palette));
     return;
@@ -751,22 +753,22 @@ const COMMANDS: Command[] = [
   { id: "palette", group: "View", title: "Show every command", keys: "Ctrl+Shift+P", run: () => openPalette() },
   { id: "view.source", group: "View", title: "Go to the source", keys: "Ctrl+1", run: () => layout.focus("source") },
   { id: "view.variables", group: "View", title: "Go to Variables", keys: "Ctrl+3", run: () => layout.focus("variables") },
-  { id: "view.lower", group: "View", title: "Go to Plots and Help", keys: "Ctrl+4", run: () => layout.focus("lower") },
   { id: "view.nextPane", group: "View", title: "Next pane", keys: "F6", run: () => layout.cycle(1) },
   { id: "view.previousPane", group: "View", title: "Previous pane", keys: "Shift+F6", run: () => layout.cycle(-1) },
   { id: "view.toggleSidebar", group: "View", title: "Show or hide the side bar", keys: "Ctrl+B", run: () => { layout.toggle("rail"); drawToolbar(); } },
-  { id: "view.toggleRight", group: "View", title: "Show or hide Variables, Plots and Help", run: () => { if (layout.toggle("right")) void variables.refresh(); drawToolbar(); } },
+  { id: "view.toggleRight", group: "View", title: "Show or hide Variables", run: () => { if (layout.toggle("right")) void variables.refresh(); drawToolbar(); } },
   { id: "view.toggleConsole", group: "View", title: "Show or hide the console", run: () => layout.toggle("console") },
   { id: "view.standard", group: "View", title: "Layout: standard (four panes)", run: () => { layout.setLayout("standard"); drawToolbar(); } },
   { id: "view.focus", group: "View", title: "Layout: the source alone", keys: "Ctrl+Shift+1", run: () => { layout.setLayout("focus"); drawToolbar(); } },
   { id: "view.wide", group: "View", title: "Layout: wide data (the right column wider)", run: () => { layout.setLayout("wide"); drawToolbar(); } },
-  { id: "view.plots", group: "View", title: "Show Plots", run: () => { layout.toggle("right", true); layout.showTab("plots"); drawToolbar(); } },
   { id: "view.variablesRefresh", group: "View", title: "Read the variables again", when: isCode, whyNot: "no notebook or script is in front", run: () => variables.refresh().then(() => variables.snapshot()) },
   // Help
   { id: "help.atCursor", group: "Help", title: "Help on the name at the cursor", keys: "F1", when: isCode, whyNot: "no notebook or script is in front", run: () => showHelp() },
   { id: "commands", agentOnly: true, group: "Help", title: "Every command and its arguments", run: () => allCommands().map((c) => ({ id: c.id, title: c.title, group: c.group, keys: c.keys ?? null, args: c.args ?? null, available: c.when ? c.when() : true })) },
 ];
 registerCommands(COMMANDS);
+// What is sent to the agent or the Sandbox names the document it came from.
+setDocumentName(() => current?.title ?? "the Workbench");
 
 /** The keys the window takes wherever the focus is (before an editor or the browser sees them). */
 const WINDOW_KEYS: Record<string, string> = {
@@ -782,7 +784,6 @@ const WINDOW_KEYS: Record<string, string> = {
   "Ctrl+1": "view.source",
   "Ctrl+2": "console.focus",
   "Ctrl+3": "view.variables",
-  "Ctrl+4": "view.lower",
   "Ctrl+Shift+1": "view.focus",
   "Ctrl+Alt+PageDown": "doc.next",
   "Ctrl+Alt+PageUp": "doc.previous",

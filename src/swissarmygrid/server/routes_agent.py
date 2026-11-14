@@ -17,6 +17,8 @@ are in services/agent.py; this file reads the requests and shapes the answers.
   GET  /agent/blade-templates?id=       the starter blades
   POST /workspace/active                the page reports which grid tab is in front
   GET  /agent/context                   the current table: a short summary, no cell values
+  POST /agent/inbox                     {kind, title, text, note}: the user sends their agent an error or code
+  GET  /agent/inbox?take=1&all=1        what was sent, oldest first (take: mark it read)
 
 Cell values reach the agent only as data inside the MCP layer's delimited block
 (swissarmygrid.mcp.server), never in a tool description or instruction text.
@@ -31,9 +33,10 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.server.http import actor, error_response, json_response, read_json, read_json_object
 from swissarmygrid.services.agent import AgentService
+from swissarmygrid.services.inbox import Inbox
 
 
-def routes(agent: AgentService) -> list[BaseRoute]:
+def routes(agent: AgentService, inbox: Inbox) -> list[BaseRoute]:
     ws = agent.ws
 
     # ===== the user's answers (refused for the agent) =====
@@ -116,6 +119,16 @@ def routes(agent: AgentService) -> list[BaseRoute]:
         except Exception as error:
             return error_response(error)
 
+    async def send_to_agent(request: Request) -> Response:
+        try:
+            return json_response(await inbox.send(await read_json(request), actor(request)))
+        except Exception as error:
+            return error_response(error)
+
+    async def read_inbox(request: Request) -> Response:
+        take = request.query_params.get("take") in ("1", "true")
+        return json_response(inbox.read(take, request.query_params.get("all") in ("1", "true")))
+
     async def current(request: Request) -> Response:
         try:
             return json_response(await agent.current())
@@ -169,4 +182,6 @@ def routes(agent: AgentService) -> list[BaseRoute]:
         Route("/agent/blade-templates", blade_templates),
         Route("/workspace/active", set_active, methods=["POST"]),
         Route("/agent/context", current),
+        Route("/agent/inbox", send_to_agent, methods=["POST"]),
+        Route("/agent/inbox", read_inbox),
     ]

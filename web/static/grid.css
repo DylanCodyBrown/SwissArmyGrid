@@ -4512,76 +4512,98 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   box-shadow: -8px 0 24px rgb(0 0 0 / 0.18);
 }
 
-/* The lower right: Plots and Help. */
-.wb-lower-tabs {
+/* The right column holds Variables alone (pictures go to the Sandbox). */
+.wb-col-right {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* F1 help: a card over the source's top right corner. */
+.wb-body {
+  position: relative;
+}
+
+.wb-help-card {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  z-index: 6;
   display: flex;
-  flex: none;
-  gap: 2px;
-  padding: 4px 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.wb-lower-tab {
-  padding: 4px 12px;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: 6px 6px 0 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
-}
-
-.wb-lower-tab[aria-selected="true"] {
-  border-color: var(--border);
-  background: var(--raised);
-  color: var(--fg);
-}
-
-.wb-lower-panel {
-  display: flex;
-  flex: 1;
   flex-direction: column;
-  min-height: 0;
-  padding: 6px 10px;
-  overflow: auto;
+  width: min(560px, 60%);
+  max-height: 60%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
   background: var(--raised);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.22);
 }
 
-.wb-lower-panel[hidden] {
+.wb-help-card[hidden] {
   display: none;
 }
 
-.wb-plot-head {
+.wb-help-head {
   display: flex;
-  flex: none;
   align-items: center;
-  gap: 4px;
-}
-
-.wb-plot-head .spacer {
-  flex: 1;
-}
-
-.wb-plot-head .wb-next .icon-svg {
-  transform: rotate(90deg);
-}
-
-.wb-plot-body {
-  flex: 1;
-  min-height: 0;
-}
-
-.wb-plot-body .wb-plotly {
-  height: 100%;
-  min-height: 240px;
+  justify-content: space-between;
+  padding: 4px 6px 4px 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .wb-help-body {
-  margin: 6px 0 0;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: auto;
   white-space: pre-wrap;
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 12px;
+}
+
+/* A picture or chart in a run's output, with Send to Sandbox. */
+.wb-figure {
+  position: relative;
+  margin: 4px 0;
+}
+
+.wb-figure .wb-to-sandbox {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  background: var(--raised);
+}
+
+.wb-figure:hover .wb-to-sandbox,
+.wb-figure:focus-within .wb-to-sandbox {
+  opacity: 1;
+}
+
+/* Send to the agent: the error panel's button, the question dialog. */
+.wb-err-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 4px;
+}
+
+.wb-err-send {
+  margin-left: auto;
+  font-family: inherit;
+}
+
+.wb-agent-preview {
+  max-height: 180px;
+  margin: 6px 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.wb-agent-note {
+  width: 100%;
 }
 
 /* The status bar: the kernel, the environment, the cursor. */
@@ -5230,9 +5252,13 @@ dialog .field > .field-row > select {
 }
 
 .wb-err-head {
+  overflow-wrap: anywhere;
+}
+
+.wb-err-type,
+.wb-err-message {
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 13px;
-  overflow-wrap: anywhere;
 }
 
 .wb-err-type {

@@ -399,3 +399,21 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   draws no injected text after an empty range: the end-of-line message sits on the line's last
   character. The grid page's wide-column scrolling test failed once under the full suite's load and
   passed three runs alone (a timing flake, not a change).
+- (2026-11-14) The owner: "The bottom right pane isn't needed, it goes to the sandbox. Let's add a right
+  click an error or highlight code and right click to send to an agent. It will send via hook in the
+  MCP." The Plots and Help pane is gone (Variables has the right column; F1 help is a card over the
+  source); a picture's Send to Sandbox made an image card titled after the script. Send to the agent:
+  the error panel's button and right-click, and the editor's right-click (the selection, or the error
+  under the cursor) post to an inbox kept in memory; `swissarmygrid-context` (now shipped in
+  plugin/hooks/hooks.json: the README named the hook but the plugin had no hooks file) prints what
+  waits with the next prompt and marks it read; the `agent_inbox` tool reads it too. Monaco's context
+  menu ignores a click that comes as it opens (the right button's release), so the browser test waits
+  before choosing; a right-click outside a selection moves the cursor, so it right-clicks the selection.
+  A new environment now needs a full path: the tool sweep's odd folder names ("x", "nope-does-not-exist")
+  had made virtual environments in the app's own folder. The grid page's scroll and Key Finder tests
+  failed once each under the full suite's load and passed twice alone.
+- (2026-11-14) Beta 1.7.0b1, checked before the build: ruff, format, mypy (227 files), the TypeScript
+  check, and the suite: 1,963 passed in the full run; the grid page's wide-column scroll test and the
+  Key Finder's percent test failed in that full run (as in the run before), yet all 130 browser tests
+  passed when run on their own (`pytest tests/e2e`) and each of the two passed twice alone. A
+  load-order flake of the full run, not of the app; left open in docs/ideas.md.

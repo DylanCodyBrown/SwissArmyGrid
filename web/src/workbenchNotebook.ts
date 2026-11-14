@@ -22,6 +22,7 @@
 import { button, clear, h, toast } from "./dom";
 import type { CodeEditor } from "./lazy/codeEditor";
 import { renderMarkdown } from "./markdown";
+import { codeItem, currentDocument, sendToAgent } from "./workbenchAgent";
 import { loadEditors } from "./workbenchConsole";
 import { pythonCompleter, sqlCompleter } from "./workbenchCompletion";
 import { type ErrorDetail, type Fix, type Frame, problemsFor, sqlProblems, yourFrame } from "./workbenchErrors";
@@ -369,6 +370,7 @@ export function notebookView(
         // By the cell's kind as it is now: Python from the kernel, SQL from the connection's catalog.
         complete: (text, offset) => (cell.kind === "sql" ? sql(text, offset) : cell.kind === "code" ? python(text, offset) : Promise.resolve([])),
         help: (text, offset) => (cell.kind === "code" ? kernel.help(text, offset) : Promise.resolve("")),
+        sendToAgent: (what, ask) => sendToAgent(codeItem(`cell ${indexOf(cell) + 1} of ${currentDocument()}${what.startLine === what.endLine ? `, line ${what.startLine}` : `, lines ${what.startLine} to ${what.endLine}`}`, what, LANGUAGE[cell.kind]), ask),
         keys: {
           shiftEnter: () => void run(cell).then(() => next(cell)),
           ctrlEnter: () => void run(cell),

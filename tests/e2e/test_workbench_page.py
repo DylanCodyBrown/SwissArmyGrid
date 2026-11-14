@@ -349,7 +349,7 @@ def test_the_variables_pane_shows_what_the_kernel_holds(
     expect(cell.locator(".wb-count")).to_have_text("[1]", timeout=60000)
     overlay = workbench.get_by_role("region", name="Variables")  # docked top right, open from the start
     row = overlay.locator("tr", has_text="rainfall")
-    expect(row).to_contain_text("2 rows by 2 columns", timeout=15000)
+    expect(row).to_contain_text("2 × 2", timeout=15000)  # rows by columns (the whole words on hover)
     expect(row).to_contain_text("columns: city, rain_mm")
     expect(overlay.locator("tr", has_text="Orders")).to_contain_text("opened when a cell first uses it")
     # A cell that uses the connection opens it; the overlay reads again when the run ends.
@@ -369,8 +369,8 @@ def test_four_panes_a_palette_and_jupyters_keys(browser: Browser, orders_url: st
     workbench.get_by_role("button", name="New notebook").first.click()
     cell = workbench.locator(".wb-cell").first
     expect(cell.locator(".monaco-editor")).to_be_visible(timeout=20000)
-    # RStudio's four places: source, its console, Variables, Plots and Help.
-    for pane in (".wb-source .wb-cells", ".wb-console-pane .wb-console", ".wb-env .wb-vars", ".wb-lower"):
+    # RStudio's places: source, its console, Variables (pictures go to the Sandbox, not a pane here).
+    for pane in (".wb-source .wb-cells", ".wb-console-pane .wb-console", ".wb-env .wb-vars"):
         expect(workbench.locator(pane)).to_be_visible()
     # The notebook's own console, on its kernel.
     workbench.locator(".wb-console-editor .monaco-editor").click()
@@ -408,7 +408,9 @@ def test_four_panes_a_palette_and_jupyters_keys(browser: Browser, orders_url: st
     expect(workbench.locator(".wb-col-right")).to_be_visible()
 
 
-def test_plots_gather_and_f1_shows_help(browser: Browser, orders_url: str, tmp_path: Path) -> None:
+def test_pictures_go_to_the_sandbox_f1_helps_and_code_goes_to_the_agent(
+    browser: Browser, orders_url: str, server: dict[str, Any], tmp_path: Path
+) -> None:
     script = tmp_path / "shapes.py"
     script.write_text(
         "from IPython.display import SVG, display\n"
@@ -420,18 +422,46 @@ def test_plots_gather_and_f1_shows_help(browser: Browser, orders_url: str, tmp_p
     workbench = open_workbench(open_grid(browser, orders_url))
     open_file(workbench, script)
     workbench.get_by_role("button", name="Run file").click()
-    expect(workbench.locator(".wb-console-log")).to_contain_text("7", timeout=60000)
-    expect(workbench.locator(".wb-plot-head")).to_contain_text("Plot 1 of 1")
-    expect(workbench.locator(".wb-plot-body img")).to_be_visible()
-    # F1 on a name: its help in the Help tab.
-    workbench.locator(".wb-script-editor .monaco-editor").click()
+    log = workbench.locator(".wb-console-log")
+    expect(log).to_contain_text("7", timeout=60000)
+    # A picture goes to the Sandbox with one click.
+    figure = log.locator(".wb-figure").first
+    figure.hover()
+    figure.get_by_role("button", name="Send to Sandbox").click()
+    expect(workbench.locator(".toast")).to_contain_text("Sent to the Sandbox")
+    assert any(
+        c["kind"] == "image" and c["title"] == "From shapes.py"
+        for c in call(server, "GET", "/cards")["cards"]
+    )
+    # F1 on a name: its help in a card over the source.
+    editor = workbench.locator(".wb-script-editor .monaco-editor")
+    editor.click()
     workbench.keyboard.press("Control+End")
     workbench.keyboard.press("ArrowUp")
     workbench.keyboard.press("End")
     for _ in range(14):
         workbench.keyboard.press("ArrowLeft")  # into "len"
     workbench.keyboard.press("F1")
-    expect(workbench.locator(".wb-help-body")).to_contain_text("Return the number of items", timeout=30000)
+    expect(workbench.locator(".wb-help-card")).to_contain_text("Return the number of items", timeout=30000)
+    workbench.keyboard.press("Escape")
+    # Select code, right-click, Send to the agent: it waits in the agent's inbox for the next prompt.
+    editor.click()
+    workbench.keyboard.press("Control+End")
+    workbench.keyboard.press("ArrowUp")
+    workbench.keyboard.press("Home")
+    workbench.keyboard.press("Shift+End")
+    expect(workbench.locator(".wb-help-card")).to_be_hidden()  # Escape put the help away
+    editor.locator(".view-line span", has_text="print").first.click(button="right")  # on the selection
+    item = workbench.locator(".monaco-menu .action-label", has_text="Send to the agent").first
+    expect(item).to_be_visible()
+    workbench.wait_for_timeout(
+        400
+    )  # Monaco's menu ignores a click right as it opens (the right button's release)
+    item.click()
+    expect(workbench.locator(".toast", has_text="Sent to your agent")).to_be_visible()
+    waiting = call(server, "GET", "/agent/inbox?take=1", agent=True)["items"]
+    assert waiting[-1]["kind"] == "code" and "print(len('made up'))" in waiting[-1]["text"]
+    assert waiting[-1]["title"] == "Code from shapes.py, line 3"
 
 
 def test_the_agent_works_the_window_as_the_user_does(
@@ -462,7 +492,7 @@ def test_the_agent_works_the_window_as_the_user_does(
 
 
 def test_an_error_is_explained_marked_in_the_code_and_fixed(
-    browser: Browser, orders_url: str, tmp_path: Path
+    browser: Browser, orders_url: str, server: dict[str, Any], tmp_path: Path
 ) -> None:
     script = tmp_path / "totals.py"
     script.write_text(
@@ -495,6 +525,11 @@ def test_an_error_is_explained_marked_in_the_code_and_fixed(
     workbench.keyboard.insert_text("np.arange(3).sum()")
     workbench.keyboard.press("Control+Enter")
     expect(cell.locator(".wb-err")).to_contain_text("import numpy as np", timeout=60000)
+    # Right-click the error: Send to the agent, with its explanation and place.
+    cell.locator(".wb-err .wb-err-explain").click(button="right")
+    workbench.get_by_role("menuitem", name="Send this error to the agent").click()
+    sent = call(server, "GET", "/agent/inbox?take=1", agent=True)["items"][-1]
+    assert sent["kind"] == "error" and sent["text"].startswith("NameError: name 'np' is not defined")
     cell.locator(".wb-err").get_by_role("button", name="Add import numpy as np").click()
     expect(cell.locator(".view-lines")).to_contain_text("import numpy as np")
     workbench.keyboard.press("Control+Enter")

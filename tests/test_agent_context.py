@@ -72,3 +72,33 @@ def test_the_commands_get_python_compare_and_close(
     assert client.get("/grids", headers=AUTH).status_code == 200
     execute("tabs_close_grid", {"grid": right})
     assert client.get(f"/grids/{right}", headers=AUTH).status_code == 404
+
+
+def test_what_the_user_sends_reaches_the_agent_once(client: TestClient) -> None:
+    from swissarmygrid.client.context_hook import sent
+
+    error = {
+        "kind": "error",
+        "title": "An error in rates.py (rates.py, line 3)",
+        "text": "KeyError: 'nroth'\nWhat it means: There is no key 'nroth'.",
+        "note": "Why does this fail?",
+    }
+    with client.websocket_connect("/ws?catalog=1", headers=AUTH | HOST) as page:
+        assert client.post("/agent/inbox", json=error, headers=AUTH).json() == {"id": 1, "waiting": 1}
+        notice = page.receive_json()
+        assert notice == {"type": "inbox_changed", "waiting": 1}
+    client.post(
+        "/agent/inbox",
+        json={"kind": "code", "title": "Code from rates.py, line 5", "text": "x = 1"},
+        headers=AUTH,
+    )
+    assert client.post("/agent/inbox", json={"kind": "virus", "text": "x"}, headers=AUTH).status_code == 400
+    assert client.post("/agent/inbox", json={"kind": "code", "text": "  "}, headers=AUTH).status_code == 400
+    # The prompt hook takes what waits (once), the question marked as the user's.
+    taken = client.get("/agent/inbox?take=1", headers=AGENT).json()
+    text = sent(taken)
+    assert "sent you 2 items" in text and "The user asks: Why does this fail?" in text and "x = 1" in text
+    assert client.get("/agent/inbox?take=1", headers=AGENT).json() == {"items": [], "waiting": 0}
+    # The agent's tool can read them again, whole.
+    assert len(client.get("/agent/inbox?all=1", headers=AGENT).json()["items"]) == 2
+    assert sent({"items": []}) == ""

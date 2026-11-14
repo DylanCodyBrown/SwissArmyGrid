@@ -306,9 +306,9 @@ With no relationships for the open tables it says so and offers these ways in:
 The grid page's **Workbench** tab opens notebooks (`.ipynb`) and Python scripts (`.py`) in a window of
 their own, run in an IPython kernel on this computer.
 
-- **Four panes, always in the same places:** the source (the notebook or script), its console under
-  it, Variables top right, Plots and Help under that. Drag a splitter (or focus it and use the arrow
-  keys); the sizes are remembered. The side bar on the left (Ctrl+B) holds the connections, blades and
+- **Panes always in the same places:** the source (the notebook or script), its console under it, and
+  Variables on the right. Drag a splitter (or focus it and use the arrow keys); the sizes are
+  remembered. A picture or chart a run draws has **Send to Sandbox**: the Sandbox is where they gather. The side bar on the left (Ctrl+B) holds the connections, blades and
   the data explorer: drag one into a cell or the script.
 - **Running a script:** F5 runs the file as Python would (`__name__ == "__main__"`, `sys.argv`,
   multiprocessing), saving it first. Ctrl+Enter (or Shift+Enter, F9) runs the whole statement at the
@@ -327,8 +327,12 @@ their own, run in an IPython kernel on this computer.
   full traceback is behind a toggle. In the editor the failing expression is underlined, its message
   sits at the line's end, the hover shows the explanation and Ctrl+. offers the same fixes. A SQL
   cell's error is underlined where the database pointed.
-- **Every command by name:** Ctrl+Shift+P opens the palette. F1 on a name shows its help. Ctrl+1 to
-  Ctrl+4 (and F6) move between the panes.
+- **Send to the agent:** right-click an error (its panel, or the underlined code), or select code and
+  right-click, then **Send to the agent** (or **…with a question** to add your own words). It reaches
+  your agent with your next message to it, through the plugin's prompt hook; the agent can also read it
+  any time with its `agent_inbox` tool. Nothing is written to disk.
+- **Every command by name:** Ctrl+Shift+P opens the palette. F1 on a name shows its help in a card over
+  the source (Escape puts it away). Ctrl+1 to Ctrl+3 (and F6) move between the panes.
 - **After a reload** the open documents and their unsaved text come back (kept in the window, not on
   disk).
 - **The agent** works the Workbench as you do: it opens, runs and saves files and kernels, and its

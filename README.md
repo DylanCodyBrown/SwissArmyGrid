@@ -497,9 +497,11 @@ approval, shutting the server down, the audit log,
 pushing table contents (an agent passes a path to `datasets_load`), and opening a table from
 a Python session. Zoom, column widths and the theme live in the browser, so no command reaches them.
 
-The plugin's `UserPromptSubmit` hook runs `swissarmygrid-context`, which adds a short summary of
-the table in front (grid, row count, columns and types, steps; never cell values) to each prompt,
-the way an IDE hands Claude the open file. It prints nothing when no grid page is open.
+The plugin's `UserPromptSubmit` hook (`plugin/hooks/hooks.json`) runs `swissarmygrid-context`, which
+adds to each prompt what you sent your agent from the Workbench (right-click an error or selected code,
+Send to the agent: once, then it is marked read; the `agent_inbox` tool reads it too) and a short
+summary of the table in front (grid, row count, columns and types, steps; never cell values), the way an
+IDE hands Claude the open file. It prints nothing when no server is running.
 Build the one wheel (the page inside it) with `python build.py`; `python build.py --vsix`
 packages the VS Code extension around it too.
 

@@ -11,6 +11,7 @@
  */
 import { button, h } from "./dom";
 import type { CodeEditor, Completer, Helper } from "./lazy/codeEditor";
+import { codeItem, currentDocument, sendToAgent } from "./workbenchAgent";
 import { type Kernel, runInto, type RunBody } from "./workbenchKernel";
 import { type ErrorHooks, outputArea } from "./workbenchOutputs";
 
@@ -131,6 +132,7 @@ export function consoleView(
       },
       complete: options.complete,
       help: options.help,
+      sendToAgent: (what, ask) => sendToAgent(codeItem(`the console of ${currentDocument()}`, what, "python"), ask),
     });
   });
 

@@ -14,11 +14,14 @@
  *              a frame in a cell or the script goes to its line
  *   CHAIN      the error that led to this one ("caused by", "while handling")
  *   TRACEBACK  Python's own text, in its colours, behind a toggle; Copy takes it without colours
+ *   AGENT      Send to the agent (the button, or right-click the panel): the error, its place, its
+ *              values and the traceback's end go to the agent's inbox (workbenchAgent.ts)
  *
  * The editor side (the squiggle, the end-of-line message, the hover and Ctrl+. fixes) is placed by the
  * notebook and the script from `problemsFor`.
  */
-import { button, h } from "./dom";
+import { button, h, toast } from "./dom";
+import { contextMenu, currentDocument, errorText, sendToAgent } from "./workbenchAgent";
 import type { Problem } from "./lazy/codeEditor";
 
 export interface Fix {
@@ -113,6 +116,9 @@ export function errorPanel(detail: ErrorDetail, traceback: HTMLElement | null, a
     h("span", { class: "wb-err-type" }, entry.type),
     h("span", { class: "wb-err-message" }, entry.message ? `: ${entry.message}` : ""),
   );
+  const send = (withQuestion: boolean): void =>
+    sendToAgent({ kind: "error", title: `An error in ${currentDocument()}${detail.where ? ` (${detail.where})` : ""}`, text: errorText(detail, traceback?.textContent ?? "") }, withQuestion);
+  head.append(button("Send to the agent", () => send(false), { icon: "agent", class: "ghost wb-err-send", title: "Send this error to your agent (right-click for more)" }));
   const parts: (HTMLElement | null)[] = [head];
   if (entry.hint) parts.push(h("div", { class: "wb-err-hint" }, entry.hint));
   if (detail.where) {
@@ -154,7 +160,15 @@ export function errorPanel(detail: ErrorDetail, traceback: HTMLElement | null, a
     const copy = button("Copy the traceback", () => void navigator.clipboard?.writeText(traceback.textContent ?? "").catch(() => undefined), { icon: "copy", iconOnly: true, class: "ghost" });
     parts.push(h("details", { class: "wb-err-section" }, h("summary", {}, "Python's traceback ", copy), traceback));
   }
-  return h("div", { class: "wb-err", role: "group", "aria-label": `${entry.type}: the error and what to do` }, ...parts);
+  const panel = h("div", { class: "wb-err", role: "group", "aria-label": `${entry.type}: the error and what to do` }, ...parts);
+  panel.addEventListener("contextmenu", (e) =>
+    contextMenu(e, [
+      { label: "Send this error to the agent", run: () => send(false) },
+      { label: "Send it with a question…", run: () => send(true) },
+      { label: "Copy the error", run: () => void navigator.clipboard?.writeText(errorText(detail, traceback?.textContent ?? "")).then(() => toast("Copied."), () => undefined) },
+    ]),
+  );
+  return panel;
 }
 
 /** Your frames one by one; each run of library frames folded into one row that opens. */

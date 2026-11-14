@@ -2178,6 +2178,17 @@ def workbench_is_complete(a: dict[str, Any]) -> Any:
 
 
 @command(
+    "agent_inbox",
+    "What the user sent you from the Workbench (right-click an error or code, Send to the agent): "
+    "errors with their place, values and traceback, or code, each with the user's question if any",
+    opt("all", "Also the ones already read (default: only the waiting ones, which this marks read).", "bool"),
+)
+def agent_inbox(a: dict[str, Any]) -> Any:
+    every = "&all=1" if a.get("all") else ""
+    return api.call("GET", f"/agent/inbox?take=1{every}")
+
+
+@command(
     "workbench_window",
     "Do what the user does in the open Workbench window: any command of its palette (Ctrl+Shift+P). "
     'command "documents" says what is open; "commands" lists every command and its args; e.g. '

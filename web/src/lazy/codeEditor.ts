@@ -208,6 +208,8 @@ export interface CodeEditorOptions {
   /** Completions at the cursor (the kernel, a connection's catalog), and help on hover. */
   complete?: Completer;
   help?: Helper;
+  /** The right-click menu's Send to the agent: the selected code, or the error under the cursor. */
+  sendToAgent?: (what: { text: string; startLine: number; endLine: number; problem: Problem | null }, withQuestion: boolean) => void;
 }
 
 export function createCodeEditor(host: HTMLElement, options: CodeEditorOptions): CodeEditor {
@@ -279,6 +281,24 @@ export function createCodeEditor(host: HTMLElement, options: CodeEditorOptions):
       lens.clear();
     }
   });
+
+  if (options.sendToAgent) {
+    const send = (withQuestion: boolean): void => {
+      const model = editor.getModel();
+      const chosen = editor.getSelection();
+      if (!model || !chosen) return;
+      const line = chosen.startLineNumber;
+      const problem = chosen.isEmpty() ? (problems.get(model) ?? []).find((p) => p.severity === "error" && line >= p.line && line <= Math.max(p.line, p.endLine)) ?? null : null;
+      const range = chosen.isEmpty()
+        ? new monaco.Range(problem?.line ?? line, 1, problem ? Math.max(problem.line, problem.endLine) : line, model.getLineMaxColumn(problem ? Math.max(problem.line, problem.endLine) : line))
+        : chosen;
+      const text = model.getValueInRange(range);
+      if (!problem && !text.trim()) return; // a blank line, nothing selected: nothing to send
+      options.sendToAgent!({ text, startLine: range.startLineNumber, endLine: range.endLineNumber, problem }, withQuestion);
+    };
+    editor.addAction({ id: "sag.sendToAgent", label: "Send to the agent", contextMenuGroupId: "0_agent", contextMenuOrder: 1, run: () => send(false) });
+    editor.addAction({ id: "sag.sendToAgentAsk", label: "Send to the agent with a question…", contextMenuGroupId: "0_agent", contextMenuOrder: 2, run: () => send(true) });
+  }
 
   const fit = (): void => {
     if (!options.grow) return;

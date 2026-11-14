@@ -116,6 +116,8 @@ src/swissarmygrid/
     folders.py           the page's file chooser (a folder's names: real paths)
     workbench.py         the Workbench: open, save, recent; kernels; completion; environments, remembered
     workbench_window.py  the agent's workbench_window: a palette command run in the Workbench window
+    inbox.py             what the user sends their agent (Send to the agent): memory only, read by the
+                         prompt hook (client/context_hook.py) and the agent_inbox tool
     relationships.py     the Key Finder, compares, the current model and its library
     tieout.py            the tie-out report on a compare's two grids
     processes.py         Python sessions offering tables: the registry and the Open list
@@ -165,7 +167,7 @@ src/swissarmygrid/
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (176 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (177 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
@@ -189,8 +191,9 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          bladeLibrary.ts is import (review first), export and the blade folders dialog.
                          connectionsWindow.ts is the Application row's Connections (a form per type);
                          fileChooser.ts picks real paths. The Workbench (static/workbench.html, its own
-                         window): workbenchPage.ts (composition), workbenchLayout.ts (RStudio's four panes:
-                         source, console, Variables, Plots and Help; splitters; the status bar),
+                         window): workbenchPage.ts (composition), workbenchLayout.ts (RStudio's panes: source,
+                         console, Variables; splitters; the status bar; F1 help as a card; pictures go
+                         to the Sandbox), workbenchAgent.ts (right-click, Send to the agent),
                          workbenchCommands.ts (every window action by one name: the palette, the keys, and
                          the agent's workbench_window), workbenchNotebook.ts (cells, Jupyter's command
                          mode), workbenchScript.ts, workbenchConsole.ts (each document's console),
@@ -205,7 +208,8 @@ web/static/              index.html, grid.css (all theme tokens), build/ (gitign
 tests/                   unit + HTTP tests, golden/ (shared cases), e2e/ (Edge via Playwright),
                          test_architecture.py (the layers, the depth, the plain client)
 tools/                   screenshots.py, vscode_check.py
-plugin/                  the swissarmygrid plugin: skills/swissarmygrid-use (SKILL.md, guide), .mcp.json
+plugin/                  the swissarmygrid plugin: skills/swissarmygrid-use (SKILL.md, guide), .mcp.json,
+                         hooks/hooks.json (the prompt hook: what was sent to the agent, the table in front)
 .claude-plugin/          marketplace.json: this repository is a Claude Code marketplace (plugin/ and the pack)
 examples/sample_store.py made-up nine-table store with a relationship answer key (test bed for autodetection)
 examples/packs/          sample-store: an example pack (a made-up blade, the store's tang)

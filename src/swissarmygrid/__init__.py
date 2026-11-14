@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from swissarmygrid.client.watcher import start as watch
     from swissarmygrid.client.watcher import stop as unwatch
 
-__version__: str = "1.6.0"
+__version__: str = "1.7.0b1"
 __all__ = [
     "DatasetTooLargeError",
     "ServerNotRunningError",

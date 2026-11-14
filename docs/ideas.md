@@ -571,3 +571,10 @@ service may see the user's code or data, so nothing leaves the computer.
 - **Open:** "Rerun with the debugger" (ipykernel's debugpy) is a bigger step: ask the owner first. A
   Problems list for the window, the peek view under a script's line, DuckDB's `errors_as_json` on the
   app's own connections.
+
+## Open: two browser tests that fail only in the full run (2026-11-14)
+
+`test_the_grid_scrolls_freely_through_a_column_wider_than_the_view` (the first wheel notch scrolls
+nothing) and `test_key_finder_ranks_join_columns_with_percent_match` (the result table's header shows
+"Other table" where the compared table's name belongs) failed in two full runs, but pass in
+`pytest tests/e2e` (130 of 130) and alone. Worth finding which earlier test leaves state behind.

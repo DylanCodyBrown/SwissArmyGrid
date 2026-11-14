@@ -140,7 +140,7 @@ def create_app(
             *routes_analysis.routes(ctx.grids, ctx.analysis),
             *routes_regression.routes(ctx.grids, ctx.regression),
             *routes_timeseries.routes(ctx.grids, ctx.timeseries),
-            *routes_agent.routes(ctx.agent),
+            *routes_agent.routes(ctx.agent, ctx.inbox),
             *routes_cards.routes(ctx.cards),
             *routes_catalog.routes(ctx.catalogs),
             *routes_blades.routes(ctx.blades),

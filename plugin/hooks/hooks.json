@@ -1,0 +1,16 @@
+{
+  "description": "SwissArmyGrid: what you sent your agent from the Workbench (Send to the agent), and the table in front of you, added to each prompt. Silent when no SwissArmyGrid server is running.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "swissarmygrid-context",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

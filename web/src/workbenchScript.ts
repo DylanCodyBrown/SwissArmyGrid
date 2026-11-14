@@ -17,6 +17,7 @@
 import { api } from "./api";
 import { h } from "./dom";
 import type { CodeEditor } from "./lazy/codeEditor";
+import { codeItem, currentDocument, sendToAgent } from "./workbenchAgent";
 import { type ConsoleView, loadEditors, type RunOrigin } from "./workbenchConsole";
 import { pythonCompleter } from "./workbenchCompletion";
 import { type ErrorDetail, type Fix, type Frame, problemsFor, yourFrame } from "./workbenchErrors";
@@ -146,6 +147,8 @@ export function scriptView(
       keys: { f5: () => void runFile(), ctrlEnter: () => void runSelection(), shiftEnter: () => void runSelection(), f1: hooks.help },
       complete: pythonCompleter(kernel, names),
       help: (code, offset) => kernel.help(code, offset),
+      sendToAgent: (what, ask) =>
+        sendToAgent(codeItem(`${currentDocument()}, ${what.startLine === what.endLine ? `line ${what.startLine}` : `lines ${what.startLine} to ${what.endLine}`}`, what, "python"), ask),
     });
     editor.onChange(() => {
       text = editor!.value();

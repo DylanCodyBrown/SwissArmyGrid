@@ -58,6 +58,7 @@ from swissarmygrid.services.export import Exports
 from swissarmygrid.services.folders import Folders
 from swissarmygrid.services.grids import GridService
 from swissarmygrid.services.handoff import Handoff
+from swissarmygrid.services.inbox import Inbox
 from swissarmygrid.services.packs import Packs
 from swissarmygrid.services.processes import ProcessRegistry, Sessions
 from swissarmygrid.services.profile import Profiles
@@ -92,6 +93,7 @@ class Services:
     codes: CodeService
     cards: Cards
     agent: AgentService
+    inbox: Inbox
     sessions: Sessions
     catalogs: CatalogService
     blades: BladeService
@@ -216,6 +218,7 @@ def bootstrap(
         exports=Exports(ws, export_writer, tickets, now=lambda: datetime.now(UTC)),
         codes=CodeService(ws, verifier),
         cards=Cards(ws, DashboardFiles(state_dir / "dashboards"), ThemeFiles(state_dir / "themes")),
+        inbox=Inbox(ws),
         agent=AgentService(ws, Approvals(live), tickets, blade_store, TEMPLATES, blade_run.needed),
         sessions=Sessions(processes, store, live),
         catalogs=catalogs,
