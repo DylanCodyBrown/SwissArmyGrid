@@ -1,6 +1,7 @@
-"""The Workbench (Plans/workbench-and-connections.plan.md): notebooks and scripts, opened and saved on
-the user's click, and the IPython kernels that run them. The user's alone: the agent is refused at the
-door (milestone 9, an agent's code sandbox, stays unbuilt)."""
+"""The Workbench (Plans/workbench-and-connections.plan.md): notebooks and scripts, opened and saved,
+and the IPython kernels that run them. The user and the agent alike (the owner's golden rule,
+2026-11-14: whatever the user can do, the agent can do through the MCP, running code included); the
+audit log names who did each."""
 
 from __future__ import annotations
 

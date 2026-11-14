@@ -257,6 +257,14 @@ white, white text on it 5.9:1), `#ff6b73` in dark (with dark text on red buttons
 - **Open:** keep the old blue as a "Classic" theme in Settings if anyone misses it; the user guide's
   screenshots still show blue.
 
+## The golden rule (2026-11-14, the owner)
+
+"Every single thing that user can do the AI should be able to also do it for mcp." Asked how it
+meets the old refusals, the owner chose: everything, no prompts. Built: every route serves the agent
+but answering approvals and /blades/{name}/python (password values); 172 commands. Exports keep their
+Allow (the owner's question named connections, blades, code and packages; exports were not asked
+about). Open: whether exports should drop their Allow too.
+
 ## Connections, the SQL cell and the Workbench (2026-11-13/14, the owner's requests; built)
 
 Plans/workbench-and-connections.plan.md. The owner's answers: connections are databases and files

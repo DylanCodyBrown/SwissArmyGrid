@@ -101,8 +101,6 @@ def routes(models: Models, finder: Finder, keys: KeyFinder, compares: Compares) 
 
     async def sample(request: Request) -> Response:
         try:
-            if actor(request) == "agent":
-                return Response("Value samples are for the grid page.", status_code=403)
             source, _ = ws.grid_and_info(request.path_params["grid_id"])
             return json_response(await keys.sample(source, await read_json(request)))
         except Exception as error:
@@ -174,16 +172,12 @@ def routes(models: Models, finder: Finder, keys: KeyFinder, compares: Compares) 
     # ===== tangs and the finder =====
 
     async def save_tang(request: Request) -> Response:
-        if actor(request) == "agent":
-            return Response(_USERS_ONLY, status_code=403)
         try:
             return json_response(await models.save_tang(await read_json(request), actor(request)))
         except Exception as error:
             return error_response(error)
 
     async def export_tang(request: Request) -> Response:
-        if actor(request) == "agent":
-            return Response(_USERS_ONLY, status_code=403)
         try:
             text, name = models.export_tang()
             return Response(
@@ -195,8 +189,6 @@ def routes(models: Models, finder: Finder, keys: KeyFinder, compares: Compares) 
             return error_response(error)
 
     async def import_tang(request: Request) -> Response:
-        if actor(request) == "agent":
-            return Response(_USERS_ONLY, status_code=403)
         try:
             body = await read_json(request)
             if isinstance(body, dict) and body.get("apply"):

@@ -106,7 +106,7 @@ def test_test_runs_the_unsaved_form_with_the_typed_password_and_checks_paths(
     assert client.get("/connections", headers=AUTH).json()["connections"] == []  # nothing was saved
 
 
-def test_the_agent_is_refused(client: TestClient) -> None:
+def test_the_agent_may_use_every_connection_route(client: TestClient) -> None:
     for method, path in (
         ("GET", "/connections"),
         ("GET", "/connections/types"),
@@ -114,7 +114,7 @@ def test_the_agent_is_refused(client: TestClient) -> None:
         ("POST", "/connections"),
         ("GET", "/connections/Anything"),
     ):
-        assert client.request(method, path, headers=AGENT, json={}).status_code == 403, path
+        assert client.request(method, path, headers=AGENT, json={}).status_code != 403, path
 
 
 def test_the_file_chooser_lists_folders_then_chosen_kinds_of_file(client: TestClient, tmp_path: Path) -> None:
@@ -131,7 +131,7 @@ def test_the_file_chooser_lists_folders_then_chosen_kinds_of_file(client: TestCl
     assert body["parent"] == str(tmp_path) and body["roots"]
     assert client.get("/folders", params={"path": str(shared / "gone")}, headers=AUTH).status_code == 404
     assert client.get("/folders", params={"suffixes": "csv"}, headers=AUTH).status_code == 400
-    assert client.get("/folders", headers=AGENT).status_code == 403
+    assert client.get("/folders", headers=AGENT).status_code == 200  # the golden rule
 
 
 def test_a_password_comes_from_the_keyring_an_environment_variable_or_a_vault(client: TestClient) -> None:
@@ -211,7 +211,7 @@ def test_a_password_comes_from_the_keyring_an_environment_variable_or_a_vault(cl
         c for c in client.get("/connections", headers=AUTH).json()["connections"] if c["name"] == "Shop"
     )
     assert shop["vaults"] == ["Team vault"]
-    assert client.post("/connections/source", json={}, headers=AGENT).status_code == 403
+    assert client.post("/connections/source", json={}, headers=AGENT).status_code == 400  # asked, not refused
 
 
 def test_each_connection_has_a_name_in_code(client: TestClient, tmp_path: Path) -> None:

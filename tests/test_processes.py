@@ -183,12 +183,12 @@ def test_opening_a_table_the_session_does_not_have_is_a_404(client: TestClient) 
     assert client.get("/processes/ghost/requests?wait=0", headers=AUTH).status_code == 404
 
 
-def test_the_agent_can_list_sessions_but_not_open_anything(client: TestClient) -> None:
+def test_the_agent_can_list_sessions_and_open_a_table(client: TestClient) -> None:
     sync(client)
     assert client.get("/processes", headers=AGENT).status_code == 200
-    refused = client.post("/processes/s1/open", json={"name": "SOD"}, headers=AGENT)
-    assert refused.status_code == 403
-    assert client.get("/processes/s1/requests?wait=0", headers=AUTH).json() == {"requests": []}
+    asked = client.post("/processes/s1/open", json={"name": "SOD"}, headers=AGENT)
+    assert asked.status_code == 202  # asked of the session, as the page asks (the golden rule)
+    assert client.get("/processes/s1/requests?wait=0", headers=AUTH).json()["requests"]
 
 
 def test_a_push_from_a_session_marks_the_table_open_and_it_is_followed(client: TestClient) -> None:

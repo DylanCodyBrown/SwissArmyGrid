@@ -24,11 +24,17 @@ def roots() -> list[str]:
 def listing(where: str | None, suffixes: set[str]) -> dict[str, Any]:
     """The folder's subfolders, then its files (only those ending in `suffixes`, when given). Hidden
     names are left out. A file's path gives its folder."""
-    path = Path(where).expanduser() if where else Path.home()
-    if path.is_file():
-        path = path.parent
-    path = path.resolve()
-    if not path.is_dir():
+    try:
+        path = Path(where).expanduser() if where else Path.home()
+        if path.is_file():
+            path = path.parent
+        path = path.resolve()
+        found = path.is_dir()
+    except OSError as error:  # a name too long, a device not ready: not a folder to open
+        raise FileNotFoundError(
+            f"{where} is not a folder this computer can open ({error.strerror})."
+        ) from None
+    if not found:
         raise FileNotFoundError(f"{path} is not a folder this computer can open.")
     folders: list[dict[str, Any]] = []
     files: list[dict[str, Any]] = []

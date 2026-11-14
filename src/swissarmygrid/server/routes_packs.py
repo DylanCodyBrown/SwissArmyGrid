@@ -5,7 +5,7 @@
                      marketplace repository with one pack
   POST /packs/add    {"pack": <folder>, "blades": [names], "tangs": [names], "replace"}: copy them in
 
-Files on disk, and code that others will run: the user's alone; every route refuses the agent.
+Files on disk, and code that others will run; the agent may do all of it too (the golden rule).
 """
 
 from __future__ import annotations
@@ -22,24 +22,18 @@ _USERS_ONLY = "Packs are the user's: they write files that other people's comput
 
 def routes(packs: Packs) -> list[BaseRoute]:
     async def listing(request: Request) -> Response:
-        if actor(request) == "agent":
-            return Response(_USERS_ONLY, status_code=403)
         try:
             return json_response(packs.list())
         except Exception as error:
             return error_response(error)
 
     async def new(request: Request) -> Response:
-        if actor(request) == "agent":
-            return Response(_USERS_ONLY, status_code=403)
         try:
             return json_response(packs.create(await read_json(request), actor(request)))
         except Exception as error:
             return error_response(error)
 
     async def add(request: Request) -> Response:
-        if actor(request) == "agent":
-            return Response(_USERS_ONLY, status_code=403)
         try:
             return json_response(packs.add(await read_json(request), actor(request)))
         except Exception as error:

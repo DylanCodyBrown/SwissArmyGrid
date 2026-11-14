@@ -123,83 +123,30 @@ def _normal(path: str) -> str:
 
 # Server routes with no command, each on purpose.
 NOT_COMMANDS = {
-    "/shutdown": "stops the server: the user's, not the agent's",
-    "/grids/{}/analysis-code": "code for the user's own Python (To Python): the user's, refused to the agent",
-    "/audit": "the server refuses the agent: the log is for the user",
-    "/agent/approvals/{}": "resolving an approval is the user's click, refused to the agent",
+    # The golden rule (the owner, 2026-11-14): whatever the user can do, the agent can do through the
+    # MCP. What is left here is not a user action, or would let the agent approve itself or read a
+    # password's value.
+    "/agent/approvals/{}": "answering an approval: the agent cannot approve its own request",
     "/agent/export-approval/{}": "reached through table_export, which asks first",
-    "/workspace/active": "the page reports which tab is in front; refused to the agent",
+    "/workspace/active": "the page reports which tab is in front (page plumbing)",
     "/datasets/{}": "PUT pushes table contents: pushes stay with Python, the agent passes paths (load)",
     "/grids/{}/selection": "set_selection",
-    "/grids/{}/key-finder/sample": "value samples are for the grid page; refused to the agent",
     "/processes/{}/sync": "the notebook watcher's protocol",
     "/processes/{}/requests": "the notebook watcher's protocol",
-    "/processes/{}/open": "opening a table from Python is the user's; refused to the agent",
-    "/snapshots/{}": "the page's answer to app_snapshot; refused to the agent",
-    "/snapshots/{}/error": "the page's failure reply to app_snapshot; refused to the agent",
+    "/snapshots/{}": "the page's answer to app_snapshot (page plumbing)",
+    "/snapshots/{}/error": "the page's failure reply to app_snapshot (page plumbing)",
     "/ws": "reached through events",
     "/g/{}": "page shell",
     "/workspace": "page shell",
+    "/catalog": "page shell",
+    "/workbench": "page shell: the Workbench window (the agent works its files and kernels directly)",
     "/static": "page files",
     "/agent/context": "current_table",
-    "/catalog": "page shell",
-    "/catalogs/{}/script": "the catalog's right-click Script as; the agent has catalog_columns' first SELECT",
-    "/analysis-proof": "Show the math on a result the window holds; the agent reads results whole",
-    "/blades/analyses": "as /blades",
-    "/grids/{}/blade-analysis": "runs the user's own analysis blade (their code): refused to the agent",
-    "/sandbox/themes/{}": "removing one of the user's themes is the user's (the theme menu)",
-    "/python/send": "code into the user's own Python: only the user's click, refused to the agent",
-    "/python/take": "as /python/send (sag.paste() calls it)",
-    "/python/sent": "as /python/send",
-    "/grids/{}/python": "as /python/send",
-    "/catalogs/{}": "PUT loads a catalog (sag.load) and DELETE removes one: the user's, refused to the agent",
-    "/blades": "blades are the user's saved code and secrets: every /blades route refuses the agent",
-    "/blades/{}": "as /blades",
-    "/blades/templates": "as /blades",
-    "/blades/inspect": "as /blades",
-    "/packs": "packs (blades and tangs from a Claude Code marketplace) are the user's, refused to the agent",
-    "/packs/new": "making a marketplace repository writes files: the user's, refused to the agent",
-    "/packs/add": "adding to a pack writes code others run: the user's, refused to the agent",
-    "/relationships/tangs": "saving a tang file is the user's (Relationships window), refused to the agent",
-    "/relationships/tang": "a .tang download is the user's, refused to the agent",
-    "/relationships/import": "importing a .tang file is the user's, refused to the agent",
-    "/compares/{}/tie-out/show": "the tie-out window's click on a group; the agent adds its own steps",
-    "/dashboards/{}/open": "opening a dashboard replaces the Sandbox: the user's click, refused to the agent",
-    "/relationships/reject": "the user's review of the finder's suggestions in the Relationships window",
-    "/blades/fill": "as /blades: writes the user's own values into a blade's code, refused to the agent",
-    "/blades/install": "as /blades: installing packages is the user's click",
-    "/blades/{}/secrets": "as /blades",
-    "/blades/{}/refresh": "as /blades: running a blade's code is the user's click",
-    "/blades/{}/test": "as /blades",
-    "/blades/{}/python": "as /blades: sag.blade() in the user's Python",
-    "/blades/folders": "as /blades",
-    "/blades/export": "as /blades",
-    "/blades/import": "as /blades",
-    "/blades/{}/pin": "as /blades",
-    "/blades/{}/export": "as /blades",
-    "/connections": "connections are blades the user keeps apart: refused to the agent, as /blades",
-    "/connections/types": "as /connections: the Add connection window's forms",
-    "/connections/test": "as /connections: running the form's code is the user's click",
-    "/connections/{}": "as /connections",
-    "/connections/vaults": "as /connections: the form's list of vault blades",
-    "/connections/source": "as /connections: where a password comes from, the user's choice in the form",
-    "/folders": "the page's file chooser: the user's own folders, refused to the agent",
-    "/workbench/home": "the Workbench (notebooks, scripts, kernels) is the user's own: refused to the agent",
-    "/workbench": "the Workbench page itself, opened from the grid page's tab",
-    "/workbench/open": "as /workbench/home",
-    "/workbench/save": "as /workbench/home",
-    "/workbench/pythons": "as /workbench/home",
-    "/workbench/environments": "as /workbench/home: making one installs packages, the user's click",
-    "/workbench/environment": "as /workbench/home",
-    "/workbench/kernels": "as /workbench/home: the agent never runs code in the user's Python",
-    "/workbench/kernels/{}/execute": "as /workbench/kernels",
-    "/workbench/kernels/{}/complete": "as /workbench/kernels",
-    "/workbench/kernels/{}/inspect": "as /workbench/kernels",
-    "/workbench/kernels/{}/variables": "as /workbench/kernels",
-    "/workbench/kernels/{}/grid": "as /workbench/kernels",
-    "/workbench/kernels/{}/interrupt": "as /workbench/kernels",
-    "/workbench/kernels/{}/restart": "as /workbench/kernels",
-    "/workbench/kernels/{}": "as /workbench/kernels",
+    "/blades/{}/python": "its answer holds the saved password values for sag.blade: never the agent's",
+    "/python/take": "sag.paste() in the user's Python takes what python_send queued",
+    "/blades/export": "a zip of many: blades_export gives each blade's text",
+    "/agent/blades": "the old propose-then-Allow door, for older clients; blades_create saves directly now",
+    "/agent/blade-templates": "as /agent/blades; blades_templates reads /blades/templates",
 }
 
 
@@ -567,7 +514,8 @@ def test_every_command_is_one_lean_typed_tool(live: Live, clients: str) -> None:
     # what-if, data shape, time series and forecast tools are each one short schema; then the Sandbox's
     # formats and saved dashboards, sandbox_add's own rows, file and key, and Compare's tie-out.
     # 26,500 leaves room for Compare's diff.
-    assert size < 26_500, f"the tool list is {size} characters"
+    # The golden rule (2026-11-14) gave the agent every user action: about 170 tools.
+    assert size < 45_000, f"the tool list is {size} characters"
     # Typed: the schema carries the command's real arguments, required ones marked.
     schema = tools["steps_add"].input_schema
     assert set(schema["properties"]) == {"grid", "kind", "params", "index"}
@@ -616,13 +564,14 @@ def test_a_value_cannot_close_the_untrusted_data_block(live: Live, command: str)
     assert INJECTION in text  # still there, as data
 
 
-def test_agent_cannot_use_a_command_to_approve(live: Live, clients: str) -> None:
-    """The user-only controls have no command, and the server refuses the agent if it tries anyway."""
-    assert not {"agent_policy", "resolve_approval", "shutdown", "audit"} & set(REGISTRY)
+def test_agent_cannot_approve_itself_or_read_a_password(live: Live, clients: str) -> None:
+    """The golden rule gives the agent everything the user can do, but two things: answering its own
+    approval request, and the one answer that carries saved password values."""
+    assert not {"agent_policy", "resolve_approval"} & set(REGISTRY)
     with pytest.raises(CommandError, match="403"):
         api.call("POST", "/agent/approvals/anything", {"approve": True})
     with pytest.raises(CommandError, match="403"):
-        api.call("POST", "/shutdown")
+        api.call("GET", "/blades/Anything/python")
 
 
 # ===== the ribbon's buttons, one command each, filed under the app's layout =====
@@ -824,20 +773,11 @@ def test_sag_saves_a_snapshot_to_a_file_and_prints_where(
 # ===== blades: the agent proposes, the user allows =====
 
 
-def test_blades_create_waits_for_the_users_allow_and_then_lists_it(live: Live) -> None:
-    def allow() -> None:
-        for _ in range(200):
-            pending = live.user("GET", "/agent/approvals")["pending"]
-            if pending:
-                live.user("POST", f"/agent/approvals/{pending[0]['id']}", {"approve": True})
-                return
-            time.sleep(0.05)
-
-    starters = run("blades_templates")["templates"]
-    sqlite = next(t for t in starters if t["dialect"] == "sqlite")
-    code = run("blades_templates", id=sqlite["id"])["code"]
-    helper = threading.Thread(target=allow)
-    helper.start()
+def test_the_agent_saves_a_blade_as_the_user_does_and_reads_it_back(live: Live) -> None:
+    """The golden rule: blades_create saves at once (no Allow), blades_get gives the code back."""
+    starters = run("blades_templates")
+    assert {"id": "sqlite", "label": "SQLite", "group": "Databases", "kind": "sql"} in starters
+    code = run("blades_templates", id="sqlite")["code"]
     made = run(
         "blades_create",
         name="Bakery DB",
@@ -845,9 +785,64 @@ def test_blades_create_waits_for_the_users_allow_and_then_lists_it(live: Live) -
         dialect="sqlite",
         code=code,
         tags=["bakery"],
-        template=sqlite["id"],
+        template="sqlite",
     )
-    helper.join()
-    assert made["saved"] == "Bakery DB" and made["use"].endswith('= sag.blade("Bakery DB")')
+    assert made["name"] == "Bakery DB" and made["connection"] == "database"
+    assert run("blades_get", name="Bakery DB")["code"] == code
     [listed] = run("blades_list")["blades"]
-    assert listed["name"] == "Bakery DB" and listed["tags"] == ["bakery"] and "code" not in listed
+    assert (
+        listed["name"] == "Bakery DB" and listed["tags"] == ["bakery"] and listed["code_name"] == "bakery_db"
+    )
+
+
+def test_the_agent_works_the_workbench_as_the_user_does(live: Live, tmp_path: Path) -> None:
+    """The golden rule: a connection made, a file listed, a kernel started, code run with the
+    connection by its name, a notebook run and saved, the kernel's variables read, the kernel stopped."""
+    csv = tmp_path / "orders.csv"
+    csv.write_text("order_id,amount\n1,10.5\n2,7\n", encoding="utf-8")
+    made = run(
+        "connections_create",
+        name="Orders",
+        kind="other",
+        template="csv",
+        code=f'from pathlib import Path\npath = Path(r"{csv}")',
+    )
+    assert made["connection"] == "file"
+    assert [c["code_name"] for c in run("connections_list")["connections"]] == ["orders"]
+    assert [f["name"] for f in run("files_list", path=str(tmp_path), suffixes=".csv")["files"]] == [
+        "orders.csv"
+    ]
+    kernel = run("workbench_kernel_start", path=str(tmp_path / "x.py"))["kernel"]
+    try:
+        ran = data_of(
+            execute(
+                "workbench_run",
+                dict(
+                    kernel=kernel,
+                    code="import pandas as pd\ntotal = pd.read_csv(orders)['amount'].sum()\nprint(total)",
+                ),
+            )
+        )
+        assert ran["outputs"] == [{"stream": "stdout", "text": "17.5\n"}] and ran["done"]["ok"] is True
+        failed = data_of(execute("workbench_run", dict(kernel=kernel, code="1/0")))
+        assert failed["outputs"][0]["error"] == "ZeroDivisionError: division by zero"
+        held = data_of(execute("workbench_variables", dict(kernel=kernel)))
+        assert [v["name"] for v in held["variables"]] == ["total"]
+        book = tmp_path / "rain.ipynb"
+        run(
+            "workbench_save",
+            path=str(book),
+            cells=[
+                {"kind": "code", "source": "print(6 * 7)"},
+                {"kind": "sql", "source": "SELECT count(*) AS n FROM orders", "connection": "Orders"},
+            ],
+        )
+        notebook = data_of(execute("workbench_run_notebook", dict(path=str(book), kernel=kernel)))
+        assert notebook["cells_run"] == 2 and notebook["results"][0]["outputs"] == [
+            {"stream": "stdout", "text": "42\n"}
+        ]
+        assert "2" in notebook["results"][1]["outputs"][0]["result"]
+        saved = data_of(execute("workbench_open", {"path": str(book)}))
+        assert saved["cells"][0]["outputs"][0]["text"] == "42\n"  # the outputs were saved into the file
+    finally:
+        run("workbench_kernel", kernel=kernel, action="stop")

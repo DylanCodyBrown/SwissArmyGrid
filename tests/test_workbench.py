@@ -188,7 +188,7 @@ def test_a_kernel_runs_code_and_streams_its_outputs(client: TestClient, tmp_path
     )
 
 
-def test_the_agent_is_refused(client: TestClient) -> None:
+def test_the_agent_may_use_every_workbench_route(client: TestClient) -> None:
     for method, path in (
         ("GET", "/workbench/home"),
         ("POST", "/workbench/open"),
@@ -198,7 +198,7 @@ def test_the_agent_is_refused(client: TestClient) -> None:
         ("POST", "/workbench/kernels/abc/execute"),
         ("DELETE", "/workbench/kernels/abc"),
     ):
-        assert client.request(method, path, headers=AGENT, json={}).status_code == 403, path
+        assert client.request(method, path, headers=AGENT, json={}).status_code != 403, path
 
 
 def test_a_new_environment_is_checked_and_a_documents_python_remembered(
@@ -260,7 +260,9 @@ def test_a_new_environment_is_checked_and_a_documents_python_remembered(
         client.post("/workbench/open", json={"path": str(book)}, headers=AUTH).json()["python"]
         == chosen.json()["python"]
     )
-    assert client.post("/workbench/environments", json={}, headers=AGENT).status_code == 403
+    assert (
+        client.post("/workbench/environments", json={}, headers=AGENT).status_code == 400
+    )  # asked, not refused
 
 
 def test_the_variables_overlay_shows_values_but_never_a_secret(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -274,6 +276,7 @@ def test_the_variables_overlay_shows_values_but_never_a_secret(monkeypatch: pyte
         kernel_connections, "code_names", lambda: {"sales_db": "Sales DB", "orders_file": "Orders file"}
     )
     monkeypatch.setenv("SHOP_PASSWORD", "made-up-secret")
+    monkeypatch.delenv("OVERLAY_UNSET_PASSWORD", raising=False)
     namespace: dict[str, Any] = {
         "rainfall": pd.DataFrame({"city": ["Springfield", "Riverton"], "rain_mm": [3.5, 0.0]}),
         "cities": ["Springfield", "Riverton", "Ogdenville"],
@@ -283,7 +286,7 @@ def test_the_variables_overlay_shows_values_but_never_a_secret(monkeypatch: pyte
         "helper": lambda: None,
         "_hidden": 1,
     }
-    found = json.loads(kernel_variables.snapshot(["SHOP_PASSWORD", "WAREHOUSE_PASSWORD"], namespace))
+    found = json.loads(kernel_variables.snapshot(["SHOP_PASSWORD", "OVERLAY_UNSET_PASSWORD"], namespace))
     assert [v["name"] for v in found["variables"]] == ["cities", "note", "rainfall"]
     rainfall = next(v for v in found["variables"] if v["name"] == "rainfall")
     assert rainfall["size"] == "2 rows by 2 columns" and rainfall["value"] == "columns: city, rain_mm"
@@ -308,14 +311,19 @@ def test_the_variables_overlay_shows_values_but_never_a_secret(monkeypatch: pyte
         },
     ]
     assert found["environment"] == [
+        {"name": "OVERLAY_UNSET_PASSWORD", "set": False},
         {"name": "SHOP_PASSWORD", "set": True},
-        {"name": "WAREHOUSE_PASSWORD", "set": False},
     ]
     assert "made-up-secret" not in json.dumps(found)
 
 
-def test_the_variables_overlay_through_a_kernel(client: TestClient, tmp_path: Path) -> None:
-    secret_blade = {"name": "Warehouse login", "kind": "secret", "env_names": ["WAREHOUSE_PASSWORD"]}
+def test_the_variables_overlay_through_a_kernel(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(
+        "OVERLAY_LOGIN_PASSWORD", raising=False
+    )  # the kernel inherits this process's environment
+    secret_blade = {"name": "Warehouse login", "kind": "secret", "env_names": ["OVERLAY_LOGIN_PASSWORD"]}
     assert client.post("/blades", json=secret_blade, headers=AUTH).status_code == 200
     kernel = client.post("/workbench/kernels", json={}, headers=AUTH).json()["kernel"]
     try:
@@ -325,13 +333,13 @@ def test_the_variables_overlay_through_a_kernel(client: TestClient, tmp_path: Pa
         body = found.json()
         assert body["busy"] is False
         assert [(v["name"], v["size"]) for v in body["variables"]] == [("rainfall", "3 rows by 1 column")]
-        assert {"name": "WAREHOUSE_PASSWORD", "set": False} in body["environment"]
+        assert {"name": "OVERLAY_LOGIN_PASSWORD", "set": False} in body["environment"]
         assert (
             client.post(
                 f"/workbench/kernels/{kernel}/grid", json={"name": "not a name"}, headers=AUTH
             ).status_code
             == 400
         )
-        assert client.get(f"/workbench/kernels/{kernel}/variables", headers=AGENT).status_code == 403
+        assert client.get(f"/workbench/kernels/{kernel}/variables", headers=AGENT).status_code == 200
     finally:
         client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)

@@ -41,10 +41,6 @@ def routes(catalogs: CatalogService) -> list[BaseRoute]:
 
     async def load_catalog(request: Request) -> Response:
         try:
-            if actor(request) == "agent":
-                return Response(
-                    "Only the user loads catalogs (sag.load or a blade's Refresh).", status_code=403
-                )
             name = request.path_params["name"]
             body = await read_body(request, ws.settings.max_push_body_bytes)
             arrow = request.headers.get("content-type", "").startswith(_ARROW_STREAM)
@@ -62,8 +58,6 @@ def routes(catalogs: CatalogService) -> list[BaseRoute]:
 
     async def remove_catalog(request: Request) -> Response:
         try:
-            if actor(request) == "agent":
-                return Response("Only the user removes catalogs.", status_code=403)
             return json_response(await catalogs.remove(request.path_params["name"], actor(request)))
         except Exception as error:
             return error_response(error)

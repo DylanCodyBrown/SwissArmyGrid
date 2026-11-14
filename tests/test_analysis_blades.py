@@ -78,7 +78,7 @@ def test_it_runs_on_the_grid_as_shown_and_comes_back_as_cards(client: TestClient
     )
     assert (
         client.post(f"/grids/{gid}/blade-analysis", json={"name": "By region"}, headers=AGENT).status_code
-        == 403
+        == 200
     )
 
 

@@ -447,6 +447,14 @@ blade's connection, copied and ready for `sag.paste()`.
 
 ## The agent commands: `sag` and the MCP server
 
+**The golden rule: everything you can do, the agent can do too** (172 commands, each an MCP tool):
+grids and steps, analyses, the Sandbox and dashboards, connections and blades (made, changed, tested,
+refreshed), packs and tangs, To Python, and the Workbench (open and save notebooks and scripts, start
+kernels and run code in them, read their variables, make environments). It acts directly, no prompts,
+with two exceptions: its exports still wait for your Allow (and it cannot answer an approval), and no
+answer the app gives it holds a password's value. Code it runs in a Workbench kernel can read whatever
+that Python can, as yours can. The audit log (Settings) names everything it did.
+
 Every action the page has is a named command in one registry (`swissarmygrid/cli/commands.py`), 95 of
 them. A command is named for the part of the app it works on, then the action, so a flat list sorts
 into the app's layout: `tabs_new_query` (the + tab), `table_filter` and `table_group_by` (the ribbon's

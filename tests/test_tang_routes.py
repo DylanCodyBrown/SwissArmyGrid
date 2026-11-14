@@ -183,7 +183,7 @@ def test_export_review_and_import_a_tang_file(client: TestClient) -> None:
     assert plain.status_code == 400 and "not a tang" in plain.text
 
 
-def test_the_agent_finds_and_runs_but_files_are_the_users(client: TestClient) -> None:
+def test_the_agent_finds_runs_and_files_tangs(client: TestClient) -> None:
     assert (
         client.post(
             "/relationships/find", json={"tables": ["orders", "customers"]}, headers=AGENT
@@ -191,8 +191,9 @@ def test_the_agent_finds_and_runs_but_files_are_the_users(client: TestClient) ->
         == 200
     )
     assert client.post("/relationships/check", json={}, headers=AGENT).status_code in (200, 400)
-    assert client.post("/relationships/tangs", json={"name": "x"}, headers=AGENT).status_code == 403
-    assert client.get("/relationships/tang", headers=AGENT).status_code == 403
-    assert client.post("/relationships/import", json={"text": "{}"}, headers=AGENT).status_code == 403
+    # The golden rule: tang files are the agent's to save, export and import too.
+    assert client.post("/relationships/tangs", json={"name": "x"}, headers=AGENT).status_code != 403
+    assert client.get("/relationships/tang", headers=AGENT).status_code != 403
+    assert client.post("/relationships/import", json={"text": "{}"}, headers=AGENT).status_code != 403
     one = client.post("/relationships/find", json={"tables": ["orders"]}, headers=AUTH)
     assert one.status_code == 400 and "two tables" in one.text

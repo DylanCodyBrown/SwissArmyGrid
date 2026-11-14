@@ -1,5 +1,5 @@
 """The Workbench (services/workbench.py): notebooks and scripts in their own window, and the kernels that
-run them. The user's alone: every route refuses the agent (it never runs code in the user's Python).
+run them. The golden rule (the owner, 2026-11-14): the agent may do all of it too, running code included.
 
   GET    /workbench                         the page (its own window, opened from the grid page's tab)
   GET    /workbench/home                    where Save as starts, and the recent files
@@ -30,22 +30,13 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.server.http import actor, error_response, json_response, read_json
+from swissarmygrid.server.http import error_response, json_response, read_json
 from swissarmygrid.services.workbench import Workbench
-
-
-def _agent_refused() -> Response:
-    return Response(
-        "The Workbench is the user's own: an agent cannot open, save or run their notebooks and scripts.",
-        status_code=403,
-    )
 
 
 def routes(workbench: Workbench) -> list[BaseRoute]:
     def user_only(handler: Any) -> Any:
         async def guarded(request: Request) -> Response:
-            if actor(request) == "agent":
-                return _agent_refused()
             try:
                 return await handler(request)  # type: ignore[no-any-return]
             except Exception as error:

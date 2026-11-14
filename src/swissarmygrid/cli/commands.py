@@ -1094,26 +1094,34 @@ def add_erd(a: dict[str, Any]) -> Any:
 
 @command(
     "blades_list",
-    "The user's blades (name, kind, description, tags, sag.blade line), never their code or secrets",
+    "Every blade and connection: name, kind, description, tags, which secrets are saved (never values)",
 )
 def blades_list(a: dict[str, Any]) -> Any:
-    return api.call("GET", "/agent/blades")
+    return api.call("GET", "/blades")
+
+
+@command(
+    "blades_get",
+    "One blade whole: its code, settings, catalog command, packages",
+    req("name", "The blade's name."),
+)
+def blades_get(a: dict[str, Any]) -> Any:
+    return api.call("GET", f"/blades/{_q(a['name'])}")
 
 
 @command(
     "blades_templates",
-    "Starter blades for databases, files and vaults; give an id for one's full code",
+    "Starter blades for databases, files, vaults and analyses; give an id for one's full code",
     opt("id", "A starter's id, for its code and catalog query."),
 )
 def blades_templates(a: dict[str, Any]) -> Any:
-    return api.call("GET", "/agent/blade-templates", params={"id": a.get("id")})
+    listed = api.call("GET", "/blades/templates")["templates"]
+    if a.get("id"):
+        return next((t for t in listed if t["id"] == a["id"]), None) or {"error": f"No starter {a['id']}."}
+    return [{k: t[k] for k in ("id", "label", "group", "kind")} for t in listed]
 
 
-@command(
-    "blades_create",
-    "Propose a new blade: the user reads its code, and it is saved only if they click Allow",
-    req("name", "A new name (blades_list shows the taken ones)."),
-    req("kind", "sql, other, vault or secret."),
+_BLADE_ARGS = (
     opt("code", 'Python ending in the variable it makes; secret("name") where a password goes.'),
     opt("variable", "The variable sag.blade returns (default: the last one assigned)."),
     opt("dialect", "For sql: sqlserver, postgres, mysql, sqlite, duckdb, snowflake, oracle, trino or other."),
@@ -1123,13 +1131,176 @@ def blades_templates(a: dict[str, Any]) -> Any:
     opt("vault_mapping", 'For vault: [{"env": "VAR", "secret": "name in the vault"}].', "json"),
     opt("env_names", "For secret: the environment variable names.", "list"),
     opt("template", "The starter it came from (blades_templates)."),
+    opt("folder", "Save it as a .blade.py file in this blade folder (new blades)."),
+    opt("secrets", '{"name": "value"}: passwords to save in the system keyring (never shown back).', "json"),
+)
+_BLADE_KEYS = (
+    "name",
+    "kind",
+    "code",
+    "variable",
+    "dialect",
+    "description",
+    "tags",
+    "catalog",
+    "vault_mapping",
+    "env_names",
+    "template",
+    "folder",
+    "secrets",
+)
+
+
+@command(
+    "blades_create",
+    "Save a new blade (sql, other, vault, secret or analysis)",
+    req("name", "A new name."),
+    req("kind", "sql, other, vault, secret or analysis."),
+    *_BLADE_ARGS,
 )
 def blades_create(a: dict[str, Any]) -> Any:
-    keys = ("name", "kind", "code", "variable", "dialect", "description", "tags", "catalog")
-    body = {
-        key: a[key] for key in (*keys, "vault_mapping", "env_names", "template") if a.get(key) is not None
-    }
-    return api.call("POST", "/agent/blades", body)  # waits for the user's Allow (3 minutes at most)
+    return api.call("POST", "/blades", {k: a[k] for k in _BLADE_KEYS if a.get(k) is not None})
+
+
+@command(
+    "blades_update",
+    "Change a blade: send it whole as blades_get gave it, changed (a new name renames it)",
+    req("name", "Its name now."),
+    req("blade", "The blade as blades_get gave it, with your changes.", "json"),
+)
+def blades_update(a: dict[str, Any]) -> Any:
+    return api.call("PUT", f"/blades/{_q(a['name'])}", a["blade"])
+
+
+@command(
+    "blades_delete", "Delete a blade or connection (its saved passwords go too)", req("name", "Its name.")
+)
+def blades_delete(a: dict[str, Any]) -> Any:
+    return api.call("DELETE", f"/blades/{_q(a['name'])}")
+
+
+@command(
+    "blades_inspect",
+    "What code makes, asks for (secrets), imports and needs (packages); its settings. Nothing runs",
+    req("code", "The Python."),
+    opt("template", "The starter it came from."),
+)
+def blades_inspect(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/blades/inspect", {"code": a["code"], "template": a.get("template")})
+
+
+@command(
+    "blades_fill",
+    "Write values into code at its settings (ids from blades_inspect); the new code",
+    req("code", "The Python."),
+    req("values", '{"<setting id>": "new value"}', "json"),
+)
+def blades_fill(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/blades/fill", {"code": a["code"], "values": a["values"]})
+
+
+@command(
+    "blades_secrets",
+    "Save or forget a blade's passwords in the system keyring (values are never read back)",
+    req("name", "The blade."),
+    req("values", '{"password": "value"} to save; {"password": null} to forget.', "json"),
+)
+def blades_secrets(a: dict[str, Any]) -> Any:
+    return api.call("PUT", f"/blades/{_q(a['name'])}/secrets", a["values"])
+
+
+@command(
+    "blades_test",
+    "Run a blade in a child process: does it work? What it made",
+    req("name", "The blade."),
+    opt("env", '{"VAR": "value"}: values a secret blade asks for, for this run only.', "json"),
+)
+def blades_test(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/blades/{_q(a['name'])}/test", {"env": a.get("env") or {}})
+
+
+@command(
+    "blades_refresh",
+    "Run a blade's catalog command and load its source's tables and columns into the catalog",
+    req("name", "The blade."),
+    opt("env", '{"VAR": "value"}: values a secret blade asks for, for this run only.', "json"),
+)
+def blades_refresh(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/blades/{_q(a['name'])}/refresh", {"env": a.get("env") or {}})
+
+
+@command(
+    "blades_install",
+    "Install packages into the app's own Python (where Test and Refresh run)",
+    req("packages", "pip names, such as pyodbc.", "list"),
+)
+def blades_install(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/blades/install", a["packages"], timeout=900.0)
+
+
+@command(
+    "blades_pin",
+    "Make a blade a favourite (listed first), or not",
+    req("name", "The blade."),
+    opt("pinned", "true or false (default true).", "bool"),
+)
+def blades_pin(a: dict[str, Any]) -> Any:
+    return api.call("PUT", f"/blades/{_q(a['name'])}/pin", {"pinned": a.get("pinned", True)})
+
+
+@command(
+    "blades_folders",
+    "The blade folders searched for .blade.py files; give folders to set them",
+    opt("folders", "The new list of folders.", "list"),
+)
+def blades_folders(a: dict[str, Any]) -> Any:
+    if a.get("folders") is not None:
+        return api.call("PUT", "/blades/folders", {"folders": a["folders"]})
+    return api.call("GET", "/blades/folders")
+
+
+@command(
+    "blades_export",
+    "A blade as its portable .blade.py text (no secret values in it)",
+    req("name", "The blade."),
+)
+def blades_export(a: dict[str, Any]) -> Any:
+    data, _ = api.fetch_bytes("GET", f"/blades/{_q(a['name'])}/export")
+    return {"text": data.decode("utf-8", "replace")}
+
+
+@command(
+    "blades_import",
+    "Import .blade.py texts: without apply, a review of what they hold; with apply, save the chosen ones",
+    req("files", '[{"name": "file.blade.py", "text": "..."}]', "json"),
+    opt("apply", 'Choices from the review: {"<file>": "save" | "rename" | "skip"}.', "json"),
+)
+def blades_import(a: dict[str, Any]) -> Any:
+    body: dict[str, Any] = {"files": a["files"]}
+    if a.get("apply") is not None:
+        body["apply"] = a["apply"]
+    return api.call("POST", "/blades/import", body)
+
+
+@command("blades_analyses", "The user's own analyses (analysis blades) the Analyze menu offers")
+def blades_analyses(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/blades/analyses")
+
+
+@command(
+    "blades_run_analysis",
+    "Run an analysis blade on a grid's rows as shown; its result as Sandbox cards",
+    req("grid", "The grid's id."),
+    req("name", "The analysis blade."),
+    opt("columns", "The selected columns it gets.", "list"),
+    values=True,
+)
+def blades_run_analysis(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST",
+        f"/grids/{_q(a['grid'])}/blade-analysis",
+        {"name": a["name"], "columns": a.get("columns") or [], "env": {}},
+    )
 
 
 CATALOG_NOTE = (
@@ -1751,6 +1922,630 @@ def app_snapshot(a: dict[str, Any]) -> Any:
 # Relationships dialog and ERD tab, compare, the Agent tab's sandbox, then what only an agent sees.
 # The catalog groups by area, and so does the MCP's tool list.
 
+
+# ===== connections: databases and files (blades the app lists apart) =====
+
+
+@command(
+    "connections_list",
+    "Every connection: database or file, its type, its name in Workbench code, its catalog",
+)
+def connections_list(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/connections")
+
+
+@command(
+    "connections_types", "The kinds of connection and each one's form: fields, passwords, the code they fill"
+)
+def connections_types(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/connections/types")
+
+
+@command(
+    "connections_get",
+    "A saved connection as its form: fields, passwords (saved or not), code",
+    req("name", "The connection."),
+)
+def connections_get(a: dict[str, Any]) -> Any:
+    return api.call("GET", f"/connections/{_q(a['name'])}")
+
+
+_CONNECTION_ARGS = (
+    req("kind", "sql for a database, other for a file (with template csv, excel, parquet, json or folder)."),
+    req("code", "The connection's Python (a type's code from connections_types, filled in)."),
+    opt("template", "The type it came from (connections_types id)."),
+    opt("dialect", "For a database: its SQL dialect."),
+    opt("variable", "The variable the code makes (default: the last one assigned)."),
+    opt("description", "What it is for."),
+    opt("catalog", '{"language", "command"}: lists the source\'s columns (the type gives one).', "json"),
+    opt("secrets", '{"password": "value"}: saved in the system keyring, never shown back.', "json"),
+)
+_CONNECTION_KEYS = (
+    "name",
+    "kind",
+    "code",
+    "template",
+    "dialect",
+    "variable",
+    "description",
+    "catalog",
+    "secrets",
+)
+
+
+@command("connections_create", "Save a new connection", req("name", "A new name."), *_CONNECTION_ARGS)
+def connections_create(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/connections", {k: a[k] for k in _CONNECTION_KEYS if a.get(k) is not None})
+
+
+@command(
+    "connections_update",
+    "Change a connection (a new name renames it)",
+    req("name", "Its name now."),
+    req("new_name", "Its name after."),
+    *_CONNECTION_ARGS,
+)
+def connections_update(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in _CONNECTION_KEYS if k != "name" and a.get(k) is not None} | {
+        "name": a["new_name"]
+    }
+    return api.call("PUT", f"/connections/{_q(a['name'])}", body)
+
+
+@command(
+    "connections_test",
+    "Run a connection's code, saved or not, in a child process: does it connect? (a file: is it there?)",
+    req("name", "Its name (a saved one is tested as saved unless code is given)."),
+    opt("kind", "With code: sql or other."),
+    opt("code", "Test this code instead of the saved."),
+    opt("template", "With code: its type."),
+    opt("secrets", '{"password": "value"}: typed for this test only.', "json"),
+)
+def connections_test(a: dict[str, Any]) -> Any:
+    if not a.get("code"):
+        return api.call("POST", f"/blades/{_q(a['name'])}/test", {"env": {}})
+    body = {k: a[k] for k in ("name", "kind", "code", "template", "secrets") if a.get(k) is not None}
+    return api.call("POST", "/connections/test", body)
+
+
+@command("connections_vaults", "The vault blades a password can come from, with their entries (names only)")
+def connections_vaults(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/connections/vaults")
+
+
+@command(
+    "connections_password_source",
+    "Point a password at the keyring, an environment variable, or a key vault's entry; the code it gives",
+    req("code", "The connection's code."),
+    req("secret", 'The password\'s name in the code (secret("...")).'),
+    req("source", "keyring, env or vault."),
+    opt("env", "env: the variable's name; vault: an existing entry's variable."),
+    opt("vault", "vault: the vault blade."),
+    opt("vault_secret", "vault, a new entry: the secret's name in the vault."),
+    opt("connection", "The connection's name (names a new vault entry's variable)."),
+)
+def connections_password_source(a: dict[str, Any]) -> Any:
+    body = {"code": a["code"], "secret": a["secret"], "from": a["source"]}
+    body |= {k: a[k] for k in ("env", "vault", "vault_secret", "connection") if a.get(k)}
+    return api.call("POST", "/connections/source", body)
+
+
+# ===== files: the file chooser =====
+
+
+@command(
+    "files_list",
+    "A folder's subfolders and files on this computer (names, sizes, dates; nothing read)",
+    opt("path", "The folder (default: the home folder)."),
+    opt("suffixes", "Only files ending so, as .csv,.xlsx."),
+)
+def files_list(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/folders", params={"path": a.get("path"), "suffixes": a.get("suffixes")})
+
+
+# ===== workbench: notebooks, scripts and the kernels that run them =====
+
+
+@command("workbench_home", "Where the Workbench saves by default, and the recent files")
+def workbench_home(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/workbench/home")
+
+
+@command(
+    "workbench_open",
+    "A notebook's cells (with their outputs) or a script's text, and its remembered Python",
+    req("path", "An .ipynb or .py file."),
+    values=True,
+)
+def workbench_open(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/workbench/open", {"path": a["path"]})
+
+
+@command(
+    "workbench_save",
+    "Save a notebook's cells or a script's text (refused if changed on disk since modified, unless force)",
+    req("path", "An .ipynb or .py file."),
+    opt("cells", '[{"kind": "code" | "sql" | "markdown", "source", "connection"?, "outputs"?}]', "json"),
+    opt("text", "A script's text."),
+    opt("modified", "The modified time workbench_open gave.", "any"),
+    opt("force", "Replace it even if it changed on disk.", "bool"),
+)
+def workbench_save(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("path", "cells", "text", "modified", "force") if a.get(k) is not None}
+    return api.call("POST", "/workbench/save", body)
+
+
+@command("workbench_pythons", "The Pythons a kernel can run in: version, ipykernel, the package")
+def workbench_pythons(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/workbench/pythons")
+
+
+@command(
+    "workbench_kernel_start",
+    "Start a kernel (every connection is a variable by its name in it); its id",
+    opt("python", "The Python (default: the app's own)."),
+    opt("path", "The document it runs (its folder is the working folder)."),
+)
+def workbench_kernel_start(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/workbench/kernels", {k: a[k] for k in ("python", "path") if a.get(k)})
+
+
+def _outputs(lines: list[Any]) -> dict[str, Any]:
+    """A run's outputs, made readable: text joined, pictures named not sent, tracebacks without colour."""
+    shown: list[Any] = []
+    done: Any = None
+    for item in lines:
+        if "done" in item:
+            done = item["done"]
+        elif item.get("output_type") == "stream":
+            if shown and shown[-1].get("stream") == item["name"]:
+                shown[-1]["text"] += item["text"]
+            else:
+                shown.append({"stream": item["name"], "text": item["text"]})
+        elif item.get("output_type") == "error":
+            shown.append(
+                {
+                    "error": f"{item.get('ename')}: {item.get('evalue')}",
+                    "traceback": re.sub(r"\x1b\[[0-9;]*m", "", "\n".join(item.get("traceback", [])))[-4000:],
+                }
+            )
+        elif item.get("output_type") in ("execute_result", "display_data"):
+            data = item.get("data", {})
+            shown.append({"result": data.get("text/plain", ""), "kinds": sorted(data)})
+    for part in shown:
+        if "text" in part and len(part["text"]) > 20_000:
+            part["text"] = part["text"][:10_000] + "\n… (cut) …\n" + part["text"][-10_000:]
+    return {"outputs": shown, "done": done}
+
+
+@command(
+    "workbench_run",
+    "Run code in a kernel (a SQL cell: kind sql and its connection); the outputs when it ends",
+    req("kernel", "The kernel's id."),
+    req("code", "Python, or SQL with kind sql."),
+    opt("kind", "code (default) or sql."),
+    opt("connection", "A SQL cell's connection."),
+    values=True,
+)
+def workbench_run(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("code", "kind", "connection") if a.get(k) is not None}
+    return _outputs(api.call_lines("POST", f"/workbench/kernels/{_q(a['kernel'])}/execute", body))
+
+
+@command(
+    "workbench_run_notebook",
+    "Open a notebook, run every cell in a kernel (stops at an error), save it with the outputs",
+    req("path", "An .ipynb file."),
+    opt("kernel", "A running kernel (default: start one in the notebook's remembered Python)."),
+    opt("save", "Save the outputs into the file (default true).", "bool"),
+    values=True,
+)
+def workbench_run_notebook(a: dict[str, Any]) -> Any:
+    opened = api.call("POST", "/workbench/open", {"path": a["path"]})
+    kernel = (
+        a.get("kernel")
+        or api.call("POST", "/workbench/kernels", {"python": opened.get("python"), "path": opened["path"]})[
+            "kernel"
+        ]
+    )
+    results = []
+    for cell in opened["cells"]:
+        if cell["kind"] == "markdown" or not cell["source"].strip():
+            continue
+        lines = api.call_lines(
+            "POST",
+            f"/workbench/kernels/{_q(kernel)}/execute",
+            {"code": cell["source"], "kind": cell["kind"], "connection": cell.get("connection")},
+        )
+        cell["outputs"] = [item for item in lines if "done" not in item and "clear" not in item]
+        done: dict[str, Any] = next((item["done"] for item in lines if "done" in item), {})
+        cell["execution_count"] = done.get("execution_count")
+        results.append(_outputs(lines))
+        if not done.get("ok"):
+            break
+    if a.get("save", True):
+        api.call(
+            "POST",
+            "/workbench/save",
+            {"path": opened["path"], "cells": opened["cells"], "modified": opened["modified"]},
+        )
+    return {"kernel": kernel, "cells_run": len(results), "results": results}
+
+
+@command(
+    "workbench_complete",
+    "What the kernel offers at a place in the code (variables, attributes, a DataFrame's columns)",
+    req("kernel", "The kernel's id."),
+    req("code", "The code."),
+    req("offset", "The place: characters from the start.", "int"),
+)
+def workbench_complete(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST", f"/workbench/kernels/{_q(a['kernel'])}/complete", {"code": a["code"], "offset": a["offset"]}
+    )
+
+
+@command(
+    "workbench_inspect",
+    "The signature and help of the name at a place in the code",
+    req("kernel", "The kernel's id."),
+    req("code", "The code."),
+    req("offset", "The place: characters from the start.", "int"),
+)
+def workbench_inspect(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST", f"/workbench/kernels/{_q(a['kernel'])}/inspect", {"code": a["code"], "offset": a["offset"]}
+    )
+
+
+@command(
+    "workbench_variables",
+    "What a kernel holds: variables (type, size, a preview), connections, environment names",
+    req("kernel", "The kernel's id."),
+    values=True,
+)
+def workbench_variables(a: dict[str, Any]) -> Any:
+    return api.call("GET", f"/workbench/kernels/{_q(a['kernel'])}/variables")
+
+
+@command(
+    "workbench_to_grid",
+    "Open a table variable from a kernel as a grid",
+    req("kernel", "The kernel's id."),
+    req("name", "The variable."),
+)
+def workbench_to_grid(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/workbench/kernels/{_q(a['kernel'])}/grid", {"name": a["name"]})
+
+
+@command(
+    "workbench_kernel",
+    "Interrupt, restart or stop a kernel",
+    req("kernel", "The kernel's id."),
+    req("action", "interrupt, restart or stop."),
+)
+def workbench_kernel(a: dict[str, Any]) -> Any:
+    kernel, action = _q(a["kernel"]), a["action"]
+    if action == "stop":
+        return api.call("DELETE", f"/workbench/kernels/{kernel}")
+    if action == "interrupt":
+        return api.call("POST", f"/workbench/kernels/{kernel}/interrupt")
+    if action == "restart":
+        return api.call("POST", f"/workbench/kernels/{kernel}/restart")
+    raise CommandError("The action is interrupt, restart or stop.")
+
+
+@command(
+    "workbench_environment_offer",
+    "What a new environment can hold: libraries by group, presets, Python versions",
+)
+def workbench_environment_offer(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/workbench/environments")
+
+
+@command(
+    "workbench_environment_create",
+    "Make a virtual environment (uv, else venv and pip) with ipykernel and the packages; remembered for a document",
+    req("folder", "A new folder (a .venv beside the notebook)."),
+    opt("python", "3.13, 3.12, 3.11 or 3.10 (default: the app's own version)."),
+    opt("packages", "pip names, such as pandas.", "list"),
+    opt("document", "The notebook or script that uses it."),
+)
+def workbench_environment_create(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("folder", "python", "packages", "document") if a.get(k) is not None}
+    lines = api.call_lines("POST", "/workbench/environments", body)
+    done = next((item["done"] for item in lines if "done" in item), None)
+    return {"done": done, "log": [item["line"] for item in lines if "line" in item][-40:]}
+
+
+@command(
+    "workbench_environment_choose",
+    "Remember the Python a document runs in",
+    req("path", "The document."),
+    req("python", "The Python."),
+)
+def workbench_environment_choose(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/workbench/environment", {"path": a["path"], "python": a["python"]})
+
+
+# ===== python: code queued for the user's Jupyter or IPython (To Python) =====
+
+
+@command(
+    "python_send",
+    "Queue code for the user's Jupyter or IPython: sag.paste() puts it in their cell",
+    req("code", "The Python."),
+    opt("imports", "Import lines it needs.", "list"),
+    opt("label", "What it is."),
+)
+def python_send(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST",
+        "/python/send",
+        {"code": a["code"], "imports": a.get("imports") or [], "label": a.get("label") or "From the agent"},
+    )
+
+
+@command("python_sent", "What was queued for the user's Python lately, newest first")
+def python_sent(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/python/sent")
+
+
+@command(
+    "python_grid_steps",
+    "Queue a grid's steps as checked DuckDB code for the user's Python",
+    req("grid", "The grid's id."),
+)
+def python_grid_steps(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/grids/{_q(a['grid'])}/python")
+
+
+# ===== packs: blades and tangs from a Claude Code plugin marketplace =====
+
+
+@command(
+    "packs_list", "Installed packs, editable ones (clones in the blade folders), and the commands to get more"
+)
+def packs_list(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/packs")
+
+
+@command(
+    "packs_new",
+    "Make a new marketplace repository folder with one pack (and add it as a blade folder)",
+    req("folder", "The new folder."),
+    req("marketplace", "The marketplace's name."),
+    req("pack", "The first pack's name."),
+    opt("owner", "Who keeps it."),
+    opt("description", "What it holds."),
+)
+def packs_new(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("folder", "marketplace", "pack", "owner", "description") if a.get(k)} | {
+        "add_folder": True
+    }
+    return api.call("POST", "/packs/new", body)
+
+
+@command(
+    "packs_add",
+    "Copy saved blades and tangs into an editable pack",
+    req("pack", "The pack's folder (packs_list)."),
+    opt("blades", "Blade names.", "list"),
+    opt("tangs", "Tang names.", "list"),
+    opt("replace", "Replace ones already there.", "bool"),
+)
+def packs_add(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST",
+        "/packs/add",
+        {
+            "pack": a["pack"],
+            "blades": a.get("blades") or [],
+            "tangs": a.get("tangs") or [],
+            "replace": bool(a.get("replace")),
+        },
+    )
+
+
+# ===== the rest of what the user can do (the golden rule) =====
+
+
+@command("app_audit", "The audit log's last entries: who did what (never cell values)")
+def app_audit(a: dict[str, Any]) -> Any:
+    return api.call("GET", "/audit")
+
+
+@command("app_shutdown", "Stop the server (the grids close; this MCP stops answering until it starts again)")
+def app_shutdown(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/shutdown")
+
+
+@command(
+    "datasets_open_from_python",
+    "Ask a running Python session to send one of its tables (datasets_python_sessions lists them)",
+    req("process", "The session's id."),
+    req("name", "The table's name in that session."),
+)
+def datasets_open_from_python(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/processes/{_q(a['process'])}/open", {"name": a["name"]})
+
+
+@command(
+    "analyze_code",
+    "An analysis as Python for the user's notebook (one swissarmygrid.stats call): code and imports",
+    req("grid", "The grid's id."),
+    req("analysis", "fit_test, outliers, odds, predictors, regression, time_series or forecast."),
+    req("body", "The analysis's own request, as its analyze_ command takes it.", "json"),
+)
+def analyze_code(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST", f"/grids/{_q(a['grid'])}/analysis-code", {"analysis": a["analysis"], "body": a["body"]}
+    )
+
+
+@command(
+    "analyze_proof",
+    "Show the math: an analysis result as a step-by-step proof (markdown)",
+    req("analysis", "The analysis's name."),
+    req("result", "Its result, as the analyze_ command gave it.", "json"),
+    opt("dataset", "The table's name, for the title."),
+)
+def analyze_proof(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST",
+        "/analysis-proof",
+        {"analysis": a["analysis"], "result": a["result"], "dataset": a.get("dataset") or ""},
+    )
+
+
+@command(
+    "key_finder_sample",
+    "Values a column pair shares and does not (the Key Finder's sample)",
+    req("grid", "The grid's id."),
+    req("target", "The other grid's id."),
+    req("source_column", "This grid's column."),
+    req("target_column", "The other grid's column."),
+    opt("options", '{"trim", "ignore_case", "max_length"}', "json"),
+    values=True,
+)
+def key_finder_sample(a: dict[str, Any]) -> Any:
+    body = {k: a[k] for k in ("target", "source_column", "target_column")} | {
+        "options": a.get("options") or {}
+    }
+    return api.call("POST", f"/grids/{_q(a['grid'])}/key-finder/sample", body)
+
+
+@command(
+    "catalog_load",
+    "Load a source's names and types as a catalog: one row per column (schema, table, column, type)",
+    req("name", "The catalog's name."),
+    req("columns", "The rows' column names, as TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE.", "list"),
+    req("rows", "The rows: one list of values per source column.", "json"),
+    opt("dialect", "sqlserver, postgres, mysql, sqlite, duckdb, snowflake, oracle, trino or other."),
+)
+def catalog_load(a: dict[str, Any]) -> Any:
+    return api.call(
+        "PUT",
+        f"/catalogs/{_q(a['name'])}",
+        {"columns": a["columns"], "data": a["rows"]},
+        params={"dialect": a.get("dialect")},
+    )
+
+
+@command("catalog_remove", "Remove a loaded catalog", req("name", "The catalog."))
+def catalog_remove(a: dict[str, Any]) -> Any:
+    return api.call("DELETE", f"/catalogs/{_q(a['name'])}")
+
+
+@command(
+    "catalog_script",
+    "Script a catalog table as SELECT *, SELECT the columns, or pandas over its blade's connection",
+    req("name", "The catalog."),
+    req("table", "The table."),
+    opt("schema", "Its schema."),
+    opt("database", "Its database."),
+    opt("script_as", "select_star, select_columns or pandas."),
+    opt("blade", "The blade whose connection pandas reads with."),
+)
+def catalog_script(a: dict[str, Any]) -> Any:
+    params = {k: a.get(k) for k in ("schema", "table", "database", "blade")} | {"as": a.get("script_as")}
+    return api.call("GET", f"/catalogs/{_q(a['name'])}/script", params=params)
+
+
+@command(
+    "relationships_save_tang",
+    "Save the current relationships as a tang (a shared .tang file)",
+    req("name", "The tang's name."),
+    opt("description", "What it joins."),
+    opt("tags", "Words to find it by.", "list"),
+    opt("author", "Who made it."),
+    opt("folder", "A blade folder to save it in (default: the user's own tangs)."),
+)
+def relationships_save_tang(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST",
+        "/relationships/tangs",
+        {k: a[k] for k in ("name", "description", "tags", "author", "folder") if a.get(k) is not None},
+    )
+
+
+@command("relationships_export_tang", "The current relationships as .tang text")
+def relationships_export_tang(a: dict[str, Any]) -> Any:
+    data, _ = api.fetch_bytes("GET", "/relationships/tang")
+    return {"text": data.decode("utf-8", "replace")}
+
+
+@command(
+    "relationships_import_tang",
+    "Import .tang text: without apply, what it would change; apply and save to use and keep it",
+    req("text", "The .tang file's text."),
+    opt("apply", "Apply it to the current relationships.", "bool"),
+    opt("save", "Keep it in the tang library.", "bool"),
+    opt("folder", "Where to keep it."),
+)
+def relationships_import_tang(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST",
+        "/relationships/import",
+        {k: a[k] for k in ("text", "apply", "save", "folder") if a.get(k) is not None},
+    )
+
+
+@command(
+    "relationships_reject",
+    "Stop the finder offering a suggestion (undo brings it back)",
+    req("suggestion", "The suggestion as relationships_find gave it (from, to, columns).", "json"),
+    opt("undo", "Offer it again.", "bool"),
+)
+def relationships_reject(a: dict[str, Any]) -> Any:
+    if not isinstance(a["suggestion"], dict):
+        raise CommandError(
+            'suggestion is one of relationships_find\'s suggestions: {"from", "to", "columns"}.'
+        )
+    body = a["suggestion"] | ({"undo": True} if a.get("undo") else {})
+    return api.call("POST", "/relationships/reject", body)
+
+
+@command(
+    "sandbox_dashboard",
+    "Save the Sandbox as a dashboard (a new version), open one, or delete one",
+    req("action", "save, open or delete."),
+    req("name", "The dashboard's name."),
+    opt("version", "open: which version (default: the newest).", "int"),
+)
+def sandbox_dashboard(a: dict[str, Any]) -> Any:
+    name, action = _q(a["name"]), a["action"]
+    if action == "save":
+        return api.call("POST", "/dashboards", {"name": a["name"]})
+    if action == "open":
+        return api.call(
+            "POST", f"/dashboards/{name}/open", {"version": a.get("version")} if a.get("version") else {}
+        )
+    if action == "delete":
+        return api.call("DELETE", f"/dashboards/{name}")
+    raise CommandError("The action is save, open or delete.")
+
+
+@command(
+    "sandbox_theme_remove", "Remove one of the user's imported Sandbox themes", req("id", "The theme's id.")
+)
+def sandbox_theme_remove(a: dict[str, Any]) -> Any:
+    return api.call("DELETE", f"/sandbox/themes/{_q(a['id'])}")
+
+
+@command(
+    "compare_tie_out_show",
+    "Filter both grids of a compare to one tie-out group (as clicking its row)",
+    req("compare", "The compare's id."),
+    req("group", "The grouping columns, as the tie-out gave them.", "list"),
+    req("keys", "The group's keys, as the tie-out gave them.", "list"),
+)
+def compare_tie_out_show(a: dict[str, Any]) -> Any:
+    return api.call(
+        "POST", f"/compares/{_q(a['compare'])}/tie-out/show", {"group": a["group"], "keys": a["keys"]}
+    )
+
+
 AREAS: tuple[tuple[str, str], ...] = (
     ("help", "Help"),
     ("tabs", "Tab bar: grids and the + query tab"),
@@ -1765,6 +2560,11 @@ AREAS: tuple[tuple[str, str], ...] = (
     ("relationships", "Relationships dialog"),
     ("erd", "ERD tab"),
     ("blades", "Blades: the user's saved code that loads from outside Python"),
+    ("connections", "Connections: the user's databases and files (Application row's Connections)"),
+    ("files", "Folders and files on this computer (the file chooser)"),
+    ("workbench", "Workbench: notebooks, scripts, kernels, environments"),
+    ("python", "To Python: code queued for the user's Jupyter or IPython"),
+    ("packs", "Packs: blades and tangs from a Claude Code marketplace"),
     ("catalog", "Catalog explorer: a source database's tables and columns"),
     ("compare", "Compare (two grids side by side)"),
     ("sandbox", "Agent tab: Analysis Sandbox"),

@@ -105,7 +105,7 @@ def test_samples_for_the_page_and_counts_only_for_the_agent(client: TestClient) 
         headers=AUTH,
     ).json()
     assert back["missing_count"] == 100  # customers who never ordered
-    assert client.post(f"/grids/{orders}/key-finder/sample", json=body, headers=AGENT).status_code == 403
+    assert client.post(f"/grids/{orders}/key-finder/sample", json=body, headers=AGENT).status_code == 200
     agent = run(client, orders, customers, headers=AGENT)
     assert "matched" not in str(agent) and agent["pairs"][0]["target_column"] == "id"
 

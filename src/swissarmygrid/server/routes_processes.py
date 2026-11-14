@@ -18,7 +18,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-from swissarmygrid.server.http import actor, error_response, json_response, read_json
+from swissarmygrid.server.http import error_response, json_response, read_json
 from swissarmygrid.services.processes import Sessions
 
 _QUIET_PREFIX = "/processes/"
@@ -59,8 +59,6 @@ def routes(sessions: Sessions) -> list[BaseRoute]:
         return json_response({"processes": sessions.listing()})
 
     async def open_table(request: Request) -> Response:
-        if actor(request) == "agent":
-            return Response("Opening a table from a running Python session is for the user.", status_code=403)
         try:
             body: Any = await read_json(request)
             name = body.get("name") if isinstance(body, dict) else None

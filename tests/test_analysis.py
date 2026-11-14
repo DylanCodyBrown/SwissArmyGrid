@@ -389,10 +389,11 @@ def test_the_notebook_code_gives_the_windows_numbers(client: TestClient, orders_
         exec("\n".join([*made.json()["imports"], code]), namespace)  # noqa: S102 (our own generated code)
         variable = code.splitlines()[-1]
         assert same(namespace[variable], window), analysis
-    refused = client.post(
+    # The golden rule: the agent gets the notebook code too.
+    asked = client.post(
         f"/grids/{orders_grid}/analysis-code", json={"analysis": "odds", "body": {}}, headers=AGENT
     )
-    assert refused.status_code == 403
+    assert asked.status_code != 403
 
 
 def test_stats_works_on_a_plain_dataframe() -> None:

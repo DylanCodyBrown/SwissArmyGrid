@@ -20,10 +20,16 @@ installed once per machine as a uv tool (`uv tool install "<wheel>[server]"`), s
   **Rule: code always opens in its own browser window, never in the grid page** (the Workbench tab
   opens it), so it can sit on another screen; saved workspaces; a tray icon; and a Power BI style
   relationships view with autodetection. VS Code is optional.
+- **The golden rule (the owner, 2026-11-14): every single thing the user can do, the agent can do
+  too, through the MCP, with no prompts.** A new user action gets its command in `cli/commands.py`
+  (so an MCP tool) in the same change. The only exceptions: the agent cannot answer its own approval
+  requests, and no answer the app gives it holds a password's value (`/blades/{name}/python` stays
+  refused). Code the agent runs in a Workbench kernel can read what that Python can, which the owner
+  accepted; `tests/test_cli.py` NOT_COMMANDS lists the routes without a command and why.
 - **The original plan:** [Plans/swissarmygrid-build-plan.md](Plans/swissarmygrid-build-plan.md).
   Follow its section 0 working agreements: typed Python, tests first for semantics, ask before
-  adding a dependency the plan doesn't list, never build milestone 9 (agent code sandbox)
-  without asking.
+  adding a dependency the plan doesn't list. Milestone 9 (the agent running code) was the owner's
+  call: made on 2026-11-14 by the golden rule (the agent runs code in Workbench kernels).
 - **What exists:** milestones M0-M8, blades and the catalog, connections (database and file blades,
   added with a form), the SQL cell (`%%sql <connection>`), the Workbench (notebooks, scripts,
   completion, per-notebook environments), the Analyze menu, the Sandbox, compare's diff and tie-out,
@@ -136,8 +142,8 @@ src/swissarmygrid/
     http.py              reading requests, shaping answers, each error as its status
     routes_*.py          one per feature: read the request, call the use case, shape the answer
                          (datasets, grids, analysis, regression, timeseries, tieout, handoff, agent, cards, catalog, blades, relationships,
-                         processes, snapshots, packs). /catalogs is for everyone; /blades and /packs refuse
-                         the agent, whose own door is /agent/blades in routes_agent.py
+                         processes, snapshots, packs, connections, folders, workbench). Every route serves
+                         the agent too (the golden rule) but answering approvals and /blades/{name}/python
     security.py          the guard: 127.0.0.1, the token, Host and Origin
     lifecycle.py, launcher.py, __main__.py   ports, single instance, clean exit; `swissarmygrid`
     blade_runner.py      Refresh/Test in a child process; installing packages
@@ -155,7 +161,7 @@ src/swissarmygrid/
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (111 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (172 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);

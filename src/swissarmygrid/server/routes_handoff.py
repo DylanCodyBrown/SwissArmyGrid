@@ -5,7 +5,7 @@
   POST /python/take               the newest code not yet pasted (sag.paste() calls this); 204 if none
   GET  /python/sent               what was sent lately, newest first
 
-The agent never sends code to the user's Python: those routes refuse it.
+The agent may queue code for the user's Python too (the golden rule, 2026-11-14).
 """
 
 from __future__ import annotations
@@ -16,12 +16,10 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.server.http import actor, error_response, json_response, read_json
 from swissarmygrid.services.handoff import Handoff
-from swissarmygrid.services.workspace import Refused
 
 
 def _users_only(request: Request) -> None:
-    if actor(request) == "agent":
-        raise Refused("Code goes into the user's own Python only from the user's own click.")
+    """The golden rule (2026-11-14): whatever the user can do, the agent can too."""
 
 
 def routes(handoff: Handoff) -> list[BaseRoute]:

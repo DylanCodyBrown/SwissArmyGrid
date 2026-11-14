@@ -24,8 +24,14 @@ class Documents:
 
     def read(self, path: str) -> tuple[str, str, float]:
         """The file's text, its full path and when it was last changed."""
-        file = Path(path).expanduser().resolve()
-        if not file.is_file():
+        try:
+            file = Path(path).expanduser().resolve()
+            there = file.is_file()
+        except OSError as error:
+            raise FileNotFoundError(
+                f"{path[:200]} is not a file this computer can open ({error.strerror})."
+            ) from None
+        if not there:
             raise FileNotFoundError(f"{file} is not there.")
         if file.stat().st_size > MAX_FILE_BYTES:
             raise ValueError(
@@ -34,13 +40,21 @@ class Documents:
         return file.read_text(encoding="utf-8"), str(file), file.stat().st_mtime
 
     def modified(self, path: str) -> float | None:
-        file = Path(path).expanduser()
-        return file.stat().st_mtime if file.is_file() else None
+        try:
+            file = Path(path).expanduser()
+            return file.stat().st_mtime if file.is_file() else None
+        except OSError:
+            return None
 
     def write(self, path: str, text: str) -> tuple[str, float]:
         """Write the file whole (a temporary file renamed over it, so a failed save leaves the old one).
         Its folder must exist, except the Workbench's own default folder, made on its first save."""
-        file = Path(path).expanduser().resolve()
+        try:
+            file = Path(path).expanduser().resolve()
+        except OSError as error:
+            raise FileNotFoundError(
+                f"{path[:200]} is not a place this computer can save ({error.strerror})."
+            ) from None
         if file.parent == self.default_folder.resolve():
             file.parent.mkdir(parents=True, exist_ok=True)
         if not file.parent.is_dir():

@@ -39,15 +39,11 @@ def routes(datasets: DatasetService) -> list[BaseRoute]:
         return JSONResponse({"status": "ok", "version": __version__, "pid": os.getpid()})
 
     async def shutdown(request: Request) -> Response:
-        if actor(request) == "agent":
-            return Response("Stopping the server is for the user.", status_code=403)
         datasets.stop(actor(request))
         return JSONResponse({"status": "stopping"})
 
     async def audit(request: Request) -> Response:
         """The audit log's last entries, for the page's activity list (never cell values)."""
-        if actor(request) == "agent":
-            return Response("The audit log is for the user.", status_code=403)
         try:
             limit = max(1, min(500, query_int(request, "limit", 100) or 100))
         except ValueError as error:

@@ -63,9 +63,10 @@ def test_the_agent_lists_blades_without_their_code_or_secrets(client: TestClient
     assert listed["use"] == 'conn = sag.blade("Ovens")'
     assert "code" not in listed and "secrets" not in listed and "catalog" not in listed
     assert "password" not in json.dumps(listed)
-    # Its own blade routes stay refused to the agent.
-    assert client.get("/blades/Ovens", headers=AGENT).status_code == 403
-    assert client.get("/blades", headers=AGENT).status_code == 403
+    # The golden rule: the agent reads blades whole too; only the answer with password values is refused.
+    assert client.get("/blades/Ovens", headers=AGENT).status_code == 200
+    assert client.get("/blades", headers=AGENT).status_code == 200
+    assert client.get("/blades/Ovens/python", headers=AGENT).status_code == 403
 
 
 def test_the_agent_reads_the_starter_blades(client: TestClient) -> None:

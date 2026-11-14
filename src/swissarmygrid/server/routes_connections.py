@@ -1,6 +1,6 @@
 """Connections (Plans/workbench-and-connections.plan.md): the databases and files the user reaches, kept
-in the blade store and seen apart from blades. The user's alone, as blades are (the agent is refused:
-their code names servers and accounts, and runs):
+in the blade store and seen apart from blades. The agent may do all of it too (the golden rule); no
+answer holds a password's value:
 
   GET    /connections                 every connection: databases, then files
   GET    /connections/types           the starters, each as the Add connection form
@@ -22,47 +22,31 @@ from starlette.routing import BaseRoute, Route
 
 from swissarmygrid.domain.blades import VaultUnavailableError
 from swissarmygrid.server.blade_runner import RefreshError
-from swissarmygrid.server.http import actor, error_response, json_response, read_json
+from swissarmygrid.server.http import error_response, json_response, read_json
 from swissarmygrid.services.blades import BladeService, NeedsValues
 from swissarmygrid.services.connections import ConnectionService
 
 
-def _agent_refused() -> Response:
-    return Response(
-        "Connections are the user's own saved code and passwords: an agent cannot read, change or run "
-        "them. Use the catalog_* tools to see a source's tables and columns.",
-        status_code=403,
-    )
-
-
 def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRoute]:
     async def listing(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(connections.listing())
         except Exception as error:
             return error_response(error)
 
     async def types(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(connections.types())
         except Exception as error:
             return error_response(error)
 
     async def details(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(connections.details(request.path_params["name"]))
         except Exception as error:
             return error_response(error)
 
     async def save(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             previous = request.path_params.get("name")
             return json_response(await connections.save(await read_json(request), previous))
@@ -72,24 +56,18 @@ def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRou
             return error_response(error)
 
     async def vaults(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(connections.vaults())
         except Exception as error:
             return error_response(error)
 
     async def source(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(await connections.source(await read_json(request)))
         except Exception as error:
             return error_response(error)
 
     async def test(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(await connections.test(await read_json(request)))
         except NeedsValues as error:

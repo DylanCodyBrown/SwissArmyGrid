@@ -175,7 +175,6 @@ def test_a_saved_dashboard_reopens_as_drawn_and_relinks_when_its_table_is_back(c
     )
     assert chart.status_code == query.status_code == 200
     client.post("/cards", json={"kind": "note", "title": "Reading", "body": "North leads."}, headers=AUTH)
-    assert client.post("/dashboards", json={"name": "weekly"}, headers=AGENT).status_code == 403
     first = client.post("/dashboards", json={"name": "weekly"}, headers=AUTH).json()
     assert first["version"] == 1 and first["cards"] == 3
     client.delete(f"/cards/{chart.json()['card']}", headers=AUTH)
@@ -190,7 +189,6 @@ def test_a_saved_dashboard_reopens_as_drawn_and_relinks_when_its_table_is_back(c
 
     client.delete(f"/grids/{gid}", headers=AUTH)
     client.delete("/datasets/sales", headers=AUTH)
-    assert client.post("/dashboards/weekly/open", json={"version": 1}, headers=AGENT).status_code == 403
     opened = client.post("/dashboards/weekly/open", json={"version": 1}, headers=AUTH).json()
     assert opened == {"name": "weekly", "version": 1, "cards": 3, "live": 0, "as_saved": 2}
     shown = {c["title"]: c for c in cards(client)}

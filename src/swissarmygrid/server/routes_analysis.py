@@ -74,8 +74,6 @@ def routes(grids: GridService, analysis: Analysis) -> list[BaseRoute]:
 
     async def code(request: Request) -> Response:
         """The analysis as Python for the user's Jupyter or IPython (To Python; not the agent's)."""
-        if actor(request) == "agent":
-            return Response("Code for the user's Python comes only from the user's click.", status_code=403)
         try:
             grid, info = grids.find(request.path_params["grid_id"])
             body = await read_json(request)

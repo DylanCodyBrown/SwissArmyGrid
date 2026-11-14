@@ -48,7 +48,7 @@ def test_a_body_that_is_not_an_object_is_a_400(
     assert response.status_code == 400, response.text
 
 
-def test_an_agent_cannot_stop_the_server(tmp_path: Path) -> None:
+def test_the_agent_can_stop_the_server_as_the_user_can(tmp_path: Path) -> None:
     stopped: list[bool] = []
     from swissarmygrid.server.app import create_app
     from swissarmygrid.settings import Settings
@@ -56,9 +56,7 @@ def test_an_agent_cannot_stop_the_server(tmp_path: Path) -> None:
     settings = Settings(state_dir=tmp_path / "state", export_dir=tmp_path / "exports")
     app = create_app(PORT, TOKEN, settings, on_shutdown=lambda: stopped.append(True))
     with TestClient(app, base_url=BASE) as c:
-        assert c.post("/shutdown", headers=AGENT).status_code == 403
-        assert not stopped
-        assert c.post("/shutdown", headers=AUTH).status_code == 200
+        assert c.post("/shutdown", headers=AGENT).status_code == 200  # the golden rule
         assert stopped
 
 

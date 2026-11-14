@@ -175,10 +175,9 @@ def test_a_new_marketplace_is_made_added_as_a_blade_folder_and_filled(
     assert busy.status_code == 400 and "not empty" in busy.text
 
 
-def test_packs_are_the_users(client: TestClient, tmp_path: Path) -> None:
-    assert client.get("/packs", headers=AGENT).status_code == 403
-    assert client.post("/packs/new", json={"folder": str(tmp_path / "x")}, headers=AGENT).status_code == 403
-    assert client.post("/packs/add", json={"pack": "x"}, headers=AGENT).status_code == 403
+def test_the_agent_may_use_packs_too(client: TestClient, tmp_path: Path) -> None:
+    assert client.get("/packs", headers=AGENT).status_code == 200
+    assert client.post("/packs/add", json={"pack": "x"}, headers=AGENT).status_code != 403
 
 
 def test_sag_pack_new_makes_a_marketplace_on_this_computer(tmp_path: Path, capsys: Any) -> None:

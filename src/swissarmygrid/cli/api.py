@@ -133,6 +133,20 @@ def call(
         raise CommandError("The server sent a reply this client can't read.") from error
 
 
+def call_lines(method: str, path: str, body: Any = None, timeout: float = 900.0) -> list[Any]:
+    """A request whose answer streams one JSON object a line (a Workbench run, a new environment):
+    every line, in order, once the stream ends."""
+    payload, _ = fetch_bytes(method, path, body, timeout)
+    out = []
+    for line in payload.decode("utf-8", "replace").splitlines():
+        if line.strip():
+            try:
+                out.append(json.loads(line))
+            except ValueError as error:
+                raise CommandError("The server sent a line this client can't read.") from error
+    return out
+
+
 def fetch_bytes(
     method: str, path: str, body: Any = None, timeout: float = 240.0
 ) -> tuple[bytes, dict[str, str]]:

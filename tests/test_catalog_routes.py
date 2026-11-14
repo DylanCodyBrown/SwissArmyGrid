@@ -75,8 +75,9 @@ def test_the_agent_reads_catalogs_but_never_loads_one(client: TestClient) -> Non
     assert client.get("/catalogs/Bakery/schemas", headers=AGENT).status_code == 200
     found = client.get("/catalogs/Bakery/search", params={"q": "order id"}, headers=AGENT)
     assert found.status_code == 200 and found.json()["columns"][0]["column"] == "order id"
-    assert client.put("/catalogs/Mine", json=CATALOG, headers=AGENT).status_code == 403
-    assert client.delete("/catalogs/Bakery", headers=AGENT).status_code == 403
+    # The golden rule: the agent loads and removes catalogs too.
+    assert client.put("/catalogs/Mine", json=CATALOG, headers=AGENT).status_code == 200
+    assert client.delete("/catalogs/Mine", headers=AGENT).status_code == 200
 
 
 def test_catalogs_stay_out_of_the_sql_box(client: TestClient) -> None:
@@ -153,7 +154,9 @@ def test_secrets_are_set_but_never_read_back_except_by_sag_blade(client: TestCli
     assert forgot.json() == {"secrets": {"password": False}}
 
 
-def test_the_agent_is_refused_every_blade_route(client: TestClient, bakery: Path) -> None:
+def test_the_agent_may_use_every_blade_route_but_the_one_with_passwords(
+    client: TestClient, bakery: Path
+) -> None:
     assert client.post("/blades", json=sqlite_blade(bakery), headers=AUTH).status_code == 200
     for method, path in [
         ("GET", "/blades"),
@@ -169,8 +172,10 @@ def test_the_agent_is_refused_every_blade_route(client: TestClient, bakery: Path
         ("POST", "/blades/install"),
     ]:
         response = client.request(method, path, json={}, headers=AGENT)
-        assert response.status_code == 403, (method, path, response.text)
-        assert "sqlite" not in response.text
+        if path.endswith("/python"):  # its answer carries the saved password values
+            assert response.status_code == 403, response.text
+        else:  # the golden rule: whatever the user can do, the agent can too
+            assert response.status_code != 403, (method, path, response.text)
 
 
 def test_a_secret_blade_value_is_asked_for_each_refresh(client: TestClient, bakery: Path) -> None:
@@ -328,8 +333,8 @@ def test_folders_and_favourites_over_http(
     refused = client.delete("/blades/Pantry", headers=AUTH)
     assert refused.status_code == 400 and "Delete or move the file" in refused.text
     for path in ("/blades/folders", "/blades/export", "/blades/Pantry/export"):
-        assert client.get(path, headers=AGENT).status_code == 403
-    assert client.put("/blades/Pantry/pin", json={"pinned": False}, headers=AGENT).status_code == 403
+        assert client.get(path, headers=AGENT).status_code == 200
+    assert client.put("/blades/Pantry/pin", json={"pinned": True}, headers=AGENT).status_code == 200
 
 
 # ===== settings: the values each person fills in =====
@@ -368,7 +373,7 @@ def test_the_save_screen_sees_settings_with_suggestions_and_writes_new_values(cl
     assert bad.status_code == 400 and "read them again" in bad.text
     assert (
         client.post("/blades/fill", json={"code": POSTGRES_CODE, "values": {}}, headers=AGENT).status_code
-        == 403
+        == 200
     )
 
 

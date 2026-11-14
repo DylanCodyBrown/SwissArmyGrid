@@ -50,9 +50,13 @@ class KernelError(ValueError):
 
 def check_python(python: str) -> dict[str, Any]:
     """Whether a Python can run a kernel: its version, and whether it has ipykernel and swissarmygrid."""
-    path = Path(python).expanduser()
-    if not path.is_file():
-        raise KernelError(f"{python} is not a Python on this computer.")
+    try:
+        path = Path(python).expanduser()
+        there = path.is_file()
+    except OSError:  # a name too long for this computer
+        there = False
+    if not there:
+        raise KernelError(f"{python[:200]} is not a Python on this computer.")
     probe = (
         "import sys, importlib.util as u;"
         "print(sys.version.split()[0]);"

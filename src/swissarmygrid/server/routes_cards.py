@@ -40,7 +40,6 @@ from starlette.routing import BaseRoute, Route
 from swissarmygrid.domain.charts import ChartError
 from swissarmygrid.server.http import actor, error_response, json_response, read_json
 from swissarmygrid.services.charts import Cards
-from swissarmygrid.services.workspace import Refused
 
 
 def routes(cards: Cards) -> list[BaseRoute]:
@@ -108,10 +107,7 @@ def routes(cards: Cards) -> list[BaseRoute]:
             return error_response(error)
 
     def users_only(request: Request) -> None:
-        if actor(request) == "agent":
-            raise Refused(
-                "Saving, opening and deleting dashboards are the user's: the agent may list and read them."
-            )
+        """The golden rule (2026-11-14): the agent saves, opens and deletes dashboards as the user does."""
 
     async def saved(request: Request) -> Response:
         try:

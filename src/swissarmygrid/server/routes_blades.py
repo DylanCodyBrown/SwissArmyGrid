@@ -1,5 +1,6 @@
-"""Blades (plan decisions 14-18), the user's alone (the agent is refused: their code names servers
-and accounts, and runs):
+"""Blades (plan decisions 14-18). The golden rule (the owner, 2026-11-14): whatever the user can do,
+the agent can too, so every route serves the agent but one: /blades/{name}/python, whose answer
+carries the saved password values (they never reach the agent):
 
   GET    /blades, /blades/templates, /blades/{name}
   POST   /blades                     save a new one        PUT /blades/{name}   change or rename it
@@ -38,37 +39,29 @@ from swissarmygrid.services.blades import BladeService, NeedsValues
 
 def _agent_refused() -> Response:
     return Response(
-        "Blades are the user's own saved code and secrets: an agent cannot read, change or run them. "
-        "Use the catalog_* tools to see a source's tables and columns.",
+        "This answer holds the saved password values (for sag.blade in the user's Python): never the "
+        "agent's. Run the blade in a Workbench kernel instead (workbench_run), where it reads them itself.",
         status_code=403,
     )
 
 
 def routes(blades: BladeService) -> list[BaseRoute]:
     async def list_blades(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(blades.listing())
         except Exception as error:
             return error_response(error)
 
     async def templates(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         return json_response(blades.templates())
 
     async def get_blade(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(blades.details(request.path_params["name"]))
         except Exception as error:
             return error_response(error)
 
     async def save_blade(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             previous = request.path_params.get("name")
             return json_response(await blades.save(await read_json(request), previous))
@@ -78,16 +71,12 @@ def routes(blades: BladeService) -> list[BaseRoute]:
             return error_response(error)
 
     async def remove_blade(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             return json_response(await blades.remove(request.path_params["name"]))
         except Exception as error:
             return error_response(error)
 
     async def inspect_code(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             body = await read_json_object(request, '{"code": "..."}')
             code = body.get("code")
@@ -110,8 +99,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
     async def fill_settings(request: Request) -> Response:
         """Write new values into a blade's code at its settings (by the ids `settings` gave for this
         same code). Returns the new code and its settings, read again."""
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             body = await read_json_object(request, '{"code": "...", "values": {"<id>": "..."}}')
             code, values = body.get("code"), body.get("values")
@@ -122,8 +109,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
             return error_response(error)
 
     async def set_secrets(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             body = await read_json(request)
             return json_response(blades.set_secrets(request.path_params["name"], body))
@@ -143,8 +128,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
         return json_response(blades.run_failure(str(error), error.missing_module), status_code=422)
 
     async def refresh(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             blade = blades.runnable(request.path_params["name"], "catalog")
             return json_response(await blades.refresh(blade, await typed_body(request)))
@@ -156,8 +139,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
             return error_response(error)
 
     async def test(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             blade = blades.runnable(request.path_params["name"], "test")
             return json_response(await blades.test(blade, await typed_body(request)))
@@ -169,14 +150,10 @@ def routes(blades: BladeService) -> list[BaseRoute]:
             return error_response(error)
 
     async def analyses(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         return json_response(blades.analyses())
 
     async def analyze(request: Request) -> Response:
         """The user's own analysis on the grid's rows as shown, run in a child process like Test."""
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             body = await read_json(request)
             if not isinstance(body, dict) or not isinstance(body.get("name"), str):
@@ -203,8 +180,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
     # ===== favourites, blade folders, export and import (portable blades) =====
 
     async def pin(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             body = await read_json_object(request, '{"pinned": true}')
             return json_response(await blades.pin(request.path_params["name"], bool(body.get("pinned"))))
@@ -212,8 +187,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
             return error_response(error)
 
     async def folders(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             if request.method == "PUT":
                 body = await read_json_object(request, '{"folders": ["..."]}')
@@ -223,8 +196,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
             return error_response(error)
 
     async def export_one(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             text, file_name = blades.export_one(request.path_params["name"])
             return Response(
@@ -236,8 +207,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
             return error_response(error)
 
     async def export_all(request: Request) -> Response:
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             wanted = {
                 n.strip().casefold() for n in request.query_params.get("names", "").split(",") if n.strip()
@@ -253,8 +222,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
     async def import_blades(request: Request) -> Response:
         """Import portable blades in two steps: review what each file holds (nothing saved, nothing
         run), then apply the choice for each."""
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             body = await read_json_object(request, '{"files": [{"name": "...", "data": "<base64>"}]}')
             return json_response(await blades.import_blades(body))
@@ -263,8 +230,6 @@ def routes(blades: BladeService) -> list[BaseRoute]:
 
     async def install(request: Request) -> Response:
         """Install packages into SwissArmyGrid's own Python, where Refresh runs, on the user's click."""
-        if actor(request) == "agent":
-            return _agent_refused()
         try:
             body = await read_json_object(request, '{"packages": ["pyodbc"]}')
             worked, shown = await blades.install(body.get("packages"))
