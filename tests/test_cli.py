@@ -128,6 +128,7 @@ NOT_COMMANDS = {
     # password's value.
     "/agent/approvals/{}": "answering an approval: the agent cannot approve its own request",
     "/agent/export-approval/{}": "reached through table_export, which asks first",
+    "/workbench/window/{}": "the Workbench window's own answer to workbench_window (not the agent's)",
     "/workspace/active": "the page reports which tab is in front (page plumbing)",
     "/datasets/{}": "PUT pushes table contents: pushes stay with Python, the agent passes paths (load)",
     "/grids/{}/selection": "set_selection",

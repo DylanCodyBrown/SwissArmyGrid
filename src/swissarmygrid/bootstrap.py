@@ -68,6 +68,7 @@ from swissarmygrid.services.sql import SqlBox
 from swissarmygrid.services.tieout import TieOut
 from swissarmygrid.services.timeseries import TimeSeries
 from swissarmygrid.services.workbench import Workbench
+from swissarmygrid.services.workbench_window import WorkbenchWindow
 from swissarmygrid.services.workspace import Addresses, Workspace
 from swissarmygrid.settings import Settings
 
@@ -105,6 +106,7 @@ class Services:
     compares: Compares
     tie_out: TieOut
     snapshots: Snapshots
+    workbench_window: WorkbenchWindow
     live: LiveUpdates
     workers: PriorityWorkers
 
@@ -237,6 +239,7 @@ def bootstrap(
         compares=compares,
         tie_out=TieOut(compares),
         snapshots=Snapshots(ws),
+        workbench_window=WorkbenchWindow(ws),
         live=live,
         workers=workers,
     )

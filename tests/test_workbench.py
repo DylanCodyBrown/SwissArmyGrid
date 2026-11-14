@@ -15,7 +15,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from swissarmygrid.domain import notebooks
-from tests.conftest import AGENT, AUTH, make_client
+from tests.conftest import AGENT, AUTH, PORT, make_client
 
 
 @pytest.fixture
@@ -565,3 +565,192 @@ def test_one_odd_object_costs_its_row_never_the_list() -> None:
     found = json.loads(kernel_variables.snapshot([], {"odd": Odd(), "fine": [1, 2]}))
     rows = {v["name"]: v for v in found["variables"]}
     assert rows["fine"]["size"] == "2" and rows["odd"]["value"].startswith("<could not be read")
+
+
+# ===== Ctrl+Enter: the whole statement at the cursor, then on to the next =====
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        (1, (1, 1, 3)),  # import, then on to the decorated function (its decorator line)
+        (3, (3, 5, 8)),  # the decorator: the decorator and the function
+        (5, (3, 5, 8)),  # inside the function's body: the whole function
+        (7, None),  # a blank line: nothing to run (the page moves on)
+        (8, (8, 11, 13)),  # a call spread over lines
+        (10, (8, 11, 13)),
+        (13, (13, 16, None)),  # for with its else
+        (16, (13, 16, None)),
+    ],
+)
+def test_the_statement_at_a_line(line: int, expected: tuple[int, int, int | None] | None) -> None:
+    from swissarmygrid.domain.notebooks import statement_at
+
+    code = (
+        "import math\n"  # 1
+        "\n"
+        "@staticmethod\n"  # 3
+        "def area(r):\n"
+        "    return math.pi * r ** 2\n"  # 5
+        "\n"
+        "\n"  # 7
+        "total = sum(\n"  # 8
+        "    [1, 2],\n"
+        "    start=3,\n"  # 10
+        ")\n"
+        "# a comment\n"
+        "for i in range(3):\n"  # 13
+        "    print(i)\n"
+        "else:\n"
+        "    print('done')\n"  # 16
+    )
+    assert statement_at(code, line) == expected
+
+
+def test_the_statement_at_a_line_while_the_rest_does_not_parse() -> None:
+    from swissarmygrid.domain.notebooks import statement_at
+
+    code = "for r in rates:\n    print(r)\n\nx = (\n"  # the last line is half typed
+    assert statement_at(code, 1) == (1, 2, 4)
+    assert statement_at(code, 2) == (1, 2, 4)
+    assert statement_at(code, 4) == (4, 4, None)  # it does not parse: the line alone (the error says why)
+
+
+def test_the_statement_route(client: TestClient) -> None:
+    answer = client.post(
+        "/workbench/statement", json={"code": "def f():\n    return 1\n\nf()\n", "line": 2}, headers=AUTH
+    )
+    assert answer.json() == {"start": 1, "end": 2, "next": 4}
+    assert client.post("/workbench/statement", json={"code": "x", "line": 0}, headers=AUTH).status_code == 400
+
+
+# ===== the agent in the Workbench window: workbench_window, answered by the window =====
+
+
+def test_a_window_command_is_run_by_the_window_and_answered(client: TestClient) -> None:
+    import threading as _threading
+
+    # No Workbench window open: said plainly.
+    refused = client.post("/workbench/window", json={"command": "documents"}, headers=AUTH)
+    assert refused.status_code == 409 and "not open" in refused.text
+    assert (
+        client.post("/workbench/window", json={"command": "no spaces allowed"}, headers=AUTH).status_code
+        == 400
+    )
+    with client.websocket_connect(
+        "/ws?catalog=1&workbench=1", headers=AUTH | {"Host": f"127.0.0.1:{PORT}"}
+    ) as window:
+        answers: list[Any] = []
+        asking = _threading.Thread(
+            target=lambda: answers.append(
+                client.post(
+                    "/workbench/window",
+                    json={"command": "cell.insertBelow", "args": {"kind": "sql"}},
+                    headers=AUTH,
+                )
+            )
+        )
+        asking.start()
+        notice = window.receive_json()
+        while notice.get("type") != "workbench_command":
+            notice = window.receive_json()
+        assert notice["command"] == "cell.insertBelow" and notice["args"] == {"kind": "sql"}
+        # The agent cannot answer for the window.
+        agent = client.post(f"/workbench/window/{notice['id']}", json={"result": 1}, headers=AGENT)
+        assert agent.status_code == 403
+        assert client.post(
+            f"/workbench/window/{notice['id']}", json={"result": {"cells": 2}}, headers=AUTH
+        ).json() == {"received": True}
+        asking.join(10)
+        assert answers[0].json() == {"result": {"cells": 2}}
+        # The window says why it could not.
+        answers.clear()
+        asking = _threading.Thread(
+            target=lambda: answers.append(
+                client.post("/workbench/window", json={"command": "run.cell"}, headers=AUTH)
+            )
+        )
+        asking.start()
+        notice = window.receive_json()
+        while notice.get("type") != "workbench_command":
+            notice = window.receive_json()
+        client.post(
+            f"/workbench/window/{notice['id']}",
+            json={"error": "The document in front is not a notebook."},
+            headers=AUTH,
+        )
+        asking.join(10)
+        assert answers[0].status_code == 409 and "not a notebook" in answers[0].text
+    assert client.post("/workbench/window/nothing", json={"result": 1}, headers=AUTH).status_code == 404
+
+
+def test_window_commands_go_to_the_workbench_window_last_in_front() -> None:
+    import asyncio
+
+    from swissarmygrid.adapters.live_updates import LiveUpdates
+
+    class Window:
+        def __init__(self) -> None:
+            self.got: list[dict[str, Any]] = []
+
+        async def send_json(self, message: dict[str, Any]) -> None:
+            self.got.append(message)
+
+    live = LiveUpdates()
+    first, second, grid_page = Window(), Window(), Window()
+    live.add(first, workbench=True)  # type: ignore[arg-type]
+    live.add(grid_page, "g1")  # type: ignore[arg-type]
+    live.add(second, workbench=True)  # type: ignore[arg-type]
+    assert asyncio.run(live.tell_workbench({"n": 1})) == 1
+    assert second.got == [{"n": 1}] and first.got == [] and grid_page.got == []
+    live.focus(first)  # type: ignore[arg-type]
+    asyncio.run(live.tell_workbench({"n": 2}))
+    assert first.got == [{"n": 2}]
+    live.discard(first)  # type: ignore[arg-type]
+    assert live.workbench_open()
+    live.discard(second)  # type: ignore[arg-type]
+    assert not live.workbench_open() and asyncio.run(live.tell_workbench({"n": 3})) == 0
+
+
+def test_a_failed_run_says_what_happened_and_what_to_do(client: TestClient) -> None:
+    kernel = client.post("/workbench/kernels", json={}, headers=AUTH).json()["kernel"]
+    try:
+        run(
+            client,
+            kernel,
+            "rates = {'north': 2, 'south': 3}\ndef share(region):\n    return 10 / rates[region]",
+        )
+        outputs = run(client, kernel, "share('nroth')")
+        assert outputs[0]["output_type"] == "error"  # Jupyter's own record, as a notebook saves it
+        detail = next(o["error_detail"] for o in outputs if "error_detail" in o)
+        last = detail["chain"][-1]
+        assert last["type"] == "KeyError" and detail["where"].startswith("cell [")
+        assert last["explanation"].startswith("There is no key 'nroth'. The keys are 'north' and 'south'.")
+        assert last["fixes"] == [
+            {"kind": "replace", "title": "Use 'north'", "target": "nroth", "text": "north"}
+        ]
+        inner = last["frames"][last["your_frame"]]
+        assert (
+            inner["function"] == "share"
+            and inner["line"] == 3
+            and (inner["col"], inner["end_col"]) == (17, 30)
+        )
+        assert {"expr": "region", "repr": "'nroth'", "type": "str"} in inner["values"]  # stack_data's values
+        assert outputs[-1]["done"]["ok"] is False
+        # A missing import offers the line that brings it in.
+        detail = next(o["error_detail"] for o in run(client, kernel, "pd.DataFrame()") if "error_detail" in o)
+        assert detail["chain"][-1]["fixes"][0]["line"] == "import pandas as pd"
+        # A run that worked sends none.
+        assert not any("error_detail" in o for o in run(client, kernel, "1 + 1"))
+    finally:
+        client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)
+
+
+@pytest.mark.parametrize("folder", ["x", "nope-does-not-exist", "projects/.venv", "..\\env"])
+def test_a_new_environment_needs_a_full_path(folder: str) -> None:
+    from swissarmygrid.domain import environments
+
+    with pytest.raises(environments.EnvironmentRequestError, match="full path"):
+        environments.check_request({"folder": folder, "packages": []})
+    for full in ("C:\\Users\\ana\\.venv", "\\\\server\\share\\env", "/home/ana/.venv"):
+        assert environments.is_full_path(full)

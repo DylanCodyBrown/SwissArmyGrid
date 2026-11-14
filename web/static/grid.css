@@ -4368,9 +4368,11 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   background: transparent;
 }
 
-.wb-toolbar .btn.primary {
+.wb-toolbar .btn.primary,
+.wb-toolbar .btn[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--accent);
+  color: var(--accent-fg);
 }
 
 .wb-toolbar select {
@@ -4409,15 +4411,301 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   min-height: 0;
 }
 
-.wb-doc {
+/* The four panes (workbenchLayout.ts): RStudio's skeleton. Each column is a grid of two panes and a
+   splitter; the sizes are custom properties the splitters set. */
+.wb-panes {
+  position: relative;
+  display: flex;
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+.wb-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--wb-top, 60%)) 5px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.wb-col-left {
+  flex: 0 0 var(--wb-left, 66%);
+}
+
+.wb-col-right {
+  flex: 1;
+  background: var(--surface);
+}
+
+.wb-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.wb-source {
   overflow: auto;
+}
+
+.wb-pane-empty {
+  margin: 12px;
+}
+
+.wb-split {
+  background: var(--border);
+  touch-action: none;
+}
+
+.wb-split.vertical {
+  flex: 0 0 5px;
+  cursor: col-resize;
+}
+
+.wb-split.horizontal {
+  cursor: row-resize;
+}
+
+.wb-split:hover,
+.wb-split.dragging,
+.wb-split:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
+/* Focus (the source alone), the right column hidden, the console hidden. */
+.wb-panes.no-right > .wb-col-right,
+.wb-panes.no-right > .wb-split.vertical {
+  display: none;
+}
+
+.wb-panes.no-right > .wb-col-left {
+  flex: 1;
+}
+
+.wb-panes.no-console > .wb-col-left {
+  grid-template-rows: minmax(0, 1fr) 0 0;
+}
+
+.wb-panes.no-console > .wb-col-left > .wb-split,
+.wb-panes.no-console > .wb-col-left > .wb-console-pane {
+  display: none;
+}
+
+/* Under 1100 pixels the right column opens over the source, as a drawer. */
+.wb-panes.drawer > .wb-col-left {
+  flex: 1;
+}
+
+.wb-panes.drawer > .wb-split.vertical {
+  display: none;
+}
+
+.wb-panes.drawer > .wb-col-right {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 5;
+  width: min(420px, 88%);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgb(0 0 0 / 0.18);
+}
+
+/* The lower right: Plots and Help. */
+.wb-lower-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 4px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-lower-tab {
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.wb-lower-tab[aria-selected="true"] {
+  border-color: var(--border);
+  background: var(--raised);
+  color: var(--fg);
+}
+
+.wb-lower-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 6px 10px;
+  overflow: auto;
+  background: var(--raised);
+}
+
+.wb-lower-panel[hidden] {
+  display: none;
+}
+
+.wb-plot-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.wb-plot-head .spacer {
+  flex: 1;
+}
+
+.wb-plot-head .wb-next .icon-svg {
+  transform: rotate(90deg);
+}
+
+.wb-plot-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.wb-plot-body .wb-plotly {
+  height: 100%;
+  min-height: 240px;
+}
+
+.wb-help-body {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+}
+
+/* The status bar: the kernel, the environment, the cursor. */
+.wb-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 18px;
+  min-height: 24px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wb-status .spacer {
+  flex: 1;
+}
+
+.wb-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  vertical-align: middle;
+}
+
+.wb-state.idle .wb-dot {
+  background: var(--ok);
+}
+
+.wb-state.busy .wb-dot,
+.wb-state.starting .wb-dot {
+  background: var(--warn);
+}
+
+/* The command palette (Ctrl+Shift+P). */
+.wb-palette-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgb(0 0 0 / 0.25);
+}
+
+.wb-palette {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 92vw);
+  max-height: 64vh;
+  margin: 10vh auto 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.28);
+  overflow: hidden;
+}
+
+.wb-palette-input {
+  flex: none;
+  margin: 8px;
+  padding: 7px 10px;
+  font-size: 1em;
+}
+
+.wb-palette-list {
+  margin: 0;
+  padding: 0 0 6px;
+  list-style: none;
+  overflow: auto;
+}
+
+.wb-palette-item {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.wb-palette-item.active {
+  background: var(--accent-soft);
+}
+
+.wb-palette-item.off {
+  opacity: 0.5;
+}
+
+.wb-palette-group {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.wb-palette-item kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.8em;
+}
+
+/* At narrow widths the toolbar shows icons (its words stay for screen readers and in tooltips). */
+@media (max-width: 1280px) {
+  .wb-toolbar .btn:not(.primary) .btn-label {
+    display: none;
+  }
 }
 
 .wb-doc-body {
   min-height: 100%;
+}
+
+/* A script fills the window: the editor above, the console below, each scrolling on its own (the
+   stress test's W1: the console grew with its output and pushed the editor and the prompt away). */
+.wb-source:has(> .wb-doc-body.kind-script) {
+  overflow: hidden;
+}
+
+.wb-doc-body.kind-script {
+  height: 100%;
 }
 
 .wb-doc-body.kind-blade,
@@ -4457,6 +4745,30 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
 
 .wb-cell.running {
   border-left-color: var(--warn);
+}
+
+.wb-cell.failed {
+  border-left-color: var(--error);
+}
+
+/* Command mode: the cell itself has the focus (Jupyter's keys act on it). */
+.wb-cell:focus-visible,
+.wb-cell.selected:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.wb-cell.output-hidden > .wb-outputs {
+  display: none;
+}
+
+.wb-output-hidden {
+  display: none;
+  margin: 4px 10px 6px;
+}
+
+.wb-cell.output-hidden > .wb-output-hidden {
+  display: block;
 }
 
 .wb-cell.kind-sql .wb-cell-head {
@@ -4540,17 +4852,24 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
 
 .wb-script {
   display: grid;
-  grid-template-rows: minmax(160px, 3fr) minmax(140px, 2fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
+}
+
+/* Grid items may shrink below Monaco's own width (it sets one in pixels), so a panel beside the
+   script narrows the editor instead of covering it. */
+.wb-script > * {
+  min-width: 0;
 }
 
 .wb-script-editor {
   min-height: 0;
-  border-bottom: 1px solid var(--border);
 }
 
 .wb-console {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-height: 0;
   background: var(--surface);
@@ -4588,8 +4907,157 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   padding: 2px 0 0;
 }
 
-.wb-console-input {
-  margin: 6px 10px 8px;
+.wb-console-entry.running .wb-console-code {
+  color: var(--warn);
+}
+
+.wb-console-prompt {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 6px;
+  max-height: 40%;
+  padding: 4px 10px 6px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--raised);
+}
+
+.wb-console-chevron {
+  padding-top: 3px;
+  color: var(--accent);
+  font-size: 12.5px;
+}
+
+.wb-console-editor {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The page's own word under a run (the kernel stopped, Restart, a cancelled run): never saved. */
+.wb-notice {
+  margin: 4px 0;
+  padding: 4px 8px;
+  border-left: 3px solid var(--border-strong, var(--border));
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.wb-notice.error {
+  border-left-color: var(--error);
+  color: var(--error);
+}
+
+.wb-cut {
+  margin: 2px 0;
+  font-size: 0.85em;
+}
+
+.wb-fold {
+  margin: 2px 0;
+  font-family: inherit;
+}
+
+/* input(): the kernel asks for a line, here, in place. */
+.wb-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  font-size: 12.5px;
+}
+
+.wb-input-prompt {
+  white-space: pre;
+}
+
+.wb-input-box {
+  flex: 1;
+  max-width: 420px;
+  padding: 2px 6px;
+}
+
+/* Colour codes in output (ANSI): the 16 colours, readable on this theme's background. */
+.wb-outputs {
+  --ansi-0: #3b4148;
+  --ansi-1: #b3261e;
+  --ansi-2: #1c7a33;
+  --ansi-3: #8a6100;
+  --ansi-4: #1f5fbf;
+  --ansi-5: #8e3aa6;
+  --ansi-6: #0f7480;
+  --ansi-7: #5c6670;
+  --ansi-8: #59626b;
+  --ansi-9: #d0342c;
+  --ansi-10: #23913d;
+  --ansi-11: #9a6f00;
+  --ansi-12: #2f6fd6;
+  --ansi-13: #a447bd;
+  --ansi-14: #138896;
+  --ansi-15: #1c2228;
+}
+
+html[data-theme="dark"] .wb-outputs,
+html[data-theme="hc-dark"] .wb-outputs {
+  --ansi-0: #8b949e;
+  --ansi-1: #ff7b72;
+  --ansi-2: #56d364;
+  --ansi-3: #e3b341;
+  --ansi-4: #79c0ff;
+  --ansi-5: #d2a8ff;
+  --ansi-6: #56d4dd;
+  --ansi-7: #c9d1d9;
+  --ansi-8: #8b949e;
+  --ansi-9: #ffa198;
+  --ansi-10: #7ee787;
+  --ansi-11: #f2cc60;
+  --ansi-12: #a5d6ff;
+  --ansi-13: #e2c5ff;
+  --ansi-14: #8be9f0;
+  --ansi-15: #f0f6fc;
+}
+
+.ansi-fg-0 { color: var(--ansi-0); }
+.ansi-fg-1 { color: var(--ansi-1); }
+.ansi-fg-2 { color: var(--ansi-2); }
+.ansi-fg-3 { color: var(--ansi-3); }
+.ansi-fg-4 { color: var(--ansi-4); }
+.ansi-fg-5 { color: var(--ansi-5); }
+.ansi-fg-6 { color: var(--ansi-6); }
+.ansi-fg-7 { color: var(--ansi-7); }
+.ansi-fg-8 { color: var(--ansi-8); }
+.ansi-fg-9 { color: var(--ansi-9); }
+.ansi-fg-10 { color: var(--ansi-10); }
+.ansi-fg-11 { color: var(--ansi-11); }
+.ansi-fg-12 { color: var(--ansi-12); }
+.ansi-fg-13 { color: var(--ansi-13); }
+.ansi-fg-14 { color: var(--ansi-14); }
+.ansi-fg-15 { color: var(--ansi-15); }
+.ansi-bg-0 { background: var(--ansi-0); }
+.ansi-bg-1 { background: var(--ansi-1); }
+.ansi-bg-2 { background: var(--ansi-2); }
+.ansi-bg-3 { background: var(--ansi-3); }
+.ansi-bg-4 { background: var(--ansi-4); }
+.ansi-bg-5 { background: var(--ansi-5); }
+.ansi-bg-6 { background: var(--ansi-6); }
+.ansi-bg-7 { background: var(--ansi-7); }
+.ansi-bg-8 { background: var(--ansi-8); }
+.ansi-bg-9 { background: var(--ansi-9); }
+.ansi-bg-10 { background: var(--ansi-10); }
+.ansi-bg-11 { background: var(--ansi-11); }
+.ansi-bg-12 { background: var(--ansi-12); }
+.ansi-bg-13 { background: var(--ansi-13); }
+.ansi-bg-14 { background: var(--ansi-14); }
+.ansi-bg-15 { background: var(--ansi-15); }
+.ansi-bold { font-weight: 700; }
+.ansi-dim { opacity: 0.7; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
+
+/* An error's own colours (IPython colours its tracebacks) come through; the rest stays red. */
+.wb-error .ansi-fg-0,
+.wb-error .ansi-fg-7 {
+  color: var(--fg);
 }
 
 .tab-workbench .icon-svg:last-child {
@@ -4650,17 +5118,20 @@ dialog .field > .field-row > select {
   min-width: 0;
 }
 
-/* The Variables overlay (workbenchVariables.ts) */
+/* The Variables pane (workbenchVariables.ts), top right */
 .wb-vars {
   display: flex;
-  flex: none;
+  flex: 1;
   flex-direction: column;
   gap: 6px;
-  width: min(460px, 40vw);
+  min-height: 0;
   padding: 8px 12px;
   overflow: auto;
-  border-left: 1px solid var(--border);
   background: var(--surface);
+}
+
+.wb-sort {
+  font-weight: 600;
 }
 
 .wb-vars[hidden] {
@@ -4694,8 +5165,9 @@ dialog .field > .field-row > select {
   table-layout: fixed;
 }
 
-.wb-vars-table td {
+.wb-vars-table.small td {
   overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .wb-vars-table th,
@@ -4708,7 +5180,25 @@ dialog .field > .field-row > select {
 
 .wb-vars-table td.num {
   text-align: right;
-  white-space: nowrap;
+}
+
+.wb-vars-table.small td.num,
+.wb-vars-table.small td.wb-vars-type {
+  overflow-wrap: break-word; /* whole words: "2 rows by 2 columns", never "column s" */
+}
+
+/* Name, type and size get room of their own; the value takes what is left (the review's D5: the
+   type ran into the size at 1024 pixels). */
+.wb-vars-table th:nth-child(1) {
+  width: 24%;
+}
+
+.wb-vars-table:has(th:nth-child(4)) th:nth-child(2) {
+  width: 24%;
+}
+
+.wb-vars-table:has(th:nth-child(4)) th:nth-child(3) {
+  width: 18%;
 }
 
 .wb-vars-table tr.not-open td {
@@ -4726,3 +5216,140 @@ dialog .field > .field-row > select {
   overflow-wrap: anywhere;
 }
 
+
+/* The error panel (workbenchErrors.ts): Visual Studio's Exception Helper, in a run's output. */
+.wb-err {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--error);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--raised);
+}
+
+.wb-err-head {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.wb-err-type {
+  color: var(--error);
+  font-weight: 700;
+}
+
+.wb-err-hint {
+  color: var(--accent);
+  font-style: italic;
+}
+
+.wb-err-where {
+  justify-self: start;
+  font-size: 0.92em;
+}
+
+.wb-err-explain {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.wb-err-fixes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wb-err-fixes .btn {
+  border-color: var(--border-strong);
+}
+
+.wb-err-section > summary {
+  color: var(--muted);
+  font-size: 0.85em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.wb-err-values {
+  margin: 4px 0;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.wb-err-values th,
+.wb-err-values td {
+  padding: 2px 10px 2px 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.wb-err-values th {
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.wb-err-stack {
+  margin: 4px 0;
+  padding-left: 22px;
+}
+
+.wb-err-stack > li {
+  margin: 2px 0;
+}
+
+.wb-err-frame.current {
+  font-weight: 700;
+}
+
+.wb-err-code {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.wb-err-lib > summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.wb-err-lib ol {
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.wb-err-chained {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.wb-err .wb-error {
+  max-height: 360px;
+  overflow: auto;
+}
+
+/* The editor's marks for a failed run: the line, and its message at the end (Error Lens). */
+.monaco-editor .wb-problem-line {
+  background: color-mix(in srgb, var(--error) 9%, transparent);
+}
+
+.monaco-editor .wb-call-line {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.monaco-editor .wb-problem-lens {
+  color: var(--error);
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.monaco-editor .wb-call-lens {
+  color: var(--muted);
+  font-style: italic;
+}

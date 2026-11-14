@@ -51,6 +51,12 @@ class FakePages:
     def page_open(self) -> bool:
         return self.open_page
 
+    def workbench_open(self) -> bool:
+        return False
+
+    async def tell_workbench(self, message: dict[str, Any]) -> int:
+        return 0
+
 
 class FakeAudit:
     """The `Audit` port: a list in memory."""

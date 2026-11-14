@@ -97,6 +97,12 @@ def check_request(body: Any) -> tuple[str, str | None, list[str]]:
     folder = body.get("folder")
     if not isinstance(folder, str) or not folder.strip() or len(folder) > 1_000:
         raise EnvironmentRequestError("Say where the environment goes: a folder that does not exist yet.")
+    if not is_full_path(folder.strip()):
+        # A relative folder would land wherever the server was started (a sweep of odd arguments made
+        # environments named "x" in the app's own folder).
+        raise EnvironmentRequestError(
+            "Give the environment's folder as a full path (C:\\Users\\…\\.venv or /home/…/.venv)."
+        )
     version = body.get("python") or None
     if version is not None and version not in PYTHON_VERSIONS:
         raise EnvironmentRequestError(
@@ -113,6 +119,11 @@ def check_request(body: Any) -> tuple[str, str | None, list[str]]:
             )
         wanted.append(package.strip())
     return folder.strip(), version, list(dict.fromkeys([*ALWAYS, *wanted]))
+
+
+def is_full_path(path: str) -> bool:
+    """A full path on Windows (C:\\…, \\\\server\\share) or elsewhere (/…), read from the text alone."""
+    return bool(re.match(r"^(?:[A-Za-z]:[\\/]|\\\\|/)", path))
 
 
 def folder_name_ok(name: str) -> bool:

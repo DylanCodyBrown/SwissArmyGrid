@@ -1,10 +1,10 @@
 /**
- * workbenchVariables.ts: the Workbench's Variables overlay, beside the document: what its kernel holds
- * now. [WIRE]
+ * workbenchVariables.ts: the Workbench's Variables pane (top right, RStudio's Environment): what the
+ * front document's kernel holds now. [WIRE]
  *
  *   CONNECTIONS AND BLADES   each by its name in code: open (and what it holds) or not yet
  *   YOUR VARIABLES           name, type, size (rows by columns, a length), a short look at the value;
- *                            a table has Open as grid
+ *                            a table has Open as grid; a column's heading sorts by it
  *   ENVIRONMENT              the variables vaults, secret blades and connection passwords use: set or
  *                            not set (their values never leave the kernel)
  *
@@ -16,7 +16,7 @@ import { api } from "./api";
 import { button, clear, h, toast } from "./dom";
 import type { Kernel } from "./workbenchKernel";
 
-interface Snapshot {
+export interface Snapshot {
   busy: boolean;
   connections: { name: string; connection: string; open: boolean; type: string; value: string; table: boolean }[];
   variables: { name: string; type: string; size: string; value: string; table: boolean }[];
@@ -28,27 +28,33 @@ export interface VariablesPanel {
   /** Show this document's kernel (null: no document that runs code). */
   show: (kernel: Kernel | null) => void;
   refresh: () => Promise<void>;
-  toggle: (open?: boolean) => boolean;
+  /** What the pane last read (null: nothing yet). */
+  snapshot: () => Snapshot | null;
 }
 
-export function variablesPanel(): VariablesPanel {
+type SortKey = "name" | "type" | "size";
+/** A size's first number ("1,200 rows by 4 columns" sorts as 1200). */
+const sizeOf = (size: string): number => Number(/[\d,]+/.exec(size)?.[0]?.replace(/,/g, "") ?? -1);
+
+export function variablesPanel(onClose: () => void = () => undefined): VariablesPanel {
   const body = h("div", { class: "wb-vars-body" });
   const filter = h("input", { type: "search", class: "cat-search", placeholder: "Filter by name or type", "aria-label": "Filter variables" });
   const element = h(
-    "aside",
-    { class: "wb-vars", "aria-label": "Variables", hidden: true },
+    "section",
+    { class: "wb-vars", "aria-label": "Variables" },
     h(
       "div",
       { class: "wb-vars-head" },
       h("h2", {}, "Variables"),
       button("Refresh", () => void refresh(), { icon: "back", iconOnly: true, class: "ghost", title: "Read the variables again" }),
-      button("Close", () => toggle(false), { icon: "close", iconOnly: true, class: "ghost" }),
+      button("Hide the right column", onClose, { icon: "close", iconOnly: true, class: "ghost", title: "Hide Variables, Plots and Help (the toolbar's Variables shows them again)" }),
     ),
     filter,
     body,
   );
   let kernel: Kernel | null = null;
   let last: Snapshot | null = null;
+  let sort: { key: SortKey; down: boolean } = { key: "name", down: false };
   const watched = new WeakSet<Kernel>();
 
   const openAsGrid = async (name: string): Promise<void> => {
@@ -76,9 +82,27 @@ export function variablesPanel(): VariablesPanel {
     }
     const wanted = filter.value.trim().toLowerCase();
     const keep = (...words: string[]): boolean => !wanted || words.some((w) => w.toLowerCase().includes(wanted));
-    const table = (head: string[], rows: HTMLElement[]): HTMLElement => h("table", { class: "wb-vars-table small" }, h("thead", {}, h("tr", {}, ...head.map((c) => h("th", { scope: "col" }, c)))), h("tbody", {}, ...rows));
+    const table = (head: string[], rows: HTMLElement[], sortable = false): HTMLElement => {
+      const keys: Record<string, SortKey> = { Name: "name", Type: "type", Size: "size" };
+      const heading = (c: string): HTMLElement => {
+        const key = keys[c];
+        if (!sortable || !key) return h("th", { scope: "col" }, c);
+        const on = sort.key === key;
+        return h(
+          "th",
+          { scope: "col", "aria-sort": on ? (sort.down ? "descending" : "ascending") : "none" },
+          h("button", { type: "button", class: "link wb-sort", onclick: () => { sort = { key, down: on ? !sort.down : false }; draw(); } }, c, on ? (sort.down ? " ▾" : " ▴") : ""),
+        );
+      };
+      return h("table", { class: "wb-vars-table small" }, h("thead", {}, h("tr", {}, ...head.map(heading))), h("tbody", {}, ...rows));
+    };
     const connections = last.connections.filter((c) => keep(c.name, c.connection, c.type));
-    const variables = last.variables.filter((v) => keep(v.name, v.type));
+    const variables = last.variables
+      .filter((v) => keep(v.name, v.type))
+      .sort((a, b) => {
+        const by = sort.key === "size" ? sizeOf(a.size) - sizeOf(b.size) : a[sort.key].localeCompare(b[sort.key], undefined, { sensitivity: "base" });
+        return (sort.down ? -by : by) || a.name.localeCompare(b.name);
+      });
     const environment = last.environment.filter((e) => keep(e.name));
     clear(
       body,
@@ -111,6 +135,7 @@ export function variablesPanel(): VariablesPanel {
                 h("td", { title: v.value }, h("span", { class: "wb-vars-value" }, v.value), v.table ? button(`Open ${v.name} as a grid`, () => void openAsGrid(v.name), { icon: "export", iconOnly: true, class: "ghost", title: "Open as grid" }) : null),
               ),
             ),
+            true,
           )
         : h("p", { class: "hint" }, wanted ? "None matches." : "None yet."),
       h("h3", {}, "Environment"),
@@ -121,7 +146,7 @@ export function variablesPanel(): VariablesPanel {
   };
 
   const refresh = async (): Promise<void> => {
-    if (element.hidden || !kernel?.id) return draw();
+    if (!element.isConnected || !element.offsetParent || !kernel?.id) return draw();
     try {
       last = await api<Snapshot>(`/workbench/kernels/${kernel.id}/variables`);
     } catch (e) {
@@ -129,12 +154,6 @@ export function variablesPanel(): VariablesPanel {
       return;
     }
     draw();
-  };
-
-  const toggle = (open?: boolean): boolean => {
-    element.hidden = open === undefined ? !element.hidden : !open;
-    if (!element.hidden) void refresh();
-    return !element.hidden;
   };
 
   filter.addEventListener("input", draw);
@@ -159,6 +178,6 @@ export function variablesPanel(): VariablesPanel {
       void refresh();
     },
     refresh,
-    toggle,
+    snapshot: () => last,
   };
 }

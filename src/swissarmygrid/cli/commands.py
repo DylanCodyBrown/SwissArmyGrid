@@ -2116,6 +2116,23 @@ def _outputs(lines: list[Any]) -> dict[str, Any]:
             shown.append(
                 {"waiting_for_input": item["input_request"]["prompt"], "answer_with": "workbench_input"}
             )
+        elif "error_detail" in item:
+            # The error panel's reading: where in the user's code, what it means, the fixes, and the
+            # failing expression's values (each a short preview).
+            detail = item["error_detail"]
+            last = (detail.get("chain") or [{}])[-1]
+            frames = last.get("frames") or []
+            yours = last.get("your_frame")
+            frame = frames[yours] if isinstance(yours, int) and 0 <= yours < len(frames) else {}
+            shown.append(
+                {
+                    "error_explained": last.get("explanation", ""),
+                    "where": detail.get("where"),
+                    "fixes": [f.get("title") for f in last.get("fixes", [])],
+                    "values": frame.get("values", []),
+                    "chain": [f"{e.get('type')}: {e.get('message')}" for e in detail.get("chain", [])],
+                }
+            )
     for part in shown:
         if "text" in part and len(part["text"]) > 20_000:
             part["text"] = part["text"][:10_000] + "\n… (cut) …\n" + part["text"][-10_000:]
@@ -2158,6 +2175,30 @@ def workbench_input(a: dict[str, Any]) -> Any:
 )
 def workbench_is_complete(a: dict[str, Any]) -> Any:
     return api.call("POST", f"/workbench/kernels/{_q(a['kernel'])}/is-complete", {"code": a["code"]})
+
+
+@command(
+    "workbench_window",
+    "Do what the user does in the open Workbench window: any command of its palette (Ctrl+Shift+P). "
+    'command "documents" says what is open; "commands" lists every command and its args; e.g. '
+    '"cell.insertBelow" {"kind": "code", "source": "..."}, "run.cell", "view.focus", "doc.show"',
+    req("command", 'A command\'s id, such as "documents", "commands", "run.statement" or "cell.delete".'),
+    opt("args", 'The command\'s arguments, as an object (see "commands").', "json"),
+)
+def workbench_window(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/workbench/window", {"command": a["command"], "args": a.get("args") or {}})[
+        "result"
+    ]
+
+
+@command(
+    "workbench_statement",
+    "The whole statement at a script's line, as Ctrl+Enter runs it (first and last line, the next one)",
+    req("code", "The script's code."),
+    req("line", "A line in it (the first is 1).", "int"),
+)
+def workbench_statement(a: dict[str, Any]) -> Any:
+    return api.call("POST", "/workbench/statement", {"code": a["code"], "line": a["line"]})
 
 
 @command(

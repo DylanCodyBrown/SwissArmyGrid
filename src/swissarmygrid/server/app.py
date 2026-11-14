@@ -90,10 +90,12 @@ def create_app(
             workspace=websocket.query_params.get("workspace") == "1",
             # A VS Code window (the extension): it shows the workspace when a push needs it.
             opener=websocket.query_params.get("opener") == "1",
+            # A Workbench window: the agent's workbench_window commands go to it.
+            workbench=websocket.query_params.get("workbench") == "1",
         )
         try:
             while True:
-                # The only message a client sends: a VS Code window saying it came to the front.
+                # The only message a client sends: a VS Code or Workbench window saying it came to the front.
                 if await websocket.receive_text() == '{"type":"focus"}':
                     ctx.live.focus(websocket)
         except WebSocketDisconnect:
@@ -144,7 +146,7 @@ def create_app(
             *routes_blades.routes(ctx.blades),
             *routes_connections.routes(ctx.connections, ctx.blades),
             *routes_folders.routes(ctx.folders),
-            *routes_workbench.routes(ctx.workbench),
+            *routes_workbench.routes(ctx.workbench, ctx.workbench_window),
             *routes_handoff.routes(ctx.handoff),
             *routes_relationships.routes(ctx.models, ctx.finder, ctx.keys, ctx.compares),
             *routes_tieout.routes(ctx.tie_out),

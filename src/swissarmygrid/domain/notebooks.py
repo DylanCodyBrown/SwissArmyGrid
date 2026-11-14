@@ -9,6 +9,7 @@ so the Workbench opens it as a SQL cell again.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shlex
@@ -196,3 +197,70 @@ def quote_path(path: str) -> str:
     if not re.search(r'[\s"\']', path):
         return path
     return '"' + path.replace('"', '\\"') + '"'
+
+
+# Lines that carry on the statement above them, not start a new one.
+_CARRY_ON = re.compile(r"^\s*(?:elif\b|else\b|except\b|finally\b|case\b|[)\]}])")
+
+
+def _top_level(code: str) -> list[tuple[int, int]]:
+    """Each top-level statement's first and last line (a decorator's line is its function's first)."""
+    spans: list[tuple[int, int]] = []
+    for node in ast.parse(code).body:
+        decorators = getattr(node, "decorator_list", [])
+        start = min([node.lineno, *(d.lineno for d in decorators)])
+        spans.append((start, node.end_lineno or node.lineno))
+    return spans
+
+
+def statement_at(code: str, line: int) -> tuple[int, int, int | None] | None:
+    """Ctrl+Enter in a script (RStudio's run line, VS Code's smart send): the whole top-level statement
+    the 1-based `line` is in, as (first line, last line, the next statement's first line or None).
+    None: the line is blank or a comment (nothing runs; the page moves on). While the file as a whole
+    does not parse (something half typed further down), the statement is found by its indentation and
+    the shortest run of lines that parses; failing that, the line alone, so Python's error says why."""
+    lines = code.split("\n")
+    if not 1 <= line <= len(lines):
+        raise NotebookError(f"There is no line {line}: the code has {len(lines)}.")
+    try:
+        spans = _top_level(code)
+    except SyntaxError:
+        spans = []
+        found = _by_indentation(lines, line)
+        if found is None:
+            return None
+        start, end = found
+        after = next((n for n in range(end + 1, len(lines) + 1) if _starts_statement(lines[n - 1])), None)
+        return start, end, after
+    for i, (start, end) in enumerate(spans):
+        if start <= line <= end:
+            return start, end, spans[i + 1][0] if i + 1 < len(spans) else None
+    return None
+
+
+def _starts_statement(text: str) -> bool:
+    stripped = text.strip()
+    return bool(stripped) and not stripped.startswith("#") and not text[:1].isspace()
+
+
+def _by_indentation(lines: list[str], line: int) -> tuple[int, int] | None:
+    here = lines[line - 1].strip()
+    if not here or here.startswith("#"):
+        return None
+    start = line
+    while start > 1 and (
+        lines[start - 1][:1].isspace() or not lines[start - 1].strip() or _CARRY_ON.match(lines[start - 1])
+    ):
+        start -= 1
+    while start < line and not _starts_statement(lines[start - 1]):
+        start += 1
+    for end in range(line, min(len(lines), line + 500) + 1):
+        following = lines[end] if end < len(lines) else ""
+        if following.strip() and (following[:1].isspace() or _CARRY_ON.match(following)):
+            continue  # the statement goes on below
+        try:
+            ast.parse("\n".join(lines[start - 1 : end]))
+        except SyntaxError:
+            continue
+        return start, end
+    return line, line

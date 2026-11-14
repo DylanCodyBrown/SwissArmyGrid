@@ -33,8 +33,10 @@ The owner's requests, 2026-11-13, in their words:
    choose (the server's own, or a project's environment). Notebooks are `.ipynb`, so Jupyter and VS
    Code open them too.
 6. **Scripts are an editor and a Python console** (like Spyder or VS Code's interactive window): open,
-   save and reopen `.py` files; Run sends the script or the selected lines to the kernel; the console
-   below shows output and takes typed lines.
+   save and reopen `.py` files; Run file runs the file as Python would (`%run`, saved first); Ctrl+Enter
+   runs the whole statement at the cursor and moves on (RStudio's feel); the console below shows output
+   and takes several lines (Enter runs a whole statement, as IPython does), with history and completion;
+   `input()` asks in place.
 
 7. **The Workbench is a robust IDE** (the owner, 2026-11-14): completion as you type from the
    kernel (Python) and from the data explorer's catalog (SQL cells), help on hover.
@@ -42,6 +44,13 @@ The owner's requests, 2026-11-13, in their words:
    key vault's entry (the vault blade runs first).
 9. **Each notebook can have its own virtual environment,** made easily (where, the Python version,
    libraries by preset or group, imports added) and remembered for the notebook.
+
+11. **RStudio's skeleton, VS Code's edges** (the IDE review, 2026-11-14): four panes always in the
+    same places (source, its console under it, Variables top right, Plots and Help under that), with
+    splitters; a console for every document on its kernel; a command palette over one list of every
+    window action (the same list the keys and the agent's `workbench_window` use); Jupyter's command
+    mode in notebooks; a status bar. Open documents come back after a reload from the window's session
+    storage (in the browser: nothing written to disk).
 
 10. **Every connection is in every Workbench notebook and script by its name** (the owner's choice
     over a per-notebook checkbox, 2026-11-14): opened when a cell first uses the name, never written

@@ -361,3 +361,41 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   file with no write bits is refused as read-only unless forced (as root `os.access` always says yes).
   Connection names never hide a builtin (`Print` becomes `print_`), and a cell that assigns a name
   never opens the connection of that name. One misbehaving object costs its own row in Variables.
+- (2026-11-14) The Workbench's page fixes from the stress test, in Chromium against real kernels
+  (tests/e2e/test_workbench_page.py): 6,000 flushed prints drew as they came (the run took seconds; it
+  froze the page for over 100 s at 5,000 when every record redrew the run) with the newest 5,000 lines
+  shown and the rest counted; colour codes show as colours and each `\r` writes over its line; `input()`
+  is answered in a box in place; `os._exit` says the kernel stopped; Ctrl+Enter on a `for` line ran the
+  whole block, then the next statement; the console took a block over two lines (Enter on an unfinished
+  line adds one, an empty line runs it); F5 outside the editor ran the file and the kernel kept its
+  variables (the browser would have reloaded); a deleted cell came back with Undo; a reload brought back
+  an unsaved script and notebook (session storage only). Monaco's `insertText` re-indents what it
+  inserts (a test typing a `for` block got the next line inside it), so tests with exact indentation
+  open a written file.
+- (2026-11-14) The Workbench's four panes (RStudio's skeleton) in Chromium: a notebook's own console
+  answered `21 * 2`; the palette inserted a cell by typing "insert below"; command mode's B, D D, Z and
+  M acted on the selected cell; a splitter moved by the arrow keys; Ctrl+Shift+1 showed the source
+  alone; an SVG a script displayed gathered in Plots; F1 on `len` showed its help; the agent's
+  `workbench_window` made a notebook, inserted and ran a cell (42), read the documents and the cells,
+  and ran a line in the console. Monaco's `addCommand` registers in one keybinding service shared by
+  every editor on the page: without a context key of the editor's own in the condition, the console's
+  Enter ran in a notebook cell (the newlines typed there vanished) and the last cell's Escape answered
+  for every cell. With two Workbench windows open, both answered a command and the wrong one could win;
+  commands now go to the window last in front (it says so on focus, as a VS Code window does). A cell
+  added from the toolbar took the focus 50 ms later even after a click into another cell, splitting
+  typed text between two cells (the flaky notebook test); the focus now goes as soon as the editor
+  exists, unless it moved meanwhile.
+- (2026-11-14) The error panel against real kernels (tests/test_errors.py, tests/test_workbench.py,
+  tests/e2e/test_workbench_page.py): a KeyError inside a function named the key, listed the dict's keys,
+  offered the close one, and stack_data gave `region` = 'nroth' and the subscript's columns (17 to 30,
+  1-based, as Monaco counts); `df.loc[..., 'amont']` lists the table's columns (pure_eval reads no
+  properties, so the table before `.loc` is evaluated); pandas' compiled frames name their source
+  relative to the package (`pandas/_libs/index.pyx`), which resolved against the working folder and
+  counted as the user's own file until relative and `.pyx` names were made library frames; an earlier
+  error that never touched the user's code (pandas' inner KeyError) is left out of the chain. A 0.6
+  close-name cutoff offered 'south' for 'nroth'; 0.7 keeps real typos ('north' 0.8, 'total' 0.89). In
+  Chromium a script's KeyError was explained, its line marked with the message at its end, and "Use
+  'amount'" fixed it; a notebook's missing `np` got its import with one click and the cell ran. Monaco
+  draws no injected text after an empty range: the end-of-line message sits on the line's last
+  character. The grid page's wide-column scrolling test failed once under the full suite's load and
+  passed three runs alone (a timing flake, not a change).

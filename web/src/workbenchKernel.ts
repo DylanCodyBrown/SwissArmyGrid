@@ -5,28 +5,47 @@
  *          [RUN]   POST /workbench/kernels/{id}/execute: read as it streams, one JSON output a line
  *          [STOP]  /interrupt, /restart, DELETE (on closing the document or the window)
  *
- * Outputs are nbformat's own records, so a notebook saves them as Jupyter would. Drawn here:
- *   stream     text (stdout; stderr marked), consecutive pieces joined
- *   error      the traceback, its colour codes taken out
- *   data       a picture (PNG, JPEG, SVG as an image), Plotly, Markdown, HTML (a DataFrame) in a frame
- *              that runs no script and loads nothing, else the plain text
+ *          [INPUT] POST /workbench/kernels/{id}/input {value}: the line input() asked for
+ *
+ * Outputs are nbformat's own records (drawn by workbenchOutputs.ts). The state is "running" from the
+ * first Run until the last queued run ends (two runs sent at once run one after the other).
  */
 import { api, ApiError, token } from "./api";
-import { clear, h } from "./dom";
-import { renderMarkdown } from "./markdown";
+import type { Output, OutputArea } from "./workbenchOutputs";
 
-export type Output = Record<string, unknown> & { output_type?: string };
+export type { Output } from "./workbenchOutputs";
+export { drawOutputs } from "./workbenchOutputs";
+
 export interface Done {
   ok: boolean;
   execution_count: number | null;
+  /** The kernel process ended (out of memory, os._exit): the next Run starts a new one. */
   dead?: boolean;
+  /** Restart ended this run. */
+  restarted?: boolean;
+  /** Interrupt cancelled it before it started. */
+  cancelled?: boolean;
   error?: string;
 }
+
+/** What a run sends: code (Python, or SQL on a connection), or a file run as Python would run it. */
+export interface RunBody {
+  code: string;
+  kind?: "code" | "sql" | "file";
+  connection?: string | null;
+  path?: string | null;
+  args?: string;
+}
+
+/** An item of a run's stream: an output record, or the kernel asking for a line. */
+export type RunItem = Output & { input_request?: { prompt: string; password: boolean } };
 
 export class Kernel {
   id: string | null = null;
   python = "";
   state: "off" | "starting" | "idle" | "busy" = "off";
+  /** Runs sent and not yet ended (a second Run waits behind the first). */
+  running = 0;
   private listeners: (() => void)[] = [];
 
   constructor(private readonly path: () => string | null, private readonly chosenPython: () => string | null) {}
@@ -56,8 +75,9 @@ export class Kernel {
   }
 
   /** Run code; each output as it arrives; the run's end. */
-  async run(body: { code: string; kind?: string; connection?: string | null }, onOutput: (o: Output) => void): Promise<Done> {
+  async run(body: RunBody, onOutput: (o: RunItem) => void): Promise<Done> {
     const id = await this.ensure();
+    this.running++;
     this.set("busy");
     try {
       const response = await fetch(`/workbench/kernels/${id}/execute`, {
@@ -82,7 +102,7 @@ export class Kernel {
           const line = pending.slice(0, at).trim();
           pending = pending.slice(at + 1);
           if (!line) continue;
-          const item = JSON.parse(line) as Output & { done?: Done };
+          const item = JSON.parse(line) as RunItem & { done?: Done };
           if (item.done) done = item.done;
           else onOutput(item);
         }
@@ -91,8 +111,29 @@ export class Kernel {
       if (done.dead) this.id = null;
       return done;
     } finally {
-      this.set(this.id ? "idle" : "off");
+      this.running = Math.max(0, this.running - 1);
+      this.set(!this.id ? "off" : this.running ? "busy" : "idle");
     }
+  }
+
+  /** The line input() (or getpass, pdb) asked for. */
+  async answer(value: string): Promise<void> {
+    if (this.id) await api(`/workbench/kernels/${this.id}/input`, "POST", { value });
+  }
+
+  /** Whether the console's code is a whole statement yet: "complete", "incomplete" (with the next
+   *  line's indent) or "invalid". Before the kernel starts, a guess from the last line. */
+  async isComplete(code: string): Promise<{ status: string; indent?: string }> {
+    if (this.id && this.state !== "starting") {
+      try {
+        return await api(`/workbench/kernels/${this.id}/is-complete`, "POST", { code });
+      } catch {
+        /* the guess below */
+      }
+    }
+    const last = code.trimEnd().split("\n").pop() ?? "";
+    const open = (code.match(/[([{]/g)?.length ?? 0) > (code.match(/[)\]}]/g)?.length ?? 0);
+    return /[:\\]$/.test(last) || open ? { status: "incomplete", indent: "    " } : { status: "complete" };
   }
 
   /** The kernel's completions at `offset` (nothing before it has started: typing never starts one). */
@@ -119,14 +160,16 @@ export class Kernel {
     if (this.id) await api(`/workbench/kernels/${this.id}/interrupt`, "POST");
   }
 
-  async restart(): Promise<void> {
-    if (!this.id) return;
+  /** A fresh Python. False: there was no kernel to restart (none has started yet). */
+  async restart(): Promise<boolean> {
+    if (!this.id) return false;
     this.set("starting");
     try {
       await api(`/workbench/kernels/${this.id}/restart`, "POST");
     } finally {
-      this.set("idle");
+      this.set(this.running ? "busy" : "idle");
     }
+    return true;
   }
 
   /** Stop it (the document closed). `leaving`: the window is closing, so the request must outlive it. */
@@ -139,72 +182,23 @@ export class Kernel {
   }
 }
 
-// ===== drawing outputs =====
-
-const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g;
-const text = (value: unknown): string => (Array.isArray(value) ? value.join("") : typeof value === "string" ? value : "");
-
-let plotly: Promise<typeof import("./lazy/plotly")> | null = null;
-
-/** HTML (a DataFrame, a styled table) in a frame that runs no script and loads nothing from outside. */
-function htmlFrame(html: string, dark: boolean): HTMLIFrameElement {
-  const frame = h("iframe", { class: "wb-html", sandbox: "allow-same-origin", title: "Output", loading: "lazy" }) as HTMLIFrameElement;
-  const style = `<style>body{margin:0;font:13px "Segoe UI",system-ui,sans-serif;color:${dark ? "#e8ecef" : "#1c2228"};background:transparent}
-table{border-collapse:collapse}th,td{padding:3px 8px;border-bottom:1px solid ${dark ? "#343c45" : "#d5dbe1"};text-align:right}
-th{font-weight:600}thead th{border-bottom-width:2px}tbody tr:hover{background:${dark ? "#21272d" : "#f2f4f7"}}</style>`;
-  frame.srcdoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">${style}${html}`;
-  frame.addEventListener("load", () => {
-    // The content's own height (the page's grows to the frame's, so it can't shrink to fit).
-    const body = frame.contentDocument?.body;
-    if (body) frame.style.height = `${Math.min(Math.ceil(body.getBoundingClientRect().height) + 6, 640)}px`;
-  });
-  return frame;
-}
-
-function drawData(data: Record<string, unknown>, dark: boolean): HTMLElement {
-  const png = data["image/png"];
-  if (typeof png === "string") return h("img", { class: "wb-image", src: `data:image/png;base64,${png.trim()}`, alt: "Figure" });
-  const jpeg = data["image/jpeg"];
-  if (typeof jpeg === "string") return h("img", { class: "wb-image", src: `data:image/jpeg;base64,${jpeg.trim()}`, alt: "Figure" });
-  const svg = data["image/svg+xml"];
-  if (svg) return h("img", { class: "wb-image", src: `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(text(svg))))}`, alt: "Figure" });
-  const figure = data["application/vnd.plotly.v1+json"];
-  if (figure) {
-    const slot = h("div", { class: "wb-plotly" });
-    plotly ??= import(/* external */ "/static/build/lazy/plotly.js" as string) as Promise<typeof import("./lazy/plotly")>;
-    void plotly.then((m) => m.drawPlotly(slot, JSON.stringify(figure), dark)).catch((e: Error) => (slot.textContent = e.message));
-    return slot;
+/** Run into an output area: outputs as they come, a box when the code asks for a line, and a plain
+ *  word when the run did not end the usual way (the kernel stopped, Restart, Interrupt before it ran). */
+export async function runInto(kernel: Kernel, body: RunBody, area: OutputArea): Promise<Done> {
+  try {
+    const done = await kernel.run(body, (item) => {
+      const asked = item.input_request;
+      if (asked) area.ask(asked.prompt, asked.password, (value) => kernel.answer(value).catch((e: Error) => area.notice(e.message, "error")));
+      else area.add(item);
+    });
+    area.finish();
+    if (done.dead) area.notice("The kernel stopped: it may have run out of memory, or the code ended its own process (os._exit). Every variable is gone; the next Run starts a new kernel.", "error");
+    else if (done.restarted) area.notice("Restart ended this run: every variable is gone.");
+    else if (done.cancelled) area.notice("Not run: Interrupt cancelled it while it waited its turn.");
+    return done;
+  } catch (e) {
+    area.finish();
+    area.notice((e as Error).message, "error");
+    return { ok: false, execution_count: null, error: (e as Error).message };
   }
-  const markdown = data["text/markdown"];
-  if (markdown) return h("div", { class: "wb-markdown" }, renderMarkdown(text(markdown)));
-  const html = data["text/html"];
-  if (html) return htmlFrame(text(html), dark);
-  return h("pre", { class: "wb-text" }, text(data["text/plain"]));
-}
-
-/** Draw `outputs` into `host` (its old content replaced). */
-export function drawOutputs(host: HTMLElement, outputs: Output[], dark: boolean): void {
-  const parts: HTMLElement[] = [];
-  let last: { name: string; pre: HTMLElement } | null = null;
-  for (const o of outputs) {
-    if (o.output_type === "stream") {
-      const name = String(o.name ?? "stdout");
-      if (last && last.name === name) {
-        last.pre.textContent += text(o.text);
-        continue;
-      }
-      const pre: HTMLElement = h("pre", { class: `wb-stream ${name}` }, text(o.text));
-      last = { name, pre };
-      parts.push(pre);
-      continue;
-    }
-    last = null;
-    if (o.output_type === "error") {
-      const traceback = (o.traceback as string[] | undefined)?.join("\n") || `${String(o.ename)}: ${String(o.evalue)}`;
-      parts.push(h("pre", { class: "wb-error" }, traceback.replace(ANSI, "")));
-    } else if (o.output_type === "execute_result" || o.output_type === "display_data") {
-      parts.push(drawData((o.data as Record<string, unknown>) ?? {}, dark));
-    }
-  }
-  clear(host, ...parts);
 }

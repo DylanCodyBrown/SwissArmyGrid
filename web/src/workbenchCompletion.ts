@@ -126,6 +126,9 @@ export function pythonCompleter(kernel: Kernel, names: () => { connections: stri
       const typed = quoted[2]!.toLowerCase();
       return wanted.filter((n) => n.toLowerCase().startsWith(typed)).map((n) => ({ label: n, kind: "connection", detail: quoted[1] === "blade" ? "blade" : "connection", start: offset - quoted[2]!.length, end: offset }));
     }
+    // A quote just typed opens a string: nothing to offer yet (IPython would list its 142 magics, and
+    // Enter would put `%%!` in the code). Inside a string, its file paths come once a letter follows.
+    if (/(^|[^\w])["']$/.test(before)) return [];
     // The cursor's line first: the kernel then completes against the live objects (a DataFrame's columns).
     // Sent the whole cell, Jedi reads `rainfall = pd.DataFrame(...)` above it as code and misses them.
     const word = /(^|[^\w.])([A-Za-z_]\w*)$/.exec(before)?.[2] ?? "";
@@ -137,7 +140,10 @@ export function pythonCompleter(kernel: Kernel, names: () => { connections: stri
     const line = text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd);
     const live = await kernelSuggestions(kernel, line, offset - lineStart, -lineStart);
     const fromKernel = live.length || lineStart === 0 ? live : await kernelSuggestions(kernel, text, offset);
-    return [...connected, ...fromKernel.filter((s) => !connected.some((c) => c.label === s.label))];
+    // Magics (%timeit, %%sql) only once a % is typed.
+    const magic = /%\w*$/.test(before);
+    const offered = fromKernel.filter((s) => magic || !(s.insert ?? s.label).startsWith("%"));
+    return [...connected, ...offered.filter((s) => !connected.some((c) => c.label === s.label))];
   };
 }
 

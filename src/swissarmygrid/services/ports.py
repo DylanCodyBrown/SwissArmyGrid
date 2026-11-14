@@ -201,6 +201,10 @@ class Notifier(Protocol):
 
     def page_open(self) -> bool: ...
 
+    def workbench_open(self) -> bool: ...
+
+    async def tell_workbench(self, message: dict[str, Any]) -> int: ...
+
 
 class Dashboards(Protocol):
     """Saved Sandboxes: each name's versions, oldest first, each the cards as they were drawn."""

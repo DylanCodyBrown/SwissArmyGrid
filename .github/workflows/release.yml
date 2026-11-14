@@ -133,8 +133,11 @@ jobs:
         run: |
           notes=".github/release-notes/v${VERSION}.md"
           test -f "$notes" || notes=/dev/null
+          # A beta or release candidate (1.7.0b1, 1.7.0rc1) is marked a pre-release, never the latest.
+          pre=""
+          case "$VERSION" in *a[0-9]*|*b[0-9]*|*rc[0-9]*) pre="--prerelease" ;; esac
           gh release create "v${VERSION}" dist/* --target "${GITHUB_SHA}" \
-            --title "SwissArmyGrid ${VERSION}" --notes-file "$notes"
+            --title "SwissArmyGrid ${VERSION}" --notes-file "$notes" $pre
 
   pypi:
     needs: [build, release]

@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any, Protocol
 
 from swissarmygrid.domain import environments as envs
+from swissarmygrid.domain import errors
 from swissarmygrid.domain import notebooks as rules
 from swissarmygrid.services.workspace import Conflict, NotFound, Workspace
 
@@ -253,7 +254,16 @@ class Workbench:
         stdin = body.get("stdin") is not False
 
         async def run() -> AsyncIterator[dict[str, Any]]:
+            usage = ""  # a SQL cell's error is IPython's usage error, written to stderr
             async for item in kernel.execute(code, stdin=stdin):
+                if "error_detail" in item:
+                    item = {"error_detail": errors.explain_detail(item["error_detail"])}
+                elif item.get("output_type") == "stream" and item.get("name") == "stderr":
+                    usage = (usage + str(item.get("text", "")))[-20_000:]
+                if "done" in item and kind == "sql" and "UsageError" in usage:
+                    message = usage[usage.index("UsageError") :].split(":", 1)[-1].strip()
+                    entry = {"type": "UsageError", "message": message, "facts": {}, "frames": []}
+                    yield {"error_detail": errors.explain_detail({"chain": [entry]})}
                 if item.get("done", {}).get("dead"):
                     await self.stop(kernel_id)  # gone: it no longer counts against the limit
                 yield item
@@ -279,6 +289,23 @@ class Workbench:
         if not isinstance(body, dict) or not isinstance(body.get("code"), str):
             raise ValueError('Send {"code": "..."}.')
         return await self._kernel(kernel_id).is_complete(body["code"])
+
+    @staticmethod
+    def statement(body: Any) -> dict[str, Any]:
+        """The whole statement at a script's line (Ctrl+Enter runs it, then the cursor moves to the next)."""
+        if (
+            not isinstance(body, dict)
+            or not isinstance(body.get("code"), str)
+            or not isinstance(body.get("line"), int)
+        ):
+            raise ValueError('Send {"code": "...", "line": n} (the first line is 1).')
+        if len(body["code"]) > rules.MAX_CELL_CHARS:
+            raise ValueError("The code is over a million characters.")
+        found = rules.statement_at(body["code"], body["line"])
+        if found is None:
+            return {"start": None, "end": None, "next": None}
+        start, end, after = found
+        return {"start": start, "end": end, "next": after}
 
     @staticmethod
     def _code_at(body: Any) -> tuple[str, int]:

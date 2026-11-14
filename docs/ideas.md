@@ -552,3 +552,22 @@ forecast in the accent, the x axis untitled (dates speak), labelled marker lines
 (the first sentence as its headline), not the red "doesn't fit" box. The season is a diverging bar
 list around a typical period; numbers are rounded to four significant figures throughout.
 `theme:accent/0.2` names a theme colour seen through, for bands.
+
+## The Workbench's error panel (2026-11-14)
+
+The owner: "make the inline error trapping and stack tracing the best part of this app ... I love the
+Visual Studio style hover error panel." Research (an agent's survey of IDEs and libraries, kept in the
+session's notes): Visual Studio's Exception Helper and PyCharm's frames-and-variables set the bar; no web
+service may see the user's code or data, so nothing leaves the computer.
+
+- **What it uses:** stack_data (MIT, already in every kernel's Python: IPython needs it) for the failing
+  expression's values, and the standard library's `traceback` for columns, chains and Python's own "Did
+  you mean". No new dependency. A Python without stack_data still gets the frames, without values.
+- **Not taken:** friendly-traceback (last release 2022; its idea of plain explanations inspired ours,
+  written anew for data work), rich and better-exceptions (terminals), any web API.
+- **How:** after a failed run the server asks the kernel (a silent user expression, before another run
+  can change anything) for the error taken apart; domain/errors.py adds the words and fixes. The
+  notebook still saves Jupyter's standard error record; the panel's reading is never written to disk.
+- **Open:** "Rerun with the debugger" (ipykernel's debugpy) is a bigger step: ask the owner first. A
+  Problems list for the window, the peek view under a script's line, DuckDB's `errors_as_json` on the
+  app's own connections.

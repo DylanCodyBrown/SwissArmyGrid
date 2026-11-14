@@ -138,8 +138,8 @@ class Kernel:
                 "evalue": content.get("evalue", ""),
                 "traceback": content.get("traceback", []),
             }
-        if kind == "clear_output":
-            return {"clear": True}
+        if kind == "clear_output":  # wait: clear when the next output comes (no flicker)
+            return {"clear": True, "wait": bool(content.get("wait"))}
         return None
 
     async def execute(
@@ -205,6 +205,11 @@ class Kernel:
                 if record.get("output_type") == "error":
                     ok = False
                 yield record
+            if not ok and not silent:
+                # The error taken apart for the panel, read before another run can change what it saw.
+                detail = await self.error_detail()
+                if detail:
+                    yield {"error_detail": detail}
             yield {"done": {"ok": ok, "execution_count": count}}
 
     async def _input_request(self) -> dict[str, Any] | None:
@@ -294,6 +299,18 @@ class Kernel:
             f".snapshot({sorted(env_names)!r})"
         )
         return None if text is None else dict(json.loads(text))
+
+    async def error_detail(self) -> dict[str, Any] | None:
+        """The last error, taken apart (client/kernel_errors.py): its chain, frames, the failing
+        expression's values. None when the kernel cannot say (busy, or a Python without the helper)."""
+        try:
+            text = await self.evaluate(
+                "__import__('swissarmygrid.client.kernel_errors', fromlist=['detail']).detail()"
+            )
+        except KernelError:
+            return None
+        found = json.loads(text) if isinstance(text, str) else None
+        return found if isinstance(found, dict) and found.get("chain") else None
 
     async def grid(self, name: str) -> str | None:
         """Open a table variable as a grid (sag.push, from the kernel); its address."""

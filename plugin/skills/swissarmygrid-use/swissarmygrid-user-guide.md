@@ -301,6 +301,40 @@ With no relationships for the open tables it says so and offers these ways in:
 
 ![The ERD for orders, orders_v2 and customers, with the keys and the crow's-foot joins between them.](images/19-erd.png)
 
+## The Workbench
+
+The grid page's **Workbench** tab opens notebooks (`.ipynb`) and Python scripts (`.py`) in a window of
+their own, run in an IPython kernel on this computer.
+
+- **Four panes, always in the same places:** the source (the notebook or script), its console under
+  it, Variables top right, Plots and Help under that. Drag a splitter (or focus it and use the arrow
+  keys); the sizes are remembered. The side bar on the left (Ctrl+B) holds the connections, blades and
+  the data explorer: drag one into a cell or the script.
+- **Running a script:** F5 runs the file as Python would (`__name__ == "__main__"`, `sys.argv`,
+  multiprocessing), saving it first. Ctrl+Enter (or Shift+Enter, F9) runs the whole statement at the
+  cursor, a `for` block or a function, then moves to the next one. Run to here and Run from here are in
+  the palette.
+- **The console:** every notebook and script has one, on its own kernel. Enter runs a whole statement
+  and adds a line to an unfinished one; Shift+Enter adds a line; Up goes back through what ran.
+  `input()` asks in place. Colours, progress bars and long output show as they would in a terminal.
+- **Notebooks:** Shift+Enter runs a cell and moves on. Escape leaves the editor for Jupyter's command
+  mode: A and B insert, D D deletes, Z brings it back, Y, M and S make a cell Python, Markdown or SQL.
+  Each cell's More menu runs the cells above or below, duplicates, clears or hides the output.
+- **When code fails:** the error panel says what happened in plain words, where in your code (click
+  to go there), and offers fixes with one click: use the close name, add the missing import, install
+  the missing package into this environment, run the cell that makes a name. It shows the values of
+  the failing expression at that moment and the function's variables; library frames are folded; the
+  full traceback is behind a toggle. In the editor the failing expression is underlined, its message
+  sits at the line's end, the hover shows the explanation and Ctrl+. offers the same fixes. A SQL
+  cell's error is underlined where the database pointed.
+- **Every command by name:** Ctrl+Shift+P opens the palette. F1 on a name shows its help. Ctrl+1 to
+  Ctrl+4 (and F6) move between the panes.
+- **After a reload** the open documents and their unsaved text come back (kept in the window, not on
+  disk).
+- **The agent** works the Workbench as you do: it opens, runs and saves files and kernels, and its
+  `workbench_window` tool runs any palette command in the window you were last in (`documents` says
+  what is open, `commands` lists them all).
+
 ## What the agent may see
 
 A connected agent sees everything the page shows: every table, its rows and columns (up to 1,048,576 rows per read, one Excel sheet), its steps and their values. An export by the agent always waits for your click: a window asks you to Allow or Deny it, and closing the window denies it.

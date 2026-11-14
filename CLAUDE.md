@@ -87,6 +87,8 @@ src/swissarmygrid/
                          source (renamed in the code: secret("WAREHOUSE_PASSWORD"))
     notebooks.py         the Workbench's notebooks (.ipynb; a SQL cell is a %%sql code cell) and scripts
     environments.py      a notebook's own environment: the libraries offered (groups, presets, imports)
+    errors.py            the error panel's words: what an error means and the fixes (replace, import, install,
+                         run the cell that makes a name); where a SQL error points
     packs.py             a pack (a Claude Code plugin with blades/ and tangs/): names, the new marketplace's
                          files, Claude Code's install record read loosely, which plugins are switched off
 
@@ -113,6 +115,7 @@ src/swissarmygrid/
     connections.py       connections: the list, the forms, test before saving, password sources
     folders.py           the page's file chooser (a folder's names: real paths)
     workbench.py         the Workbench: open, save, recent; kernels; completion; environments, remembered
+    workbench_window.py  the agent's workbench_window: a palette command run in the Workbench window
     relationships.py     the Key Finder, compares, the current model and its library
     tieout.py            the tie-out report on a compare's two grids
     processes.py         Python sessions offering tables: the registry and the Open list
@@ -155,13 +158,14 @@ src/swissarmygrid/
   client/blades_client.py sag.load (a catalog), sag.blade (run a saved blade here), sag.blades
   client/completion.py   Tab completion of catalog names inside SQL in Jupyter and IPython (sag.complete)
   client/paste_client.py sag.paste: the code To Python queued, into the Jupyter cell or IPython prompt
+  client/kernel_errors.py the last error taken apart in the kernel (frames, columns, stack_data's values, facts)
   client/sql_cell.py     %%sql <connection> cells in Jupyter and IPython, sag.sql: a database in its own SQL,
                          files (CSV, workbook sheets, folders) and DataFrames in DuckDB
   client/sandbox_client.py sag.sandbox: a figure, picture, table or text as a Sandbox card (duck-typed)
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (172 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (176 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);
@@ -185,9 +189,16 @@ web/src/                 main.ts (composition) + one module per panel; lazy/ hol
                          bladeLibrary.ts is import (review first), export and the blade folders dialog.
                          connectionsWindow.ts is the Application row's Connections (a form per type);
                          fileChooser.ts picks real paths. The Workbench (static/workbench.html, its own
-                         window): workbenchPage.ts (composition), workbenchNotebook.ts, workbenchScript.ts,
-                         workbenchKernel.ts (runs, outputs), workbenchCompletion.ts, workbenchEnvironment.ts,
-                         lazy/codeEditor.ts (Monaco)
+                         window): workbenchPage.ts (composition), workbenchLayout.ts (RStudio's four panes:
+                         source, console, Variables, Plots and Help; splitters; the status bar),
+                         workbenchCommands.ts (every window action by one name: the palette, the keys, and
+                         the agent's workbench_window), workbenchNotebook.ts (cells, Jupyter's command
+                         mode), workbenchScript.ts, workbenchConsole.ts (each document's console),
+                         workbenchKernel.ts (runs), workbenchOutputs.ts (outputs drawn as they arrive:
+                         colours, `\r`, caps, input boxes), workbenchErrors.ts (the error panel: Visual
+                         Studio's Exception Helper; squiggles, hover cards and Ctrl+. fixes in the editor),
+                         workbenchCompletion.ts, workbenchEnvironment.ts,
+                         workbenchVariables.ts, lazy/codeEditor.ts (Monaco)
                          The grid page has no SQL box and no steps panel (decision 13): stepsStrip.ts is the
                          strip under the title; stepsPanel.ts shows only in its own window (?panel=steps)
 web/static/              index.html, grid.css (all theme tokens), build/ (gitignored)

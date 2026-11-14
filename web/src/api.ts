@@ -197,6 +197,14 @@ export function onNotice(listener: Listener): void {
  * with it): a stall or a network blip no longer leaves the page "not live" for good, which also
  * made every later push open a new window instead of a tab here. A restarted server has a new
  * token, so this page's link is dead and it stops trying. */
+let liveSocket: WebSocket | null = null;
+
+/** Tell the server this window came to the front (the Workbench: the agent's commands go to the window
+ *  the user was last in). Nothing is sent while the socket is down. */
+export function tellFocus(): void {
+  if (liveSocket?.readyState === WebSocket.OPEN) liveSocket.send('{"type":"focus"}');
+}
+
 export function connect(onState: (live: boolean, again: boolean) => void, who: Record<string, string> = { grid: gridId }): void {
   let delay = 1000;
   let opened = false;
@@ -222,6 +230,7 @@ export function connect(onState: (live: boolean, again: boolean) => void, who: R
     let live = false;
     socket.addEventListener("open", () => {
       live = true;
+      liveSocket = socket;
       delay = 1000;
       onState(true, opened);
       opened = true;

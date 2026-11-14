@@ -37,6 +37,9 @@ class LiveUpdates:
         self._grid_of: dict[WebSocket, str] = {}
         # Open workspace windows (the tab bar): a push adds its grid there as a tab.
         self._workspaces: set[WebSocket] = set()
+        # Open Workbench windows, the one the user was last in at the end: the agent's
+        # workbench_window commands go to it.
+        self._workbenches: list[WebSocket] = []
         # When a caller was last told to open a window, until that window connects.
         self._window_promised: float | None = None
         # The VS Code windows, the one the user was last in at the end.
@@ -45,9 +48,16 @@ class LiveUpdates:
         self._openers_left_at: float = monotonic()
 
     def add(
-        self, websocket: WebSocket, grid: str | None = None, workspace: bool = False, opener: bool = False
+        self,
+        websocket: WebSocket,
+        grid: str | None = None,
+        workspace: bool = False,
+        opener: bool = False,
+        workbench: bool = False,
     ) -> None:
         self._sockets.add(websocket)
+        if workbench:
+            self._workbenches.append(websocket)
         if grid:
             self._grid_of[websocket] = grid
         if workspace:
@@ -60,16 +70,22 @@ class LiveUpdates:
         self._sockets.discard(websocket)
         self._grid_of.pop(websocket, None)
         self._workspaces.discard(websocket)
+        if websocket in self._workbenches:
+            self._workbenches.remove(websocket)
         if websocket in self._openers:
             self._openers.remove(websocket)
             if not self._openers:
                 self._openers_left_at = monotonic()
 
     def focus(self, websocket: WebSocket) -> None:
-        """A VS Code window came to the front: it shows the next grid that needs a window."""
+        """A VS Code window came to the front: it shows the next grid that needs a window. A Workbench
+        window came to the front: the agent's commands go to it."""
         if websocket in self._openers:
             self._openers.remove(websocket)
             self._openers.append(websocket)
+        if websocket in self._workbenches:
+            self._workbenches.remove(websocket)
+            self._workbenches.append(websocket)
 
     def openers_gone_for(self) -> float:
         """Seconds since the last VS Code window left (0 while one is connected)."""
@@ -82,6 +98,21 @@ class LiveUpdates:
     def workspace_open(self) -> bool:
         """True when a workspace window is open (it shows every grid as a tab)."""
         return any(ws in self._sockets for ws in self._workspaces)
+
+    def workbench_open(self) -> bool:
+        """True when a Workbench window is connected."""
+        return any(ws in self._sockets for ws in self._workbenches)
+
+    async def tell_workbench(self, message: dict[str, Any]) -> int:
+        """Send one notice to the Workbench window the user was last in (1), or 0 when none took it.
+        With two Workbench windows open, both answering would let the wrong one win."""
+        for websocket in reversed(list(self._workbenches)):
+            try:
+                await asyncio.wait_for(websocket.send_json(message), SEND_TIMEOUT_SECONDS)
+                return 1
+            except Exception:
+                self.discard(websocket)  # a window closed mid-send: the one before it
+        return 0
 
     def page_open(self) -> bool:
         """True when any grid page or workspace page is connected (a snapshot needs one to draw it)."""

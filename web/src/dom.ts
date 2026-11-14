@@ -156,7 +156,7 @@ export function button(
 
 // ===== toasts =====
 
-export function toast(message: string, kind: "info" | "error" = "info"): void {
+export function toast(message: string, kind: "info" | "error" = "info", action?: { label: string; run: () => void }): void {
   let host = document.querySelector<HTMLElement>(".toasts");
   if (!host) {
     host = h("div", { class: "toasts", role: "status", "aria-live": "polite" });
@@ -167,6 +167,10 @@ export function toast(message: string, kind: "info" | "error" = "info"): void {
   const shown = [...host.children].find((t) => t.textContent === message && t.classList.contains("error") === (kind === "error"));
   const item = (shown as HTMLElement | undefined) ?? h("div", { class: `toast ${kind === "error" ? "error" : ""}` }, message);
   if (!shown) host.append(item);
+  if (action && !shown) {
+    // One button (Undo): it acts and the message goes.
+    item.append(" ", h("button", { type: "button", class: "link toast-action", onclick: () => { item.remove(); action.run(); } }, action.label));
+  }
   window.clearTimeout(Number(item.dataset.timer));
   item.dataset.timer = String(window.setTimeout(() => item.remove(), kind === "error" ? 9000 : 5000));
 }
