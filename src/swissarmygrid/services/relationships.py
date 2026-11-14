@@ -1225,7 +1225,10 @@ class Finder:
     async def find(self, body: Any, who: str) -> dict[str, Any]:
         body = body if isinstance(body, dict) else {}
         wanted = body.get("tables")
-        infos = [i for i in self.ws.store.all() if not wanted or i.name in wanted]
+        # The tables open as tabs, unless asked for by name: a closed tab's table stays in memory, but
+        # its joins were once found (and pre-ticked) as if it were still in front of the user.
+        shown = {g.dataset for g in self.ws.grids.all()}
+        infos = [i for i in self.ws.store.all() if (i.name in wanted if wanted else i.name in shown)]
         if len(infos) < 2:
             raise ValueError("Open (push) at least two tables to find how they relate.")
         if len(infos) > 40:

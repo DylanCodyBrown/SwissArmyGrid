@@ -63,17 +63,31 @@ export function primaryKey(dataset: string): string[] {
   return model.tables[dataset]?.primary_key ?? [];
 }
 
-/** The known join between two tables as [left column, right column] pairs; [] when none. */
-export function knownPairs(left: string, right: string): [string, string][] {
+/** Every known join between two tables, each as [left column, right column] pairs, the active one
+ * first (two tables may have several: orders to calendar by order_date, and inactive by ship_date). */
+function knownJoins(left: string, right: string): [string, string][][] {
+  const joins: { active: boolean; pairs: [string, string][] }[] = [];
   for (const r of model.relationships) {
-    if (r.from === left && r.to === right) return r.from_columns.map((c, i) => [c, r.to_columns[i]!]);
-    if (r.from === right && r.to === left) return r.to_columns.map((c, i) => [c, r.from_columns[i]!]);
+    const active = r.active !== false;
+    if (r.from === left && r.to === right) joins.push({ active, pairs: r.from_columns.map((c, i) => [c, r.to_columns[i]!]) });
+    else if (r.from === right && r.to === left) joins.push({ active, pairs: r.to_columns.map((c, i) => [c, r.from_columns[i]!]) });
   }
+  return joins.sort((a, b) => Number(b.active) - Number(a.active)).map((j) => j.pairs);
+}
+
+/** The known join between two tables (the active one) as [left column, right column] pairs; [] when none. */
+export function knownPairs(left: string, right: string): [string, string][] {
+  const first = knownJoins(left, right)[0];
+  if (first) return first;
   // The same table on both sides (two copies being compared): its primary key lines them up.
   if (left === right) return primaryKey(left).map((c) => [c, c]);
   return [];
 }
 
+/** Whether these two columns are a known join between the tables (any of their joins, not only the
+ * first: the crown once sat on ship_date, the inactive date join, and not on order_date). */
 export function isKnownPair(left: string, right: string, leftColumn: string, rightColumn: string): boolean {
-  return knownPairs(left, right).some(([a, b]) => a === leftColumn && b === rightColumn);
+  const joins = knownJoins(left, right);
+  const all = joins.length ? joins : [knownPairs(left, right)];
+  return all.some((pairs) => pairs.some(([a, b]) => a === leftColumn && b === rightColumn));
 }

@@ -197,3 +197,21 @@ def test_the_agent_finds_runs_and_files_tangs(client: TestClient) -> None:
     assert client.post("/relationships/import", json={"text": "{}"}, headers=AGENT).status_code != 403
     one = client.post("/relationships/find", json={"tables": ["orders"]}, headers=AUTH)
     assert one.status_code == 400 and "two tables" in one.text
+
+
+def test_the_finder_searches_open_tabs_and_names_a_one_to_one_join_once(client: TestClient) -> None:
+    from tests.conftest import grid_id
+
+    # Two copies of one table: their id columns join one to one, which is one join, not two.
+    copy = pa.table({"customer_id": list(range(1, 51)), "tier": ["gold"] * 50})
+    assert push(client, "tiers_a", copy).status_code == 200
+    closing = grid_id(push(client, "tiers_b", copy))
+    suggestions = client.post("/relationships/find", json={}, headers=AUTH).json()["suggestions"]
+    pairs = [(s["from"], s["to"]) for s in suggestions if {s["from"], s["to"]} == {"tiers_a", "tiers_b"}]
+    assert len(pairs) == 1, pairs
+    # A closed tab's table stays in memory but is not searched (unless named).
+    assert client.delete(f"/grids/{closing}", headers=AUTH).status_code == 200
+    answer = client.post("/relationships/find", json={}, headers=AUTH).json()
+    assert "tiers_b" not in answer["tables"]
+    named = client.post("/relationships/find", json={"tables": ["tiers_a", "tiers_b"]}, headers=AUTH)
+    assert named.json()["tables"] == ["tiers_a", "tiers_b"]

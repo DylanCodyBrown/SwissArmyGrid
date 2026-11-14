@@ -867,7 +867,7 @@ def suggest(candidates: list[Candidate]) -> list[Suggestion]:
     """The joins worth suggesting, most confident first: judged, implied ones dropped, and of two
     joins between the same pair of tables all but the first column's marked inactive."""
     judged = [s for s in (judge(c) for c in candidates) if s is not None]
-    kept = [s for s in judged if not _implied(s, judged)]
+    kept = _without_mirrors([s for s in judged if not _implied(s, judged)])
     position = {(c.from_table, c.from_columns, c.to_table, c.to_columns): c.from_position for c in candidates}
     seen: set[tuple[str, str]] = set()
     marked: list[Suggestion] = []
@@ -888,6 +888,20 @@ def suggest(candidates: list[Candidate]) -> list[Suggestion]:
     return sorted(
         marked, key=lambda s: (-s.confidence, s.relationship.from_table, s.relationship.from_columns)
     )
+
+
+def _without_mirrors(found: list[Suggestion]) -> list[Suggestion]:
+    """A one-to-one join once, not both ways (orders.id -> invoices.order_id and back are one join):
+    the more confident direction, else the first by table name."""
+    kept: list[Suggestion] = []
+    seen: set[tuple[str, tuple[str, ...], str, tuple[str, ...]]] = set()
+    for s in sorted(found, key=lambda s: (-s.confidence, s.relationship.from_table, s.relationship.to_table)):
+        r = s.relationship
+        if r.kind == "one-to-one" and (r.to_table, r.to_columns, r.from_table, r.from_columns) in seen:
+            continue
+        seen.add(_key(r))
+        kept.append(s)
+    return kept
 
 
 def _key(r: Relationship) -> tuple[str, tuple[str, ...], str, tuple[str, ...]]:
