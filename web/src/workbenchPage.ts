@@ -60,6 +60,8 @@ interface Doc {
   script?: ScriptView;
   /** Its console, on its kernel (notebooks and scripts). */
   console?: ConsoleView;
+  /** A notebook's console was used (clicked, focused, run in): shown at its size from then on. */
+  consoleUsed?: boolean;
 }
 
 interface PythonChoice {
@@ -85,6 +87,8 @@ const variables = variablesPanel(() => {
 });
 layout.variables.append(variables.element);
 const docHost = layout.source;
+// A click or the focus in the console (a compact title bar too) opens it at its size.
+for (const kind of ["pointerdown", "focusin"]) layout.console.addEventListener(kind, () => current && useConsole(current));
 let cursor = { line: 1, column: 1 };
 const docs: Doc[] = [];
 let current: Doc | null = null;
@@ -137,12 +141,14 @@ function makeDoc(kind: Doc["kind"], title: string, path: string | null, modified
       complete: pythonCompleter(kernel, names),
       help: (code, offset) => kernel.help(code, offset),
       f5: () => void runPrimary(doc),
+      ran: () => useConsole(doc),
       // A script's runs mark its lines; a line typed in the console has only the panel's own fixes.
       errors: (origin) =>
         doc.script?.errorHooks(origin) ?? {
           fix: (fix) => void (pageFix(doc)(fix) || doc.console?.note("Not applied here.")),
           goTo: () => false,
           openGrid: (name) => void openGrid(doc, name),
+          openResult: (n, name) => void openResult(doc, n, name),
         },
     });
   }
@@ -159,6 +165,17 @@ const pageFix = (doc: Doc) => (fix: Fix): boolean => {
   }
   return false;
 };
+
+/** A cell's table result as a grid: the kernel still holds it as Out[n]. */
+async function openResult(doc: Doc, count: number, name?: string): Promise<void> {
+  if (!doc.kernel?.id) return;
+  try {
+    const opened = await api<{ dataset: string }>(`/workbench/kernels/${doc.kernel.id}/grid`, "POST", name ? { output: count, name } : { output: count });
+    toast(`${opened.dataset} is open as a grid.`);
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
 
 async function openGrid(doc: Doc, name: string): Promise<void> {
   if (!doc.kernel?.id) return;
@@ -208,9 +225,11 @@ const markChanged = (doc: Doc) => (): void => {
 
 function openNotebook(path: string | null, cells: CellData[], modified: number | null): Doc {
   const doc = makeDoc("notebook", path ? baseName(path) : `Untitled notebook ${counter + 1}`, path, modified);
-  doc.notebook = notebookView(cells, doc.kernel!, () => connectionNames, () => effectiveTheme(), markChanged(doc), () => bladeNames, () => codeNames, { ...hooks, fix: pageFix(doc), openGrid: (name) => void openGrid(doc, name) });
+  doc.notebook = notebookView(cells, doc.kernel!, () => connectionNames, () => effectiveTheme(), markChanged(doc), () => bladeNames, () => codeNames, { ...hooks, fix: pageFix(doc), openGrid: (name) => void openGrid(doc, name), openResult: (n, name) => void openResult(doc, n, name) });
   doc.element.append(doc.notebook.element);
   show(doc);
+  // A new notebook is for typing: the cursor waits in its first cell.
+  if (!path && !cells.length) doc.notebook.select(0, true);
   return doc;
 }
 
@@ -222,14 +241,22 @@ function openScript(path: string | null, text: string, modified: number | null):
     // from a private copy).
     saveFirst: async (): Promise<boolean> => (!doc.path || !doc.dirty ? true : save(doc)),
   };
-  doc.script = scriptView(text, doc.kernel!, doc.console!, () => effectiveTheme(), markChanged(doc), names, file, { ...hooks, fix: pageFix(doc), openFile: (path, line) => void openAt(path, line), openGrid: (name) => void openGrid(doc, name) });
+  doc.script = scriptView(text, doc.kernel!, doc.console!, () => effectiveTheme(), markChanged(doc), names, file, { ...hooks, fix: pageFix(doc), openFile: (path, line) => void openAt(path, line), openGrid: (name) => void openGrid(doc, name), openResult: (n, name) => void openResult(doc, n, name) });
   doc.element.append(doc.script.element);
   show(doc);
   return doc;
 }
 
+/** A notebook's console in use: at its size (and from then on, for this notebook). */
+function useConsole(doc: Doc): void {
+  doc.consoleUsed = true;
+  if (doc === current) layout.compact(false);
+}
+
 function show(doc: Doc): void {
   current = doc;
+  // A notebook's cells hold their own outputs: its console is a title bar until it is used.
+  layout.compact(doc.kind === "notebook" && !doc.consoleUsed);
   variables.show(doc.kernel);
   docHost.replaceChildren(doc.element);
   layout.console.replaceChildren(doc.console?.element ?? h("p", { class: "hint wb-pane-empty" }, "No console"));

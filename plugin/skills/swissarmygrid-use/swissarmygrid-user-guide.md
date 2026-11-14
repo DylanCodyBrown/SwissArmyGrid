@@ -321,7 +321,11 @@ their own, run in an IPython kernel on this computer.
 - **The console:** every notebook and script has one, on its own kernel. Enter runs a whole statement
   and adds a line to an unfinished one; Shift+Enter adds a line; Up goes back through what ran.
   `input()` asks in place. Colours, progress bars and long output show as they would in a terminal.
-- **Notebooks:** Shift+Enter runs a cell and moves on. Escape leaves the editor for Jupyter's command
+- **Notebooks:** a new notebook has the cursor in its first cell: type at once. Its console shows as a
+  title bar until you use it (click it, or F6 to it), so the cells have the column. A result that is a
+  table (a DataFrame as a cell's last line) has **Open as grid** under it: a cell ending in a variable
+  (`orders`) opens as that name, anything else (`orders.head()`) as `out_` and its number, so the
+  table itself is never replaced. Shift+Enter runs a cell and moves on. Escape leaves the editor for Jupyter's command
   mode: A and B insert, D D deletes, Z brings it back, Y, M and S make a cell Python, Markdown or SQL.
   Each cell's More menu runs the cells above or below, duplicates, clears or hides the output.
 - **When code fails:** the error panel says what happened in plain words, where in your code (click

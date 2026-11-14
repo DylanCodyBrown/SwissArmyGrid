@@ -199,6 +199,25 @@ function drawData(data: Record<string, unknown>, dark: boolean): HTMLElement {
   return withSandbox(drawPlain(data, dark), data);
 }
 
+/** A result that is a table (a DataFrame's HTML: pandas and polars both draw a <table>). */
+const isTable = (data: Record<string, unknown>): boolean => /<table[\s>]/i.test(text(data["text/html"] ?? ""));
+
+/** The name a result's code gives it: a last line that is only a variable (`orders`). Anything else
+ *  (`orders.head()`) is not that table, so it is not named after it: the server calls it out_<n>. */
+export function resultName(code: string): string | undefined {
+  const last = code.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")).pop() ?? "";
+  return /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(last) ? last : undefined;
+}
+
+/** A table result (it has a number, so the kernel still holds it as Out[n]): Open as grid beside it. */
+function withGrid(drawn: HTMLElement, o: Output, open: ((count: number) => void) | undefined): HTMLElement {
+  const count = o.execution_count;
+  const data = (o.data as Record<string, unknown>) ?? {};
+  if (!open || o.output_type !== "execute_result" || typeof count !== "number" || !isTable(data)) return drawn;
+  const grid = button("Open as grid", () => open(count), { icon: "export", class: "ghost wb-to-grid" });
+  return h("figure", { class: "wb-figure" }, drawn, grid);
+}
+
 function drawPlain(data: Record<string, unknown>, dark: boolean): HTMLElement {
   const png = data["image/png"];
   if (typeof png === "string") return h("img", { class: "wb-image", src: `data:image/png;base64,${png.trim()}`, alt: "Figure" });
@@ -392,7 +411,8 @@ export function outputArea(dark: () => boolean, grew: () => void = () => undefin
         return;
       }
       rich++;
-      element.append(drawData((o.data as Record<string, unknown>) ?? {}, dark()));
+      const open = errors?.openResult;
+      element.append(withGrid(drawData((o.data as Record<string, unknown>) ?? {}, dark()), o, open && ((n) => open(n))));
     }
   };
 

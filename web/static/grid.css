@@ -4602,6 +4602,34 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   display: none;
 }
 
+/* A notebook's console not in use: its title bar only, a click opens it (workbenchLayout.ts). */
+.wb-panes.console-compact > .wb-col-left {
+  grid-template-rows: minmax(0, 1fr) 0 auto;
+}
+
+/* Kept in its (zero) row, so the console stays in the last one. */
+.wb-panes.console-compact > .wb-col-left > .wb-split {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.wb-panes.console-compact .wb-console > :not(.wb-console-head) {
+  display: none;
+}
+
+.wb-panes.console-compact .wb-console-head {
+  cursor: pointer;
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+}
+
+.wb-panes.console-compact .wb-console-head::after {
+  content: "Click to open";
+  color: var(--muted);
+  font-size: 0.85em;
+  order: 1;
+}
+
 /* Under 1100 pixels the right column opens over the source, as a drawer. */
 .wb-panes.drawer > .wb-col-left {
   flex: 1;
@@ -4683,6 +4711,12 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
 .wb-figure:hover .wb-to-sandbox,
 .wb-figure:focus-within .wb-to-sandbox {
   opacity: 1;
+}
+
+/* A table result's Open as grid: always shown, under the table (the usability test, 2026-11-14). */
+.wb-figure .wb-to-grid {
+  display: flex;
+  margin-top: 2px;
 }
 
 /* Send to the agent: the error panel's button, the question dialog. */

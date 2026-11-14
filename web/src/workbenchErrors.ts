@@ -77,6 +77,8 @@ export interface ErrorActions {
   goTo: (frame: Frame) => boolean;
   /** Open a frame's table variable as a grid. */
   openGrid?: (name: string) => void;
+  /** Open a cell's table result (Out[count]) as a grid, named `name` when the code ends in one. */
+  openResult?: (count: number, name?: string) => void;
 }
 
 const last = (detail: ErrorDetail): Entry | undefined => detail.chain[detail.chain.length - 1];

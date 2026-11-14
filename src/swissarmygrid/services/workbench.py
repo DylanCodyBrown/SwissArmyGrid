@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from swissarmygrid.domain import environments as envs
 from swissarmygrid.domain import errors
 from swissarmygrid.domain import notebooks as rules
+from swissarmygrid.domain.datasets import validate_name
 from swissarmygrid.services.workspace import Conflict, NotFound, Workspace
 
 MAX_KERNELS: int = 12
@@ -58,7 +59,7 @@ class Kernel(Protocol):
 
     async def variables(self, env_names: list[str]) -> dict[str, Any] | None: ...
 
-    async def grid(self, name: str) -> str | None: ...
+    async def grid(self, expression: str, name: str) -> str | None: ...
 
     async def interrupt(self) -> None: ...
 
@@ -378,15 +379,27 @@ class Workbench:
         return {"busy": True} if found is None else found | {"busy": False}
 
     async def grid(self, kernel_id: str, body: Any) -> dict[str, Any]:
-        """Open a table variable as a grid."""
+        """Open a table as a grid: a variable {"name"}, or a cell's result {"output": n, "name"?}
+        (IPython keeps it as Out[n]; the grid is named `name`, else out_<n>)."""
         name = body.get("name") if isinstance(body, dict) else None
-        if not isinstance(name, str) or not name.isidentifier():
-            raise ValueError('Send {"name": "a variable\'s name"}.')
-        url = await self._kernel(kernel_id).grid(name)
+        output = body.get("output") if isinstance(body, dict) else None
+        if output is not None:
+            if isinstance(output, bool) or not isinstance(output, int) or output < 1:
+                raise ValueError('Send {"output": the result\'s number (In [n]), "name": "a table name"}.')
+            name = name or f"out_{output}"
+            if not isinstance(name, str):
+                raise ValueError("The table's name is text.")
+            validate_name(name)
+            expression = f"Out[{output}]"
+        elif not isinstance(name, str) or not name.isidentifier():
+            raise ValueError('Send {"name": "a variable\'s name"}, or {"output": n} for a result.')
+        else:
+            expression = name
+        url = await self._kernel(kernel_id).grid(expression, name)
         if url is None:
             raise Conflict("The kernel is running code: open it as a grid when the run is done.")
-        self.ws.audit.write("user", "variable_to_grid", name)
-        return {"url": url}
+        self.ws.audit.write("user", "variable_to_grid", name, output=output)
+        return {"url": url, "dataset": name}
 
     async def interrupt(self, kernel_id: str) -> None:
         await self._kernel(kernel_id).interrupt()

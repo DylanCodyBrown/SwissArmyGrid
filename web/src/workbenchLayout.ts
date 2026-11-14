@@ -14,6 +14,8 @@
  *   [LAYOUTS]    Standard; Focus (the source alone, Ctrl+Shift+1); Wide data (the right column wider).
  *                Under 1100 pixels the right column opens over the source as a drawer
  *   [HELP]       F1 on a name: a card over the source (Escape or its close button puts it away)
+ *   [COMPACT]    a notebook whose console is not in use shows it as its title bar only, so the cells
+ *                have the column; a click on it, F6 to it, or a run in it opens it at its size
  *
  * Pictures and charts stay in the run's output, each with Send to Sandbox (the owner, 2026-11-14: the
  * Sandbox is where they gather, so the Workbench has no Plots pane of its own).
@@ -55,6 +57,8 @@ export interface Layout {
   cycle: (by: 1 | -1) => void;
   setLayout: (layout: Sizes["layout"]) => void;
   toggle: (part: "rail" | "right" | "console", show?: boolean) => boolean;
+  /** The console as its title bar only (a notebook whose console is not in use), or at its size. */
+  compact: (on: boolean) => void;
   state: () => { layout: string; rail: boolean; right: boolean; console: boolean; narrow: boolean };
 }
 
@@ -167,6 +171,7 @@ export function mountLayout(body: HTMLElement, rail: HTMLElement, main: HTMLElem
       if (sizes.layout === "focus") sizes.layout = "standard";
       draw();
     }
+    if (pane === "console") panes.classList.remove("console-compact");
     if (pane === "console" && panes.classList.contains("no-console")) {
       sizes.console = true;
       if (sizes.layout === "focus") sizes.layout = "standard";
@@ -209,6 +214,7 @@ export function mountLayout(body: HTMLElement, rail: HTMLElement, main: HTMLElem
       draw();
       save();
     },
+    compact: (on) => panes.classList.toggle("console-compact", on),
     toggle: (part, show) => {
       sizes[part] = show ?? !sizes[part];
       if (sizes[part] && sizes.layout === "focus" && part !== "rail") sizes.layout = "standard";

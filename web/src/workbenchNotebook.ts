@@ -27,7 +27,7 @@ import { loadEditors } from "./workbenchConsole";
 import { pythonCompleter, sqlCompleter } from "./workbenchCompletion";
 import { type ErrorDetail, type Fix, type Frame, problemsFor, sqlProblems, yourFrame } from "./workbenchErrors";
 import { type Kernel, runInto } from "./workbenchKernel";
-import { type ErrorHooks, type Output, type OutputArea, outputArea } from "./workbenchOutputs";
+import { type ErrorHooks, type Output, type OutputArea, outputArea, resultName } from "./workbenchOutputs";
 
 /** A SQL cell's first line as the kernel runs it (domain/notebooks.py sql_line). */
 export function sqlLine(connection: string | null): string {
@@ -102,7 +102,7 @@ export function notebookView(
   changed: () => void,
   blades: () => string[] = () => [],
   codeNames: () => { name: string; connection: string; kind: string }[] = () => [],
-  hooks: { cursor?: (line: number, column: number) => void; help?: () => void; fix?: (fix: Fix) => boolean; openGrid?: (name: string) => void } = {},
+  hooks: { cursor?: (line: number, column: number) => void; help?: () => void; fix?: (fix: Fix) => boolean; openGrid?: (name: string) => void; openResult?: (count: number, name?: string) => void } = {},
 ): NotebookView {
   const python = pythonCompleter(kernel, () => ({ connections: connections(), blades: blades(), codeNames: codeNames() }));
   const list = h("div", { class: "wb-cells", role: "list", "aria-label": "Cells" });
@@ -310,6 +310,7 @@ export function notebookView(
       fix: (f, d) => self && hooksOf(self).fix(f, d),
       goTo: (f) => (self ? hooksOf(self).goTo(f) : false),
       openGrid: hooks.openGrid,
+      openResult: (n) => hooks.openResult?.(n, resultName(self?.editor?.value() ?? self?.source ?? "")),
     });
     const view = h("div", { class: "wb-markdown-view" });
     const count = h("span", { class: "wb-count" }, data.execution_count ? `[${data.execution_count}]` : "[ ]");

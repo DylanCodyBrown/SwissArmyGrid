@@ -513,7 +513,8 @@ def test_four_panes_a_palette_and_jupyters_keys(browser: Browser, orders_url: st
     # RStudio's places: source, its console, Variables (pictures go to the Sandbox, not a pane here).
     for pane in (".wb-source .wb-cells", ".wb-console-pane .wb-console", ".wb-env .wb-vars"):
         expect(workbench.locator(pane)).to_be_visible()
-    # The notebook's own console, on its kernel.
+    # The notebook's own console, on its kernel: a title bar until it is used, a click opens it.
+    workbench.locator(".wb-console-head").click()
     workbench.locator(".wb-console-editor .monaco-editor").click()
     workbench.keyboard.insert_text("21 * 2")
     workbench.keyboard.press("Enter")

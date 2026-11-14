@@ -340,6 +340,10 @@ def test_the_variables_overlay_through_a_kernel(
             ).status_code
             == 400
         )
+        # A cell's result opens by its number (Out[n]); a bad number or table name is refused.
+        for bad in ({"output": 0}, {"output": "3"}, {"output": True}, {"output": 2, "name": "no spaces"}):
+            refused = client.post(f"/workbench/kernels/{kernel}/grid", json=bad, headers=AUTH)
+            assert refused.status_code == 400, (bad, refused.text)
         assert client.get(f"/workbench/kernels/{kernel}/variables", headers=AGENT).status_code == 200
     finally:
         client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)

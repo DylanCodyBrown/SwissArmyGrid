@@ -2379,12 +2379,14 @@ def workbench_variables(a: dict[str, Any]) -> Any:
 
 @command(
     "workbench_to_grid",
-    "Open a table variable from a kernel as a grid",
+    "Open a table from a kernel as a grid: a variable, or a cell's result (an output's Open as grid)",
     req("kernel", "The kernel's id."),
-    req("name", "The variable."),
+    opt("name", "The variable; with output, the new table's name (else out_<n>)."),
+    opt("output", "A result's number, as In [n] shows it: opens Out[n].", "int"),
 )
 def workbench_to_grid(a: dict[str, Any]) -> Any:
-    return api.call("POST", f"/workbench/kernels/{_q(a['kernel'])}/grid", {"name": a["name"]})
+    body: dict[str, Any] = {k: a[k] for k in ("name", "output") if a.get(k) is not None}
+    return api.call("POST", f"/workbench/kernels/{_q(a['kernel'])}/grid", body)
 
 
 @command(

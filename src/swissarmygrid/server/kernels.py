@@ -312,9 +312,10 @@ class Kernel:
         found = json.loads(text) if isinstance(text, str) else None
         return found if isinstance(found, dict) and found.get("chain") else None
 
-    async def grid(self, name: str) -> str | None:
-        """Open a table variable as a grid (sag.push, from the kernel); its address."""
-        url = await self.evaluate(f"__import__('swissarmygrid').push({name}, name={name!r})")
+    async def grid(self, expression: str, name: str) -> str | None:
+        """Open a table (a variable, or a cell's result Out[n]) as grid `name` (sag.push, from the
+        kernel); its address."""
+        url = await self.evaluate(f"__import__('swissarmygrid').push({expression}, name={name!r})")
         return None if url is None else str(url)
 
     async def interrupt(self) -> None:

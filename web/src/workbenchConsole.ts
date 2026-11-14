@@ -13,7 +13,7 @@ import { button, h } from "./dom";
 import type { CodeEditor, Completer, Helper } from "./lazy/codeEditor";
 import { codeItem, currentDocument, sendToAgent } from "./workbenchAgent";
 import { type Kernel, runInto, type RunBody } from "./workbenchKernel";
-import { type ErrorHooks, outputArea } from "./workbenchOutputs";
+import { type ErrorHooks, outputArea, resultName } from "./workbenchOutputs";
 
 /** Where a run's code came from, so an error's lines map back to the script: the file (Run file), or
  *  lines from `start` that lost `indent` columns to the dedent (a statement or a selection). */
@@ -39,7 +39,7 @@ export const loadEditors = (): Promise<typeof import("./lazy/codeEditor")> =>
 export function consoleView(
   kernel: Kernel,
   theme: () => string,
-  options: { complete: Completer; help: Helper; f5?: () => void; errors?: (origin?: RunOrigin) => ErrorHooks },
+  options: { complete: Completer; help: Helper; f5?: () => void; errors?: (origin?: RunOrigin) => ErrorHooks; ran?: () => void },
 ): ConsoleView {
   const log = h("div", { class: "wb-console-log", role: "log", "aria-label": "Console output" });
   const promptHost = h("div", { class: "wb-console-editor" });
@@ -59,7 +59,11 @@ export function consoleView(
   };
 
   const run = async (body: RunBody, label: string, origin?: RunOrigin): Promise<void> => {
-    const area = outputArea(dark, follow, options.errors?.(origin));
+    options.ran?.(); // a run shows the console at its size
+    // A table result is named after the code's last variable (`orders` -> the grid "orders").
+    const hooks = options.errors?.(origin);
+    const open = hooks?.openResult;
+    const area = outputArea(dark, follow, hooks && { ...hooks, openResult: open && ((n, name) => open(n, name ?? resultName(body.kind === "sql" ? "" : body.code))) });
     const entry = h("div", { class: "wb-console-entry running" }, h("pre", { class: "wb-console-code" }, label), area.element);
     log.append(entry);
     running.add(entry);
