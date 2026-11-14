@@ -25,6 +25,7 @@
 import { api, onNotice } from "./api";
 import { button, clear, h, openDialog, toast } from "./dom";
 import { chooseFile } from "./fileChooser";
+import { pickSheets } from "./openFile";
 
 interface Field {
   id: string;
@@ -56,6 +57,8 @@ interface Form {
   summary?: { secrets: Record<string, boolean> };
   vault_mapping: Mapping[];
   vault_all?: boolean;
+  /** A database: how many rows a table opens with as a grid (none: 10,000). */
+  row_limit?: number | null;
   /** Ways to sign in, each its own code; `mark` is text only that code holds. */
   sign_ins?: { label: string; mark: string; code: string }[];
 }
@@ -78,6 +81,7 @@ type Then = (saved: string | null) => void;
 
 interface Connection {
   name: string;
+  template?: string | null;
   connection: "database" | "file" | "vault";
   /** A key vault's: each variable it sets, from which secret; `every`: every secret it holds. */
   entries?: Mapping[];
@@ -135,6 +139,22 @@ function catalogWord(c: Connection): HTMLElement | null {
   return null;
 }
 
+/** A file connection's file as a grid: a workbook asks which sheets (the first ticked), a folder's
+ * files open from the catalog (each its own table). */
+async function openConnection(name: string): Promise<void> {
+  const path = `/connections/${encodeURIComponent(name)}/open`;
+  try {
+    const answer = await api<{ dataset?: string; sheets?: string[] }>(path, "POST", {});
+    if (answer.sheets) {
+      for (const sheet of await pickSheets(name, answer.sheets)) await api(path, "POST", { table: sheet });
+      return;
+    }
+    toast(`${answer.dataset} is open as a grid.`);
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
 /** The Application row's button. */
 export function connectionsButton(): HTMLButtonElement {
   return button("Connections", () => void openConnections(), { icon: "link", class: "ribbon-btn" });
@@ -182,6 +202,7 @@ export async function openConnections(): Promise<void> {
         h(
           "span",
           { class: "connection-actions" },
+          c.connection === "file" && c.template !== "folder" ? button("Open as grid", () => void openConnection(c.name), { icon: "rows", class: "primary" }) : null,
           readOnly ? null : button("Edit", () => void showForm({ edit: c.name }), { icon: "edit" }),
           button("Test", () => void testSaved(c.name), { icon: "play" }),
           c.has_catalog ? button("Refresh catalog", () => void refresh(c.name), { icon: "import" }) : null,
@@ -538,6 +559,7 @@ export async function openConnections(): Promise<void> {
       code,
       catalog: form.catalog,
       // Every secret: only the renamed ones are kept (the rest take their own names each time).
+      ...(form.connection === "database" ? { row_limit: rowLimit.value.trim() ? Number(rowLimit.value) : null } : {}),
       ...(isVault
         ? {
             vault_all: every.checked,
@@ -599,6 +621,9 @@ export async function openConnections(): Promise<void> {
         failed(e);
       }
     };
+    // A database: how many rows a table opens with as a grid (the grid says when the source has more).
+    const rowLimit = h("input", { type: "number", min: 1, step: 1, value: form.row_limit ? String(form.row_limit) : "", placeholder: "10000", "aria-label": "Rows to open" }) as HTMLInputElement;
+    const rowLimitField = form.connection === "database" ? h("label", { class: "field" }, h("span", {}, "Rows to open"), rowLimit) : null;
     const passwordsSlot = h("div", {}, drawPasswords() ?? "");
     const installSlot = h("div", {});
     const drawInstall = (): void =>
@@ -612,6 +637,7 @@ export async function openConnections(): Promise<void> {
       h("label", { class: "field" }, h("span", {}, "Description"), description),
       signIn,
       fieldsHost,
+      rowLimitField,
       passwordsSlot,
       secretsBox,
       installSlot,

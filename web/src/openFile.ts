@@ -28,7 +28,7 @@ export function tableName(file: string, sheet?: string): string {
 const isWorkbook = (file: string): boolean => file.toLowerCase().endsWith(".xlsx");
 
 /** Which sheets to open: none asked when there is one; else a list, the first ticked. */
-function pickSheets(file: string, sheets: string[]): Promise<string[]> {
+export function pickSheets(file: string, sheets: string[]): Promise<string[]> {
   if (sheets.length <= 1) return Promise.resolve(sheets);
   return new Promise((resolve) => {
     const { body, foot, close } = openDialog(`Open ${file.split(/[\\/]/).pop()}`);

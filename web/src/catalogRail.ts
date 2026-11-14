@@ -100,6 +100,40 @@ export interface TableView {
   dialect: string;
   columns: ColumnRow[];
   focusColumn?: string;
+  /** Where it is, as the catalog names it (for Open as grid and the preview, on its connection). */
+  schema?: string;
+  database?: string;
+}
+
+/** A catalog's table as a grid, on the connection the catalog came from (a catalog is named after it). */
+export async function openTableAsGrid(catalog: string, where: { schema?: string; table: string; database?: string }): Promise<void> {
+  toast(`Opening ${where.table}…`);
+  try {
+    const answer = await api<{ dataset: string; shown?: number; total?: number | null }>(`/connections/${encodeURIComponent(catalog)}/open`, "POST", where);
+    const cut = answer.total && answer.shown !== undefined && answer.total > answer.shown;
+    toast(cut ? `${answer.dataset}: the first ${answer.shown!.toLocaleString()} of ${answer.total!.toLocaleString()} rows open as a grid.` : `${answer.dataset} is open as a grid.`);
+  } catch (e) {
+    toast((e as Error).message, "error");
+  }
+}
+
+/** A table's first rows, beside its columns (fetched from its connection; nothing is kept). */
+function previewOf(view: TableView): HTMLElement {
+  const host = h("div", { class: "table-preview" }, h("p", { class: "hint" }, "Reading the first rows…"));
+  const where = { schema: view.schema, table: view.table, database: view.database };
+  void api<{ columns: string[]; rows: unknown[][] }>(`/connections/${encodeURIComponent(view.catalog)}/preview`, "POST", where).then(
+    (found) =>
+      host.replaceChildren(
+        h(
+          "table",
+          { class: "columns-table preview-table", "aria-label": "First rows" },
+          h("thead", {}, h("tr", {}, ...found.columns.map((c) => h("th", {}, c)))),
+          h("tbody", {}, ...found.rows.map((r) => h("tr", {}, ...r.map((v) => h("td", {}, v === null ? "" : String(v)))))),
+        ),
+      ),
+    (e: Error) => host.replaceChildren(h("p", { class: "hint" }, e.message.split("\n")[0] ?? "")),
+  );
+  return host;
 }
 
 export interface RailHost {
@@ -156,6 +190,7 @@ export function tableDetails(view: TableView): HTMLElement[] {
     h(
       "div",
       { class: "row-actions" },
+      button("Open as grid", () => void openTableAsGrid(view.catalog, { schema: view.schema, table: view.table, database: view.database }), { icon: "rows", class: "primary" }),
       button("Copy the name", () => copy(view.name, "the name"), { icon: "copy" }),
       button("Copy the SELECT", () => copy(view.select, "the SELECT"), { icon: "sql" }),
     ),
@@ -166,6 +201,9 @@ export function tableDetails(view: TableView): HTMLElement[] {
       h("thead", {}, h("tr", {}, h("th", {}, "Column"), h("th", {}, "Type"), h("th", {}, "Nullable"), h("th", {}, "Description"))),
       h("tbody", {}, ...rows),
     ),
+    // Its first rows, beside the columns (the page's empty side once).
+    h("h3", {}, "First rows"),
+    previewOf(view),
   ];
 }
 
@@ -472,6 +510,7 @@ export function mountRail(host: RailHost): Rail {
         event.stopPropagation();
         const run = (kind: string): void => void scriptAs(data, kind);
         showMenu(event.clientX, event.clientY, `Script ${data.table ?? "table"} as`, [
+          ["rows", "Open as grid", () => void openTableAsGrid(current?.name ?? "", { schema: data.schema, table: data.table ?? "", database: current && current.databases > 1 ? data.database : undefined })],
           ["sql", "SELECT *", () => run("select_star")],
           ["columns", "SELECT the columns", () => run("select_columns")],
           ["code", "Python: pandas", () => run("pandas")],
@@ -752,6 +791,8 @@ export function mountRail(host: RailHost): Rail {
       dialect: answer.dialect,
       columns: answer.columns,
       focusColumn,
+      schema: data.schema,
+      database: current.databases > 1 ? data.database : undefined,
     });
   }
 

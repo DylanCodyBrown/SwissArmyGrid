@@ -81,6 +81,7 @@ export function chooseFile(options: ChooseOptions): Promise<string | null> {
       if (options.suffixes?.length) query.set("suffixes", options.suffixes.join(","));
       status.textContent = "Loading…";
       const mine = ++asked;
+      const typed = where.value; // what the path box said when this folder was asked for
       let found: Listing;
       try {
         found = await api<Listing>(`/folders?${query}`);
@@ -91,7 +92,9 @@ export function chooseFile(options: ChooseOptions): Promise<string | null> {
       if (mine !== asked) return;
       shown = found;
       const at = found;
-      where.value = at.path;
+      // A path typed while this folder was being read is kept: the answer once replaced it, so the
+      // Enter that followed opened this folder instead of the one typed.
+      if (where.value === typed || document.activeElement !== where) where.value = at.path;
       clear(roots, ...at.roots.map((r) => h("option", { value: r, selected: r === at.path }, r === at.home ? `Home (${r})` : r)));
       const rows = [
         ...(at.parent ? [h("li", { class: "file-row folder", role: "option", tabindex: 0, onclick: () => void go(at.parent) }, h("span", { class: "file-name" }, ".."))] : []),

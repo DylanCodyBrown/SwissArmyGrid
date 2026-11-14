@@ -52,6 +52,8 @@ export interface GridInfo {
   source_kind: string;
   /** The SELECT that built this dataset (a "+" tab's table), or null for data pushed or loaded. */
   query: string | null;
+  /** Opened from a connection with fewer rows than it holds: the grid says so and offers the rest. */
+  opened: { connection: string; database: string; schema: string; table: string; shown: number; total: number } | null;
   source_columns: ColumnInfo[];
   columns: ColumnInfo[];
   stage_columns: ColumnInfo[][];

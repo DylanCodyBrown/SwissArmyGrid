@@ -550,7 +550,9 @@ def test_script_as_from_the_right_click_waits_for_sag_paste(
     orders = item(page, "orders").locator(":scope > .node")
     orders.click(button="right")
     menu = page.get_by_role("menu", name="Script orders as")
-    expect(menu.get_by_role("menuitem")).to_have_text(["SELECT *", "SELECT the columns", "Python: pandas"])
+    expect(menu.get_by_role("menuitem")).to_have_text(
+        ["Open as grid", "SELECT *", "SELECT the columns", "Python: pandas"]
+    )
     menu.get_by_role("menuitem", name="SELECT the columns").click()
     expect(page.locator(".toast").last).to_contain_text("sag.paste()")
     taken = call(server, "POST", "/python/take")

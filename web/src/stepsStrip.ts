@@ -61,8 +61,29 @@ function render(): void {
   const on = info.steps.filter((s) => s.enabled !== false && !s.params.header);
   const last = info.steps.length - 1;
   const label = on.length === 0 ? "No steps" : on.length === 1 ? "1 step" : `${on.length} steps`;
+  // Opened from a connection with fewer rows than it holds: said plainly, beside the table, with the rest
+  // one click away (the owner's call, 2026-11-14).
+  const opened = info.opened;
+  const loadAll = async (): Promise<void> => {
+    if (!opened) return;
+    toast(`Loading every row of ${opened.table}…`);
+    try {
+      const where = { database: opened.database, schema: opened.schema, table: opened.table, all: true };
+      await api(`/connections/${encodeURIComponent(opened.connection)}/open`, "POST", where);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
   clear(
     host,
+    opened
+      ? h(
+          "span",
+          { class: "opened-note", role: "status" },
+          `First ${opened.shown.toLocaleString()} of ${opened.total.toLocaleString()} rows`,
+          button("Load all rows", () => void loadAll(), { icon: "import", class: "ghost" }),
+        )
+      : null,
     h("span", { class: "steps-count", title: on.map((s, i) => `${i + 1}. ${s.description ?? s.kind}`).join("\n") || "No steps" }, label),
     info.step_error ? h("span", { class: "status-error" }, `Step ${info.step_error.index + 1}: ${info.step_error.message}`) : null,
     button("Undo the last step", () => void state.saveSteps(info.steps.slice(0, last)).catch((e: Error) => toast(e.message, "error")), {

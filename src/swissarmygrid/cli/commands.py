@@ -1965,6 +1965,7 @@ _CONNECTION_ARGS = (
     opt("description", "What it is for."),
     opt("catalog", '{"language", "command"}: lists the source\'s columns (the type gives one).', "json"),
     opt("secrets", '{"password": "value"}: saved in the system keyring, never shown back.', "json"),
+    opt("row_limit", "A database: how many rows a table opens with as a grid (10,000 unless set).", "int"),
     opt(
         "vault_mapping",
         'A vault\'s entries: [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-password"}] (each secret '
@@ -1991,6 +1992,7 @@ _CONNECTION_KEYS = (
     "secrets",
     "vault_mapping",
     "vault_all",
+    "row_limit",
 )
 
 

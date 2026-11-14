@@ -3093,6 +3093,19 @@ body.popout .app-row {
   font-size: 0.92em;
 }
 
+/* A table opened with fewer rows than its source holds: a clear warning, the rest one click away. */
+.steps-strip .opened-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 10px;
+  padding: 1px 2px 1px 10px;
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 600;
+}
+
 .steps-strip:empty {
   display: none;
 }

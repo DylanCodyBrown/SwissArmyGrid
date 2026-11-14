@@ -26,12 +26,28 @@ def orders_csv(tmp_path: Path, server: dict[str, Any]) -> Iterator[Path]:
     csv = tmp_path / "shop" / "orders.csv"
     csv.parent.mkdir()
     csv.write_text("order_id,region,amount\n1,North,10.5\n2,South,7\n3,North,2.5\n", encoding="utf-8")
+    seen_by_server(server, csv.parent)
     yield csv
     for name in ("orders", "Orders"):
         try:
             call(server, "DELETE", f"/blades/{quote(name)}")
         except Exception:  # noqa: S110 (not saved by this test)
             pass
+
+
+def seen_by_server(server: dict[str, Any], folder: Path) -> None:
+    """Wait until the server's own process lists a folder this test just made: in this sandbox a new
+    folder under pytest's temporary folder was now and then not there yet for the server (a few
+    seconds), and the chooser said so."""
+    import time
+
+    for _ in range(100):
+        try:
+            if call(server, "GET", f"/folders?path={quote(str(folder))}")["files"]:
+                return
+        except Exception:  # noqa: S110 (not there yet)
+            pass
+        time.sleep(0.1)
 
 
 def test_a_connection_is_added_with_a_form_tested_and_saved(
