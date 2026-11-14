@@ -136,3 +136,66 @@ def test_a_script_runs_in_its_console(browser: Browser, orders_url: str) -> None
     expect(log).to_contain_text("90")
     console.press("ArrowUp")
     expect(console).to_have_value("total * 2")  # what was typed comes back
+
+
+def test_completion_comes_from_the_catalog_and_the_kernel(
+    browser: Browser, orders_url: str, server: dict[str, Any], orders_csv: Path
+) -> None:
+    call(
+        server,
+        "POST",
+        "/connections",
+        {
+            "name": "Orders",
+            "kind": "other",
+            "template": "csv",
+            "code": f'from pathlib import Path\npath = Path(r"{orders_csv}")',
+        },
+    )
+    catalog = {
+        "columns": ["TABLE_SCHEMA", "TABLE_NAME", "COLUMN_NAME", "DATA_TYPE"],
+        "data": [
+            ["sales", "orders", "order_id", "int"],
+            ["sales", "orders", "region", "varchar"],
+            ["sales", "orders", "amount", "decimal"],
+        ],
+    }
+    request_catalog = call(server, "PUT", "/catalogs/Orders?dialect=duckdb", catalog)
+    assert request_catalog["catalog"]["columns"] == 3
+    try:
+        workbench = open_workbench(open_grid(browser, orders_url))
+        workbench.get_by_role("button", name="New notebook").first.click()
+        cell = workbench.locator(".wb-cell").first
+        expect(cell.locator(".monaco-editor")).to_be_visible(timeout=20000)
+        # A SQL cell before any kernel runs: the connection's catalog answers.
+        cell.get_by_label("Cell kind").select_option("sql")
+        cell.get_by_label("Connection").select_option("Orders")
+        cell.locator(".monaco-editor").click()
+        workbench.keyboard.type("SELECT * FROM ord")
+        workbench.keyboard.press("Control+Space")  # suggestions now (typing fast can outrun the widget)
+        suggest = workbench.locator(".suggest-widget .monaco-list-row")
+        expect(suggest.filter(has_text="orders").first).to_be_visible(timeout=10000)
+        workbench.keyboard.press("Escape")
+        workbench.keyboard.type("ers WHERE orders.reg")
+        workbench.keyboard.press("Control+Space")
+        expect(suggest.filter(has_text="region").first).to_be_visible(timeout=10000)
+        workbench.keyboard.press("Escape")
+        # A Python cell once the kernel runs: the kernel's own names, a DataFrame's columns.
+        workbench.get_by_role("button", name="Python", exact=True).click()
+        python = workbench.locator(".wb-cell").nth(1)
+        expect(python.locator(".monaco-editor")).to_be_visible(timeout=20000)
+        python.locator(".monaco-editor").click()
+        workbench.keyboard.type("import pandas as pd\nrainfall = pd.DataFrame({'rain_mm': [3.5]})")
+        workbench.keyboard.press("Control+Enter")
+        expect(python.locator(".wb-count")).to_have_text("[1]", timeout=60000)
+        workbench.keyboard.press("End")
+        workbench.keyboard.press("Enter")
+        workbench.keyboard.type("rainfall.rai")
+        workbench.keyboard.press("Control+Space")
+        expect(suggest.filter(has_text="rain_mm").first).to_be_visible(timeout=15000)
+        workbench.keyboard.press("Escape")
+        workbench.keyboard.press("Enter")
+        workbench.keyboard.type('conn = sag.connection("Or')
+        expect(suggest.filter(has_text="Orders").first).to_be_visible(timeout=10000)
+    finally:
+        call(server, "DELETE", "/catalogs/Orders")

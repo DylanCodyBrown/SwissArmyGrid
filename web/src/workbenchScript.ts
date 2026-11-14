@@ -9,6 +9,7 @@
  */
 import { button, clear, h } from "./dom";
 import type { CodeEditor } from "./lazy/codeEditor";
+import { pythonCompleter } from "./workbenchCompletion";
 import { drawOutputs, type Kernel, type Output } from "./workbenchKernel";
 
 export interface ScriptView {
@@ -27,7 +28,13 @@ function dedent(code: string): string {
   return lines.map((l) => l.slice(cut)).join("\n");
 }
 
-export function scriptView(initial: string, kernel: Kernel, theme: () => string, changed: () => void): ScriptView {
+export function scriptView(
+  initial: string,
+  kernel: Kernel,
+  theme: () => string,
+  changed: () => void,
+  names: () => { connections: string[]; blades: string[] } = () => ({ connections: [], blades: [] }),
+): ScriptView {
   const editorHost = h("div", { class: "wb-script-editor" });
   const log = h("div", { class: "wb-console-log", role: "log", "aria-live": "polite" });
   const input = h("input", { type: "text", class: "mono wb-console-input", "aria-label": "Python console: type a line and press Enter", placeholder: ">>> a line of Python, Enter runs it", spellcheck: false });
@@ -85,7 +92,14 @@ export function scriptView(initial: string, kernel: Kernel, theme: () => string,
   });
 
   void (import(/* external */ "/static/build/lazy/codeEditor.js" as string) as Promise<typeof import("./lazy/codeEditor")>).then((m) => {
-    editor = m.createCodeEditor(editorHost, { language: "python", value: initial, theme: theme(), keys: { f5: () => void runFile(), ctrlEnter: () => void runSelection() } });
+    editor = m.createCodeEditor(editorHost, {
+      language: "python",
+      value: initial,
+      theme: theme(),
+      keys: { f5: () => void runFile(), ctrlEnter: () => void runSelection() },
+      complete: pythonCompleter(kernel, names),
+      help: (text, offset) => kernel.help(text, offset),
+    });
     editor.onChange(() => {
       text = editor!.value();
       changed();

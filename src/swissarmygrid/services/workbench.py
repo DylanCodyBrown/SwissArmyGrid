@@ -33,6 +33,10 @@ class Kernel(Protocol):
 
     def execute(self, code: str, silent: bool = False) -> AsyncIterator[dict[str, Any]]: ...
 
+    async def complete(self, code: str, offset: int) -> dict[str, Any]: ...
+
+    async def inspect(self, code: str, offset: int) -> str: ...
+
     async def interrupt(self) -> None: ...
 
     async def restart(self) -> None: ...
@@ -163,6 +167,26 @@ class Workbench:
         else:
             code = body["code"]
         return self._kernel(kernel_id).execute(code)
+
+    @staticmethod
+    def _code_at(body: Any) -> tuple[str, int]:
+        if not isinstance(body, dict) or not isinstance(body.get("code"), str):
+            raise ValueError('Send {"code": "...", "offset": n}.')
+        code: str = body["code"]
+        offset = body.get("offset")
+        if not isinstance(offset, int) or not 0 <= offset <= len(code) or len(code) > rules.MAX_CELL_CHARS:
+            raise ValueError("The offset is a place in the code (0 to its length).")
+        return code, offset
+
+    async def complete(self, kernel_id: str, body: Any) -> dict[str, Any]:
+        """The kernel's completions at a place in the code (Python; a %%sql cell's names too)."""
+        code, offset = self._code_at(body)
+        return await self._kernel(kernel_id).complete(code, offset)
+
+    async def inspect(self, kernel_id: str, body: Any) -> dict[str, Any]:
+        """The signature and help of the name at a place in the code."""
+        code, offset = self._code_at(body)
+        return {"help": await self._kernel(kernel_id).inspect(code, offset)}
 
     async def interrupt(self, kernel_id: str) -> None:
         await self._kernel(kernel_id).interrupt()

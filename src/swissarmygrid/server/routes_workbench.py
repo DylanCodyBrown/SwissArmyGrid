@@ -9,6 +9,8 @@ run them. The user's alone: every route refuses the agent (it never runs code in
   POST   /workbench/kernels   {"python", "path"}   start one, for a document
   POST   /workbench/kernels/{id}/execute    {"code", "kind", "connection"}: the outputs as they come,
                                             one JSON object a line, the last {"done": ...}
+  POST   /workbench/kernels/{id}/complete   {"code", "offset"}: the kernel's completions there
+  POST   /workbench/kernels/{id}/inspect    {"code", "offset"}: the signature and help of the name there
   POST   /workbench/kernels/{id}/interrupt, /restart       DELETE /workbench/kernels/{id}
 """
 
@@ -76,6 +78,14 @@ def routes(workbench: Workbench) -> list[BaseRoute]:
             lines(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store"}
         )
 
+    async def complete(request: Request) -> Response:
+        return json_response(
+            await workbench.complete(request.path_params["kernel"], await read_json(request))
+        )
+
+    async def inspect(request: Request) -> Response:
+        return json_response(await workbench.inspect(request.path_params["kernel"], await read_json(request)))
+
     async def interrupt(request: Request) -> Response:
         await workbench.interrupt(request.path_params["kernel"])
         return json_response({"ok": True})
@@ -95,6 +105,8 @@ def routes(workbench: Workbench) -> list[BaseRoute]:
         Route("/workbench/pythons", user_only(pythons)),
         Route("/workbench/kernels", user_only(start), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/execute", user_only(execute), methods=["POST"]),
+        Route("/workbench/kernels/{kernel}/complete", user_only(complete), methods=["POST"]),
+        Route("/workbench/kernels/{kernel}/inspect", user_only(inspect), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/interrupt", user_only(interrupt), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/restart", user_only(restart), methods=["POST"]),
         Route("/workbench/kernels/{kernel}", user_only(stop), methods=["DELETE"]),

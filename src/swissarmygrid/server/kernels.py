@@ -23,6 +23,10 @@ from jupyter_client.kernelspec import KernelSpec
 from jupyter_client.manager import AsyncKernelManager
 
 _START_SECONDS: float = 60.0
+# How long a completion or hover waits: the first on a big library (pandas) can take 4 s.
+_ASK_SECONDS: float = 8.0
+_MAX_MATCHES: int = 300
+_MAX_HELP: int = 6_000
 _IDLE_POLL_SECONDS: float = 0.5
 # Run quietly once a kernel is ready: the package (sag.*, the %%sql cells, tables as grids) when that
 # Python has it. A Python without it still runs code; the Workbench says how to add it.
@@ -80,6 +84,8 @@ class Kernel:
         self.python = python
         self._sockets = sockets  # the private folder of its local sockets, removed when it ends
         self._lock = asyncio.Lock()
+        self._shell = asyncio.Lock()  # one completion or hover at a time reads the shell channel's replies
+        self._warm: asyncio.Task[Any] | None = None
 
     async def ready(self) -> None:
         self.client.start_channels()
@@ -89,6 +95,8 @@ class Kernel:
             raise KernelError(f"The kernel did not start: {error}") from None
         async for _ in self.execute(_SETUP, silent=True):
             pass
+        # The first completion loads Jedi (about 3 seconds): do it now, so the user's first Tab is quick.
+        self._warm = asyncio.create_task(self.complete("im", 2))
 
     async def execute(self, code: str, silent: bool = False) -> AsyncIterator[dict[str, Any]]:
         async with self._lock:
@@ -132,6 +140,44 @@ class Kernel:
                 elif kind == "clear_output":
                     yield {"clear": True}
             yield {"done": {"ok": ok, "execution_count": count}}
+
+    async def _ask(self, send: Any) -> dict[str, Any] | None:
+        """Send one request (`send()` gives its id) and wait for the shell channel's reply to it (a run's
+        own replies are passed over)."""
+        async with self._shell:
+            return await self._reply(send())
+
+    async def _reply(self, msg_id: str) -> dict[str, Any] | None:
+        deadline = asyncio.get_running_loop().time() + _ASK_SECONDS
+        while (left := deadline - asyncio.get_running_loop().time()) > 0:
+            try:
+                msg = await self.client.get_shell_msg(timeout=left)
+            except Exception:  # queue.Empty: no answer in time (the kernel is busy running code)
+                return None
+            if msg.get("parent_header", {}).get("msg_id") == msg_id:
+                return dict(msg["content"])
+        return None
+
+    async def complete(self, code: str, offset: int) -> dict[str, Any]:
+        """What the kernel offers at `offset` (IPython's completer, with Jedi): the matches, the span they
+        replace, and each one's kind when the kernel says. Nothing while it is busy running."""
+        content = await self._ask(lambda: self.client.complete(code, offset))
+        if not content or content.get("status") != "ok":
+            return {"matches": [], "start": offset, "end": offset, "types": {}}
+        typed = content.get("metadata", {}).get("_jupyter_types_experimental", [])
+        return {
+            "matches": content.get("matches", [])[:_MAX_MATCHES],
+            "start": content.get("cursor_start", offset),
+            "end": content.get("cursor_end", offset),
+            "types": {t.get("text"): t.get("type") for t in typed if isinstance(t, dict)},
+        }
+
+    async def inspect(self, code: str, offset: int) -> str:
+        """The signature and help of the name at `offset`, as plain text (empty when there is none)."""
+        content = await self._ask(lambda: self.client.inspect(code, offset, detail_level=0))
+        if not content or not content.get("found"):
+            return ""
+        return str(content.get("data", {}).get("text/plain", ""))[:_MAX_HELP]
 
     async def interrupt(self) -> None:
         await self.manager.interrupt_kernel()

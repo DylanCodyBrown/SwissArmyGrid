@@ -13,6 +13,81 @@ import * as monaco from "monaco-editor";
 
 const THEMES: Record<string, string> = { light: "vs", dark: "vs-dark", "hc-light": "hc-light", "hc-dark": "hc-black" };
 
+/** A completion: what it shows, what it inserts, its kind (variable, function, table, column...). */
+export interface Suggestion {
+  label: string;
+  insert?: string;
+  kind?: string;
+  detail?: string;
+  /** Where the insert goes, as offsets into the text (default: the word at the cursor). */
+  start?: number;
+  end?: number;
+}
+export type Completer = (text: string, offset: number) => Promise<Suggestion[]>;
+export type Helper = (text: string, offset: number) => Promise<string>;
+
+// Each editor's own completer and help (a notebook cell's kernel and connection, a script's kernel).
+const completers = new WeakMap<monaco.editor.ITextModel, { complete?: Completer; help?: Helper }>();
+const registered = new Set<string>();
+const KINDS: Record<string, monaco.languages.CompletionItemKind> = {
+  function: monaco.languages.CompletionItemKind.Function,
+  method: monaco.languages.CompletionItemKind.Method,
+  class: monaco.languages.CompletionItemKind.Class,
+  module: monaco.languages.CompletionItemKind.Module,
+  instance: monaco.languages.CompletionItemKind.Variable,
+  statement: monaco.languages.CompletionItemKind.Variable,
+  keyword: monaco.languages.CompletionItemKind.Keyword,
+  param: monaco.languages.CompletionItemKind.Variable,
+  path: monaco.languages.CompletionItemKind.File,
+  property: monaco.languages.CompletionItemKind.Property,
+  table: monaco.languages.CompletionItemKind.Struct,
+  view: monaco.languages.CompletionItemKind.Interface,
+  schema: monaco.languages.CompletionItemKind.Folder,
+  column: monaco.languages.CompletionItemKind.Field,
+  connection: monaco.languages.CompletionItemKind.Reference,
+};
+
+/** One completion and one hover provider per language, asking the editor's own completer. */
+function register(language: string): void {
+  if (registered.has(language)) return;
+  registered.add(language);
+  monaco.languages.registerCompletionItemProvider(language, {
+    triggerCharacters: [".", "\"", "'"],
+    provideCompletionItems: async (model, position) => {
+      const own = completers.get(model)?.complete;
+      if (!own) return { suggestions: [] };
+      const offset = model.getOffsetAt(position);
+      const found = await own(model.getValue(), offset);
+      const word = model.getWordUntilPosition(position);
+      const wordRange = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
+      return {
+        // Asked again as typing goes on: the kernel's list changes with what is typed (a DataFrame's
+        // columns come once a letter follows the dot), and it answers in well under a tenth of a second.
+        incomplete: true,
+        suggestions: found.map((s, i) => {
+          const range = s.start !== undefined ? monaco.Range.fromPositions(model.getPositionAt(s.start), model.getPositionAt(s.end ?? offset)) : wordRange;
+          return {
+            label: s.label,
+            insertText: s.insert ?? s.label,
+            kind: KINDS[s.kind ?? ""] ?? monaco.languages.CompletionItemKind.Text,
+            detail: s.detail ?? s.kind,
+            range,
+            sortText: String(i).padStart(5, "0"), // the order the completer gave
+          };
+        }),
+      };
+    },
+  });
+  monaco.languages.registerHoverProvider(language, {
+    provideHover: async (model, position) => {
+      const help = completers.get(model)?.help;
+      if (!help) return null;
+      const text = await help(model.getValue(), model.getOffsetAt(position));
+      return text ? { contents: [{ value: "```\n" + text.replace(/```/g, "ˋˋˋ") + "\n```" }] } : null;
+    },
+  });
+}
+
 export interface CodeEditor {
   value: () => string;
   setValue: (text: string) => void;
@@ -35,6 +110,9 @@ export interface CodeEditorOptions {
   /** Keys: Shift+Enter, Ctrl+Enter (and F9), F5. */
   keys?: { shiftEnter?: () => void; ctrlEnter?: () => void; f5?: () => void; escape?: () => void };
   placeholder?: string;
+  /** Completions at the cursor (the kernel, a connection's catalog), and help on hover. */
+  complete?: Completer;
+  help?: Helper;
 }
 
 export function createCodeEditor(host: HTMLElement, options: CodeEditorOptions): CodeEditor {
@@ -58,9 +136,17 @@ export function createCodeEditor(host: HTMLElement, options: CodeEditorOptions):
     tabSize: 4,
     insertSpaces: true,
     dropIntoEditor: { enabled: true },
+    // Suggestions as you type, inside strings too (a connection's name in sag.connection("…"), SQL in a string).
+    quickSuggestions: { other: true, comments: false, strings: true },
+    wordBasedSuggestions: "currentDocument",
     fixedOverflowWidgets: true,
     placeholder: options.placeholder,
   });
+  const model = editor.getModel();
+  if (model && (options.complete || options.help)) {
+    completers.set(model, { complete: options.complete, help: options.help });
+    for (const language of ["python", "sql", "markdown"]) register(language);
+  }
   const keys = options.keys ?? {};
   if (keys.shiftEnter) editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, keys.shiftEnter);
   if (keys.ctrlEnter) {

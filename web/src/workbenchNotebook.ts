@@ -13,7 +13,14 @@
 import { button, clear, h, toast } from "./dom";
 import type { CodeEditor } from "./lazy/codeEditor";
 import { renderMarkdown } from "./markdown";
+import { pythonCompleter, sqlCompleter } from "./workbenchCompletion";
 import { drawOutputs, type Kernel, type Output } from "./workbenchKernel";
+
+/** A SQL cell's first line as the kernel runs it (domain/notebooks.py sql_line). */
+export function sqlLine(connection: string | null): string {
+  if (!connection) return "%%sql";
+  return /\s/.test(connection) ? `%%sql '${connection.replace(/'/g, "'\"'\"'")}'` : `%%sql ${connection}`;
+}
 
 export type CellKind = "code" | "sql" | "markdown";
 export interface CellData {
@@ -51,7 +58,9 @@ export function notebookView(
   connections: () => string[],
   theme: () => string,
   changed: () => void,
+  blades: () => string[] = () => [],
 ): NotebookView {
+  const python = pythonCompleter(kernel, () => ({ connections: connections(), blades: blades() }));
   const list = h("div", { class: "wb-cells" });
   const cells: Cell[] = [];
   let selected: Cell | null = null;
@@ -137,6 +146,7 @@ export function notebookView(
       outputHost,
     );
     const cell: Cell = { ...data, element, editor: null, outputHost, count };
+    const sql = sqlCompleter(kernel, () => cell.connection);
     connection.hidden = data.kind !== "sql";
     fillConnections();
     connection.addEventListener("focus", fillConnections);
@@ -166,6 +176,9 @@ export function notebookView(
         theme: theme(),
         grow: true,
         placeholder: cell.kind === "sql" ? "SELECT ... (on the connection chosen above)" : undefined,
+        // By the cell's kind as it is now: Python from the kernel, SQL from the connection's catalog.
+        complete: (text, offset) => (cell.kind === "sql" ? sql(text, offset) : cell.kind === "code" ? python(text, offset) : Promise.resolve([])),
+        help: (text, offset) => (cell.kind === "code" ? kernel.help(text, offset) : Promise.resolve("")),
         keys: {
           shiftEnter: () => void run(cell).then(() => next(cell)),
           ctrlEnter: () => void run(cell),

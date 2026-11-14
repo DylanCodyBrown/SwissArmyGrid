@@ -21,6 +21,7 @@ import { mountRail, tableDetails, watchTheme } from "./catalogRail";
 import { button, clear, h, toast } from "./dom";
 import { chooseFile } from "./fileChooser";
 import { effectiveTheme } from "./theme";
+import { forgetCatalogs } from "./workbenchCompletion";
 import { Kernel } from "./workbenchKernel";
 import { type CellData, notebookView, type NotebookView } from "./workbenchNotebook";
 import { scriptView, type ScriptView } from "./workbenchScript";
@@ -57,15 +58,19 @@ let counter = 0;
 let homeFolder = "";
 let pythons: PythonChoice[] = [];
 let connectionNames: string[] = [];
+let bladeNames: string[] = [];
 let editingBlade = false;
 
 const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
 async function loadConnections(): Promise<void> {
   try {
-    connectionNames = (await api<{ connections: { name: string }[] }>("/connections")).connections.map((c) => c.name);
+    const every = (await api<{ blades: { name: string; connection?: string | null }[] }>("/blades")).blades;
+    connectionNames = every.filter((b) => b.connection).map((b) => b.name);
+    bladeNames = every.filter((b) => !b.connection).map((b) => b.name);
   } catch {
     connectionNames = [];
+    bladeNames = [];
   }
 }
 
@@ -90,14 +95,14 @@ const markChanged = (doc: Doc) => (): void => {
 
 function openNotebook(path: string | null, cells: CellData[], modified: number | null): void {
   const doc = makeDoc("notebook", path ? baseName(path) : `Untitled notebook ${counter + 1}`, path, modified);
-  doc.notebook = notebookView(cells, doc.kernel!, () => connectionNames, () => effectiveTheme(), markChanged(doc));
+  doc.notebook = notebookView(cells, doc.kernel!, () => connectionNames, () => effectiveTheme(), markChanged(doc), () => bladeNames);
   doc.element.append(doc.notebook.element);
   show(doc);
 }
 
 function openScript(path: string | null, text: string, modified: number | null): void {
   const doc = makeDoc("script", path ? baseName(path) : `Untitled script ${counter + 1}`, path, modified);
-  doc.script = scriptView(text, doc.kernel!, () => effectiveTheme(), markChanged(doc));
+  doc.script = scriptView(text, doc.kernel!, () => effectiveTheme(), markChanged(doc), () => ({ connections: connectionNames, blades: bladeNames }));
   doc.element.append(doc.script.element);
   show(doc);
 }
@@ -364,7 +369,10 @@ connect((live) => {
 }, { catalog: "1" });
 onNotice((notice) => {
   handleAgentNotice(notice);
-  if (notice.type === "catalogs_changed") void rail.loadCatalogs();
+  if (notice.type === "catalogs_changed") {
+    void rail.loadCatalogs();
+    forgetCatalogs(); // completion asks the catalogs again
+  }
   if (notice.type === "blades_changed") {
     void rail.loadBlades();
     void loadConnections();

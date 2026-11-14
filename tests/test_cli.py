@@ -189,6 +189,8 @@ NOT_COMMANDS = {
     "/workbench/pythons": "as /workbench/home",
     "/workbench/kernels": "as /workbench/home: the agent never runs code in the user's Python",
     "/workbench/kernels/{}/execute": "as /workbench/kernels",
+    "/workbench/kernels/{}/complete": "as /workbench/kernels",
+    "/workbench/kernels/{}/inspect": "as /workbench/kernels",
     "/workbench/kernels/{}/interrupt": "as /workbench/kernels",
     "/workbench/kernels/{}/restart": "as /workbench/kernels",
     "/workbench/kernels/{}": "as /workbench/kernels",

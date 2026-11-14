@@ -95,6 +95,26 @@ export class Kernel {
     }
   }
 
+  /** The kernel's completions at `offset` (nothing before it has started: typing never starts one). */
+  async complete(code: string, offset: number): Promise<{ matches: string[]; start: number; end: number; types: Record<string, string> } | null> {
+    if (!this.id || this.state === "starting") return null;
+    try {
+      return await api(`/workbench/kernels/${this.id}/complete`, "POST", { code, offset });
+    } catch {
+      return null;
+    }
+  }
+
+  /** The signature and help of the name at `offset`. */
+  async help(code: string, offset: number): Promise<string> {
+    if (!this.id || this.state === "starting") return "";
+    try {
+      return (await api<{ help: string }>(`/workbench/kernels/${this.id}/inspect`, "POST", { code, offset })).help;
+    } catch {
+      return "";
+    }
+  }
+
   async interrupt(): Promise<void> {
     if (this.id) await api(`/workbench/kernels/${this.id}/interrupt`, "POST");
   }

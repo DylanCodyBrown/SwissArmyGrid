@@ -146,6 +146,33 @@ def test_a_kernel_runs_code_and_streams_its_outputs(client: TestClient, tmp_path
         assert failed[0]["ename"] == "ZeroDivisionError" and failed[-1]["done"]["ok"] is False
         # The kernel keeps its state between runs; the package is imported quietly when it starts.
         assert run(client, kernel, "'sag' in globals()")[0]["data"]["text/plain"] == "True"
+        # Completion and help from the kernel: its own variables, a DataFrame's columns, a signature.
+        run(
+            client,
+            kernel,
+            "import pandas as pd\nrainfall = pd.DataFrame({'city': ['Springfield'], 'rain_mm': [3.5]})",
+        )
+        code = "rainfall.rai"
+        done = client.post(
+            f"/workbench/kernels/{kernel}/complete", json={"code": code, "offset": len(code)}, headers=AUTH
+        )
+        assert done.status_code == 200, done.text
+        assert "rain_mm" in done.json()["matches"] and done.json()["start"] == len("rainfall.")
+        code = "rain"
+        assert (
+            "rainfall"
+            in client.post(
+                f"/workbench/kernels/{kernel}/complete", json={"code": code, "offset": 4}, headers=AUTH
+            ).json()["matches"]
+        )
+        helped = client.post(
+            f"/workbench/kernels/{kernel}/inspect", json={"code": "len(", "offset": 3}, headers=AUTH
+        )
+        assert "Return the number of items" in helped.json()["help"]
+        bad = client.post(
+            f"/workbench/kernels/{kernel}/complete", json={"code": "x", "offset": 9}, headers=AUTH
+        )
+        assert bad.status_code == 400
         # Interrupt stops a long run.
         stopper = threading.Timer(
             1.5, lambda: client.post(f"/workbench/kernels/{kernel}/interrupt", headers=AUTH)
