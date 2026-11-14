@@ -69,7 +69,7 @@ export async function renderColumnProfile(host: HTMLElement, column: string): Pr
   const top = Math.max(1, ...p.top_values.map((t) => t.count));
   const values = h(
     "div",
-    { class: "bars", role: "list", "aria-label": "Most common values; click one to filter" },
+    { class: "bars", role: "list", "aria-label": "Most common values" },
     ...p.top_values.map((t) =>
       h(
         "button",
@@ -77,7 +77,7 @@ export async function renderColumnProfile(host: HTMLElement, column: string): Pr
           type: "button",
           class: "bar-row",
           role: "listitem",
-          title: `Keep only rows where ${column} ${t.value === null ? "is blank" : `equals ${fmt(t.value)}`}`,
+          title: `Filter to ${t.value === null ? "blank" : fmt(t.value)}`,
           onclick: () => void filterOn(column, t.value, p.family),
         },
         h("span", { class: "label", style: { "--share": `${(100 * t.count) / top}%` } }, h("span", {}, fmt(t.value))),
@@ -140,9 +140,9 @@ export function openColumnProfile(column: string): void {
   const picker = h("select", { "aria-label": "Column to profile", onchange: () => void show(picker.value) });
   for (const c of state.previewColumns()) picker.append(h("option", { value: c.name, selected: c.name === column }, c.name));
   const slot = h("div");
-  body.append(h("div", { class: "code-toolbar", style: { marginBottom: "10px" } }, picker, h("span", { class: "hint" }, "Click a value to add a filter step.")), slot);
+  body.append(h("div", { class: "code-toolbar", style: { marginBottom: "10px" } }, picker), slot);
   foot.append(
-    button("Send to Sandbox", () => void profileToSandbox(picker.value), { icon: "image", title: "This profile, as a note and a chart, in the Sandbox" }),
+    button("Send to Sandbox", () => void profileToSandbox(picker.value), { icon: "image" }),
     button("Close", close, { class: "primary" }),
   );
   const show = async (name: string): Promise<void> => {
@@ -166,7 +166,7 @@ export async function profileToSandbox(column: string): Promise<void> {
 export async function openTableProfile(): Promise<void> {
   const { dialog, body, foot, close } = openDialog("Profile of the whole view", true);
   dialog.classList.add("profile-window");
-  body.append(h("p", { class: "hint" }, "Profiling every column…"));
+  body.append(h("p", { class: "hint" }, "Profiling…"));
   let profiled: { rows: number; duplicate_rows: number; columns: Record<string, unknown>[] } | null = null;
   try {
     const result = await api<{ rows: number; duplicate_rows: number; columns: Record<string, unknown>[] }>(`${grid}/profile${query({ upto: state.previewUpto })}`);
@@ -206,7 +206,7 @@ export async function openTableProfile(): Promise<void> {
     clear(body, h("p", { class: "status-error" }, (e as Error).message));
   }
   foot.append(
-    button("Send to Sandbox", () => void (profiled ? sendCards(tableProfileCards(profiled, state.info?.dataset ?? "")) : undefined), { icon: "image", title: "This profile, as a table, in the Sandbox" }),
+    button("Send to Sandbox", () => void (profiled ? sendCards(tableProfileCards(profiled, state.info?.dataset ?? "")) : undefined), { icon: "image" }),
     button(
       "Export profile (CSV)",
       () =>

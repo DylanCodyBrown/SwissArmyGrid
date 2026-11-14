@@ -48,7 +48,7 @@ export async function openRegression(target?: string, predictors: string[] = [],
   const columns = viewColumns();
   const which = h("select", { "aria-label": "Target" }, ...columns.map((c) => h("option", { value: c.name, selected: c.name === target }, c.name)));
   const op = h("select", { "aria-label": "Yes means" }, ...OPS.map(([v, t]) => h("option", { value: v }, t)));
-  const yes = h("input", { type: "text", size: 14, placeholder: "late, or 1000", "aria-label": "Yes value", value: outcomeValues ?? "" });
+  const yes = h("input", { type: "text", size: 14, placeholder: "Value", "aria-label": "Yes value", value: outcomeValues ?? "" });
   const yesNo = h("input", { type: "checkbox", "aria-label": "A yes/no target" });
   const outcomeRow = h("span", { class: "analysis-inline" }, op, yes);
   const boxes = (): HTMLInputElement[] => [...pool.querySelectorAll<HTMLInputElement>("input")];
@@ -80,7 +80,7 @@ export async function openRegression(target?: string, predictors: string[] = [],
     if (yesNo.checked) {
       const text = yes.value.trim();
       if (!text) {
-        clear(results, h("p", { class: "hint" }, "Say what counts as yes, such as late, or above 1000."));
+        clear(results, h("p", { class: "hint" }, "Enter the yes value."));
         return;
       }
       sent.outcome = op.value === "values" ? { column: which.value, values: text.split(",").map((v) => v.trim()).filter(Boolean) } : { column: which.value, op: op.value, value: Number(text) };
@@ -92,9 +92,9 @@ export async function openRegression(target?: string, predictors: string[] = [],
       clear(results, resultView(answer), whatIf(answer));
       clear(
         actions,
-        button("Add predicted column", () => void add(answer.steps.predicted), { icon: "plus", title: "A step adding the model's prediction to every row" }),
-        answer.steps.miss ? button("Add miss column", () => void add(answer.steps.miss), { icon: "plus", title: "A step adding how far each row is from its prediction" }) : null,
-        answer.steps.miss ? button("Check the misses", () => void checkMisses(answer), { icon: "outliers", title: "Add the miss column, then find its outliers: the rows the model can't explain" }) : null,
+        button("Add predicted column", () => void add(answer.steps.predicted), { icon: "plus" }),
+        answer.steps.miss ? button("Add miss column", () => void add(answer.steps.miss), { icon: "plus" }) : null,
+        answer.steps.miss ? button("Check the misses", () => void checkMisses(answer), { icon: "outliers", title: "Outliers of the miss column" }) : null,
         ...resultButtons({
           analysis: "regression",
           body: sent,
@@ -109,7 +109,7 @@ export async function openRegression(target?: string, predictors: string[] = [],
   };
   const add = async (step: { kind: string; params: Record<string, unknown> } | null): Promise<void> => {
     if (!step) return;
-    await state.addStep(step).then(() => toast("Added as a step: undo it like any step."), (e: Error) => toast(e.message, "error"));
+    await state.addStep(step).then(() => toast("Added as a step."), (e: Error) => toast(e.message, "error"));
   };
   const checkMisses = async (answer: RegressionResult): Promise<void> => {
     if (!answer.steps.miss) return;
@@ -125,7 +125,6 @@ export async function openRegression(target?: string, predictors: string[] = [],
   body.append(
     h("div", { class: "analysis-controls" }, field("Target", which), h("label", { class: "analysis-field" }, h("span", {}, "Yes/no"), yesNo), outcomeRow, button("Fit", () => void run(), { icon: "play", class: "primary" })),
     pool,
-    h("p", { class: "hint" }, "A number target gets a linear regression: how much it moves with each predictor. A yes/no target (late, refunded, above a line) gets a logistic one, whose effects are odds ratios. It shows what goes together, not what causes what."),
     results,
   );
   markStaleOnChange(body, results);
@@ -137,15 +136,15 @@ function resultView(r: RegressionResult): HTMLElement {
   const linear = r.kind === "linear";
   const tiles = linear
     ? [
-        tile("R-squared", fmt(r.fit.r2), "The share of the target's ups and downs the model accounts for"),
-        tile("Adjusted", fmt(r.fit.adj_r2), "R-squared, less the credit any extra predictor gets by chance"),
-        tile("Typical miss", fmt(r.fit.rmse), "How far off a prediction usually is, in the target's units"),
+        tile("R-squared", fmt(r.fit.r2), "Share explained"),
+        tile("Adjusted", fmt(r.fit.adj_r2), "Corrected for predictor count"),
+        tile("Typical miss", fmt(r.fit.rmse), "In the target's units"),
         tile("Rows used", formatCount(r.n)),
       ]
     : [
-        tile("Right", pct(r.fit.accuracy ?? 0), "Rows whose likelier answer (at 50%) is the real one"),
-        tile("Guessing", pct(r.fit.majority ?? 0), "Always answering the commoner value"),
-        tile("McFadden R-squared", fmt(r.fit.pseudo_r2), "How much better than chance the model is: 0.2 to 0.4 is a good fit"),
+        tile("Right", pct(r.fit.accuracy ?? 0), "Correct at 50%"),
+        tile("Guessing", pct(r.fit.majority ?? 0), "Always the commoner value"),
+        tile("McFadden R-squared", fmt(r.fit.pseudo_r2), "0.2 to 0.4: a good fit"),
         tile("Rows used", formatCount(r.n)),
       ];
   return h(
@@ -175,7 +174,7 @@ function resultView(r: RegressionResult): HTMLElement {
         ),
       ),
     ),
-    Object.keys(r.references).length ? h("p", { class: "hint" }, `Compared with: ${Object.entries(r.references).map(([k, v]) => `${k} = ${v}`).join(", ")} (the commonest value of each).`) : null,
+    Object.keys(r.references).length ? h("p", { class: "hint" }, `Compared with: ${Object.entries(r.references).map(([k, v]) => `${k} = ${v}`).join(", ")}.`) : null,
   );
 }
 
@@ -202,7 +201,7 @@ function whatIf(r: RegressionResult): HTMLElement {
         r.kind === "linear"
           ? `${r.target}: about ${fmt(p.estimate)} (a new row would fall between ${fmt(p.low)} and ${fmt(p.high)}, 95% of the time). `
           : `Chance of ${r.outcome}: ${pct(p.estimate)} (between ${pct(p.low)} and ${pct(p.high)}). `,
-        button("Show the math", () => void showTheMath("predict", p), { icon: "steps", class: "ghost", title: "This estimate worked out term by term: to the Sandbox" }),
+        button("Show the math", () => void showTheMath("predict", p), { icon: "steps", class: "ghost", title: "Term by term, to the Sandbox" }),
       );
     } catch (e) {
       answer.textContent = (e as Error).message;

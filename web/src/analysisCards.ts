@@ -255,7 +255,6 @@ export function amountCards(r: AmountCardInput): SandboxCard[] {
   if (r.outliers.length) {
     lines.push("", "#### The furthest out", mdTable([...(r.by ? [r.by] : []), r.column, "Score"], r.outliers.slice(0, 10).map((o) => [...(r.by ? [o.group ?? "(blank)"] : []), o.value, `${o.score > 0 ? "+" : ""}${fmt(o.score)}`]), [...(r.by ? [false] : []), true, true]));
   }
-  lines.push("", "> An outlier is a question, not proof: look at its rows before deciding.");
   const groups = r.by ? [...new Set([...r.fences.map((f) => f.group ?? "(blank)"), ...r.outliers.map((o) => o.group ?? "(blank)")])] : ["all"];
   const y = (g: string | null): string => (r.by ? (g ?? "(blank)") : "all");
   const fenced = r.by ? r.fences : r.fences.slice(0, 1);
@@ -321,7 +320,6 @@ export function frequencyCards(r: FrequencyCardInput): SandboxCard[] {
     total ? `**${fmt(total)} of ${fmt(r.distinct)} values stand out: ${fmt(r.rarer)} rarer and ${fmt(r.commoner)} commoner than the usual ${fmt(r.typical)} rows per value.**` : `**Nothing stands out among ${fmt(r.distinct)} values (usually ${fmt(r.typical)} rows each).**`,
   ];
   if (r.outliers.length) lines.push("", mdTable(["Value", "Rows", "", "Score"], r.outliers.slice(0, 15).map((o) => [o.value, o.count, o.score < 0 ? "rarer" : "commoner", fmt(o.score)]), [false, true, false, true]));
-  lines.push("", "> Rarer values are often typos; commoner ones, copies or defaults.");
   if (!r.outliers.length) return pair(`Frequency outliers in ${r.column}`, lines.join("\n"), null);
   const shown = r.outliers.slice(0, 20);
   const counts = shown.map((o) => o.count);

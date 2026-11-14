@@ -39,7 +39,6 @@ export function analyzeButton(): HTMLButtonElement {
   const btn = button("Analyze", (event) => openMenu(event), {
     icon: "fit",
     class: "ribbon-btn",
-    title: "Odds, the fit test, find predictors, outliers: analyses that work together",
   });
   btn.setAttribute("aria-haspopup", "menu");
   btn.append(h("span", { class: "menu-caret", "aria-hidden": "true" }, "▾"));
@@ -97,14 +96,14 @@ export function tableName(...parts: string[]): string {
 /** The buttons under a result: Send to Sandbox, Open as grid (when it has rows), To Python. */
 export function resultButtons(actions: ResultActions): HTMLButtonElement[] {
   const out = [
-    button("Send to Sandbox", () => void toSandbox(actions), { icon: "image", title: "Add the result, in words, to the Sandbox tab" }),
+    button("Send to Sandbox", () => void toSandbox(actions), { icon: "image" }),
   ];
-  if (actions.rows) out.push(button("Open as grid", () => void toGrid(actions), { icon: "rows", title: "The result's table as a new grid" }));
+  if (actions.rows) out.push(button("Open as grid", () => void toGrid(actions), { icon: "rows" }));
   if (actions.result) {
     const result = actions.result;
-    out.push(button("Show the math", () => void showTheMath(actions.analysis, result()), { icon: "steps", title: "Every number here worked out step by step, with the formulas: to the Sandbox" }));
+    out.push(button("Show the math", () => void showTheMath(actions.analysis, result()), { icon: "steps", title: "Step by step, to the Sandbox" }));
   }
-  out.push(button("To Python", () => void toYourPython(actions), { icon: "code", title: "The analysis as Python: copied, and sag.paste() puts it in your Jupyter cell or IPython prompt" }));
+  out.push(button("To Python", () => void toYourPython(actions), { icon: "code", title: "Copied for sag.paste()" }));
   return out;
 }
 

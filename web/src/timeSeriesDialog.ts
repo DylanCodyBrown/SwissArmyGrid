@@ -50,7 +50,7 @@ function seriesForm(given: Record<string, unknown>): SeriesForm {
   const numbers = columns.filter((c) => isNumericType(c.type)).map((c): [string, string] => [c.name, c.name]);
   const picked = selection.targetColumns();
   const date = h("select", { "aria-label": "Date column" }, ...options(dates, String(given.date ?? picked.find((p) => dates.some(([d]) => d === p)) ?? dates[0]?.[0] ?? "")));
-  const metric = h("select", { "aria-label": "Metric" }, ...options([["", "(rows: a count)"], ...numbers], String(given.metric ?? picked.find((p) => numbers.some(([n]) => n === p)) ?? numbers[0]?.[0] ?? "")));
+  const metric = h("select", { "aria-label": "Metric" }, ...options([["", "(row count)"], ...numbers], String(given.metric ?? picked.find((p) => numbers.some(([n]) => n === p)) ?? numbers[0]?.[0] ?? "")));
   const total = h("select", { "aria-label": "Total" }, ...options([["sum", "Sum"], ["avg", "Average"]], String(given.total ?? "sum")));
   const period = h("select", { "aria-label": "Period" }, ...options([["day", "Day"], ["week", "Week"], ["month", "Month"], ["quarter", "Quarter"], ["year", "Year"]], String(given.period ?? "month")));
   const sync = (): void => {
@@ -70,7 +70,7 @@ registerAnalysis("expand", "Forecast…", () => void openForecast());
 export async function openTimeSeries(given: Record<string, unknown> = {}): Promise<void> {
   const { body, foot, close } = openDialog("Time series", true);
   if (!viewColumns().some((c) => isDateType(c.type))) {
-    body.append(h("p", { class: "status-error" }, "This view has no date column: a time series needs one (a date or a timestamp)."));
+    body.append(h("p", { class: "status-error" }, "This view has no date column."));
     foot.append(button("Close", close));
     return;
   }
@@ -93,8 +93,8 @@ export async function openTimeSeries(given: Record<string, unknown> = {}): Promi
       );
       clear(
         actions,
-        r.step ? button("Show these rows", () => void state.addStep(r.step!).then(close, (e: Error) => toast(e.message, "error")), { icon: "filter", title: "A step keeping the rows of the periods that stand out" }) : null,
-        button("Forecast…", () => { close(); void openForecast(form.read()); }, { icon: "expand", class: "primary", title: "Forecast this series" }),
+        r.step ? button("Show these rows", () => void state.addStep(r.step!).then(close, (e: Error) => toast(e.message, "error")), { icon: "filter", title: "Periods that stand out" }) : null,
+        button("Forecast…", () => { close(); void openForecast(form.read()); }, { icon: "expand", class: "primary" }),
         ...resultButtons({
           analysis: "time_series",
           body: sent,
@@ -116,7 +116,7 @@ export async function openTimeSeries(given: Record<string, unknown> = {}): Promi
 export async function openForecast(given: Record<string, unknown> = {}): Promise<void> {
   const { body, foot, close } = openDialog("Forecast", true);
   if (!viewColumns().some((c) => isDateType(c.type))) {
-    body.append(h("p", { class: "status-error" }, "This view has no date column: a forecast needs one (a date or a timestamp)."));
+    body.append(h("p", { class: "status-error" }, "This view has no date column."));
     foot.append(button("Close", close));
     return;
   }
@@ -131,7 +131,7 @@ export async function openForecast(given: Record<string, unknown> = {}): Promise
       future.addEventListener("change", () => (value.hidden = future.value !== "value"));
       return { name: c.name, use, future, value, element: h("label", { class: "forecast-predictor" }, use, h("span", {}, c.name), future, value) };
     });
-  const pool = h("details", { class: "cheat-sheet" }, h("summary", {}, "Predictors (optional): their averages per period, and their future"), h("div", { class: "cheat-body" }, ...rows.map((r) => r.element)));
+  const pool = h("details", { class: "cheat-sheet" }, h("summary", {}, "Predictors (optional)"), h("div", { class: "cheat-body" }, ...rows.map((r) => r.element)));
   const results = h("div", { class: "analysis-results" });
   const actions = h("span", { class: "analysis-actions" });
   const run = async (): Promise<void> => {

@@ -94,7 +94,6 @@ export function openRelationships(startFinding = false): void {
   let runs: RunResult[] | null = null;
 
   body.append(
-    h("p", { class: "hint" }, "Each table's key and how tables join. A saved set is a tang: share one through a shared folder (the blade folders) and your coworkers see it here. Known joins line up a compare by themselves."),
     tangsHost,
     findHost,
     currentHost,
@@ -102,10 +101,10 @@ export function openRelationships(startFinding = false): void {
   const file = h("input", { type: "file", accept: ".tang", hidden: true, onchange: () => void importFile() }) as HTMLInputElement;
   foot.append(
     file,
-    button("Import a tang", () => file.click(), { icon: "import", title: "Open a .tang file: you see what it holds and changes before applying it" }),
-    button("Export", () => void exportTang(), { icon: "export", title: "Download the current joins as a .tang file" }),
-    button("Save as tang", () => saveDialog(), { icon: "save", title: "Save the current joins as a tang: yours, or in a shared folder for your team" }),
-    button("Draw ERD", () => void drawErd(close), { icon: "link", title: "Add the joins as a diagram in the Sandbox" }),
+    button("Import a tang", () => file.click(), { icon: "import", title: "Review before applying" }),
+    button("Export", () => void exportTang(), { icon: "export", title: "Download as .tang" }),
+    button("Save as tang", () => saveDialog(), { icon: "save" }),
+    button("Draw diagram", () => void drawErd(close), { icon: "link", title: "To the Sandbox" }),
     button("Close", close, { class: "primary" }),
   );
 
@@ -122,7 +121,7 @@ export function openRelationships(startFinding = false): void {
   function renderTangs(): void {
     const text = filter.toLowerCase();
     const shown = library.models.filter((t) => !text || [t.name, t.description, t.author, ...t.tags].some((f) => f.toLowerCase().includes(text)));
-    const search = h("input", { type: "search", class: "cat-search", placeholder: "Search tangs: name, description, tag or author", "aria-label": "Search tangs", value: filter });
+    const search = h("input", { type: "search", class: "cat-search", placeholder: "Search", "aria-label": "Search tangs", value: filter });
     search.addEventListener("input", () => {
       filter = search.value;
       const at = search.selectionStart;
@@ -161,21 +160,15 @@ export function openRelationships(startFinding = false): void {
                 h(
                   "span",
                   { class: "row-actions" },
-                  button("Run", () => void run(t.name), { icon: "play", class: "ghost", title: `Check ${t.name}'s joins against the open tables` }),
-                  button("Apply", () => void apply(t.name), { class: "primary", title: "Use these joins (merged into the current ones)" }),
+                  button("Run", () => void run(t.name), { icon: "play", class: "ghost", title: "Check against open tables" }),
+                  button("Apply", () => void apply(t.name), { class: "primary", title: "Merge into current joins" }),
                 ),
               ),
             ),
           )
-        : h("p", { class: "hint" }, library.models.length ? "No tang matches." : "No tangs yet. Find relationships below and save them as a tang, or import one."),
+        : h("p", { class: "hint" }, library.models.length ? "No tang matches." : "No tangs yet."),
       library.problems.length ? h("p", { class: "status-error" }, `Could not read: ${library.problems.join("; ")}`) : null,
-      h(
-        "p",
-        { class: "hint" },
-        library.shared_folders.length
-          ? `Shared folders searched: ${library.shared_folders.join(" · ")}`
-          : "No shared folder yet: add one with Blade folders on the blades page, and tangs saved there reach your team.",
-      ),
+      library.shared_folders.length ? h("p", { class: "hint" }, `Shared folders: ${library.shared_folders.join(" · ")}`) : null,
     );
   }
 
@@ -205,13 +198,12 @@ export function openRelationships(startFinding = false): void {
     clear(
       findHost,
       h("h3", { id: "rel-find" }, "Find relationships"),
-      h("p", { class: "hint" }, "Work out how the open tables join from their data: which columns hold another table's key, how many values match, the orphans, and why. Nothing changes until you accept."),
-      button("Find relationships in the open tables", () => void find(), { icon: "zoom", class: "primary" }),
+      button("Find relationships", () => void find(), { icon: "zoom", class: "primary" }),
     );
   }
 
   async function find(): Promise<void> {
-    clear(findHost, h("h3", { id: "rel-find" }, "Find relationships"), h("p", { class: "hint", role: "status" }, "Looking at every open table..."));
+    clear(findHost, h("h3", { id: "rel-find" }, "Find relationships"), h("p", { class: "hint", role: "status" }, "Looking…"));
     let found: { tables: string[]; suggestions: Suggestion[]; keys: Record<string, string[]>; seconds: number };
     try {
       found = await api("/relationships/find", "POST", {});
@@ -248,14 +240,14 @@ export function openRelationships(startFinding = false): void {
           ? null
           : button("Reject", () => {
               void api("/relationships/reject", "POST", { from: s.from, from_columns: s.from_columns, to: s.to, to_columns: s.to_columns }).then(() => void find());
-            }, { icon: "close", iconOnly: true, class: "ghost", title: "Not a real join: do not suggest it again" }),
+            }, { icon: "close", iconOnly: true, class: "ghost", title: "Do not suggest again" }),
       );
     });
     clear(
       findHost,
       h("h3", { id: "rel-find" }, "Find relationships"),
-      h("p", { class: "hint" }, `${found.suggestions.length} joins across ${found.tables.length} tables (${found.seconds} s). The confident ones are ticked.`),
-      found.suggestions.length ? h("ul", { class: "suggestion-list" }, ...rows) : h("p", { class: "hint" }, "No joins found between the open tables."),
+      h("p", { class: "hint" }, `${found.suggestions.length} joins across ${found.tables.length} tables (${found.seconds} seconds).`),
+      found.suggestions.length ? h("ul", { class: "suggestion-list" }, ...rows) : h("p", { class: "hint" }, "No joins found."),
       h(
         "div",
         { class: "row-actions" },
@@ -267,13 +259,13 @@ export function openRelationships(startFinding = false): void {
 
   async function accept(found: { suggestions: Suggestion[]; keys: Record<string, string[]> }, picked: Set<number>): Promise<void> {
     const chosen = found.suggestions.filter((_, i) => picked.has(i));
-    if (!chosen.length) return toast("Tick the joins to accept first.", "error");
+    if (!chosen.length) return toast("No joins ticked.", "error");
     const tables: Record<string, { primary_key: string[] }> = {};
     for (const s of chosen) if (found.keys[s.to]) tables[s.to] = { primary_key: found.keys[s.to]! };
     const relationships = chosen.map(({ confidence: _c, containment: _a, coverage: _v, orphans: _o, reasons: _r, known: _k, ...join }) => join);
     try {
       await api("/relationships", "POST", { model: { tables, relationships } });
-      toast(`Accepted ${chosen.length} joins. Save them as a tang to keep and share them.`);
+      toast(`Accepted ${chosen.length} joins.`);
       await renderCurrent();
       await find();
     } catch (e) {
@@ -341,7 +333,7 @@ export function openRelationships(startFinding = false): void {
       t.description ? h("p", {}, t.description) : null,
       t.tags?.length ? h("div", { class: "chips" }, ...t.tags.map((g) => h("span", { class: "chip" }, g))) : null,
       h("p", { class: "hint" }, `${t.relationships.length} joins${t.author ? `, saved by ${t.author}` : ""}. Tables open: ${review.open_tables.join(", ") || "none"}${review.missing_tables.length ? `; not open: ${review.missing_tables.join(", ")}` : ""}.`),
-      review.changes.length ? h("div", { class: "warning-text" }, h("strong", {}, "It changes what you use now: "), h("ul", {}, ...review.changes.map((c) => h("li", {}, c)))) : h("p", { class: "hint" }, "It changes nothing you use now; it only adds."),
+      review.changes.length ? h("div", { class: "warning-text" }, h("strong", {}, "It changes what you use now: "), h("ul", {}, ...review.changes.map((c) => h("li", {}, c)))) : h("p", { class: "hint" }, "Only adds; changes nothing."),
       h("ul", { class: "hint" }, ...t.relationships.slice(0, 30).map((r) => h("li", {}, `${r.from} → ${r.to} on ${on(r)} (${r.kind})`))),
       h("label", { class: "field" }, h("span", {}, "Then"), where),
     );
@@ -371,19 +363,18 @@ export function openRelationships(startFinding = false): void {
   function saveDialog(): void {
     const model = currentModel();
     const { body: sb, foot: sf, close: sc } = openDialog("Save as tang");
-    const name = h("input", { type: "text", value: model.name !== "current" ? model.name : "", maxlength: "64", "aria-label": "Tang name", placeholder: "Sales store" });
-    const description = h("textarea", { rows: "2", "aria-label": "Description", placeholder: "Which tables, and what for" }) as HTMLTextAreaElement;
+    const name = h("input", { type: "text", value: model.name !== "current" ? model.name : "", maxlength: "64", "aria-label": "Tang name" });
+    const description = h("textarea", { rows: "2", "aria-label": "Description" }) as HTMLTextAreaElement;
     description.value = model.description ?? "";
     const tags = h("input", { type: "text", value: (model.tags ?? []).join(", "), "aria-label": "Tags", placeholder: "sales, finance" });
-    const author = h("input", { type: "text", value: model.author ?? "", maxlength: "100", "aria-label": "Saved by", placeholder: "optional: your name, as coworkers know you" });
-    const where = h("select", { "aria-label": "Save it in" }, h("option", { value: "" }, "My tangs (on this computer)"), ...library.shared_folders.map((f) => h("option", { value: f }, `Shared: ${f}`)));
+    const author = h("input", { type: "text", value: model.author ?? "", maxlength: "100", "aria-label": "Saved by", placeholder: "Optional" });
+    const where = h("select", { "aria-label": "Save it in" }, h("option", { value: "" }, "My tangs"), ...library.shared_folders.map((f) => h("option", { value: f }, `Shared: ${f}`)));
     sb.append(
       h("label", { class: "field" }, h("span", {}, "Name"), name),
       h("label", { class: "field" }, h("span", {}, "Description"), description),
-      h("label", { class: "field" }, h("span", {}, "Tags (commas between)"), tags),
+      h("label", { class: "field" }, h("span", {}, "Tags"), tags),
       h("label", { class: "field" }, h("span", {}, "Saved by"), author),
       h("label", { class: "field" }, h("span", {}, "Save it in"), where),
-      h("p", { class: "hint" }, library.shared_folders.length ? "A tang in a shared folder is in your coworkers' list the next time they open this window." : "To share tangs, add a shared folder with Blade folders on the blades page."),
     );
     sf.append(
       button("Cancel", sc, { class: "ghost" }),
@@ -446,7 +437,7 @@ async function drawErd(close: () => void): Promise<void> {
     await api(`${grid}/cards`, "POST", { kind: "diagram", title: "Relationships", body: erd.mermaid });
     close();
     showAgentView();
-    toast("The ERD is in the Sandbox.");
+    toast("Diagram sent to the Sandbox.");
   } catch (e) {
     toast((e as Error).message, "error");
   }

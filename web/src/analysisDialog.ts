@@ -124,7 +124,7 @@ export async function openFitTest(columns: string[], expectedKind?: string): Pro
   void api<{ grids: { grid: string; dataset: string }[] }>("/grids").then(({ grids }) => {
     const current = state.info?.grid ?? "";
     others.append(...grids.filter((g) => g.grid !== current).map((g) => h("option", { value: g.grid }, g.dataset)));
-    if (!others.options.length) others.append(h("option", { value: "", disabled: true }, "No other grid is open"));
+    if (!others.options.length) others.append(h("option", { value: "", disabled: true }, "No other grids"));
   });
   const results = h("div", { class: "analysis-results" });
   const actions = h("span", { class: "analysis-actions" });
@@ -132,7 +132,7 @@ export async function openFitTest(columns: string[], expectedKind?: string): Pro
     clear(actions);
     const sent: Record<string, unknown> = { columns: picked(), expected: expected.value };
     if (!picked().length) {
-      clear(results, h("p", { class: "hint" }, "Pick the columns to test."));
+      clear(results, h("p", { class: "hint" }, "Pick columns."));
       return;
     }
     if (expected.value === "grid") sent.reference = { grid: others.value, column: otherColumn.value.trim() || undefined };
@@ -161,7 +161,6 @@ export async function openFitTest(columns: string[], expectedKind?: string): Pro
     h("div", { class: "analysis-controls" }, field("Columns", chosen), field("Expected", expected), button("Test", () => void run(), { icon: "play", class: "primary" })),
     referenceRow,
     cheatSheet("fit_test", picked).element,
-    h("p", { class: "hint" }, "Chi-square goodness of fit: could the differences between what the column holds and what you expect be chance? Read the effect too: with many rows, small differences are certain but may not matter."),
     results,
   );
   markStaleOnChange(body, results);
@@ -174,11 +173,11 @@ function fitCard(r: FitResult, pair?: string[]): HTMLElement {
   const tiles = [
     tile("Chi-square", fmt(r.statistic)),
     tile("Degrees of freedom", formatCount(r.df)),
-    tile("p-value", pText(r.p), "The chance of differences at least this big if the expectation were true"),
+    tile("p-value", pText(r.p), "Chance by luck alone"),
     tile("Rows", formatCount(r.n)),
-    tile(r.effect_name, `${fmt(r.effect_size)} (${r.effect})`, "How big the difference is, whatever the row count: 0.1 small, 0.3 medium, 0.5 large"),
+    tile(r.effect_name, `${fmt(r.effect_size)} (${r.effect})`, "0.1 small, 0.3 medium, 0.5 large"),
   ];
-  if (r.conformity) tiles.push(tile("Benford conformity", r.conformity, `Mean absolute deviation of the digit shares: ${fmt(r.conformity_mad)} (Nigrini)`));
+  if (r.conformity) tiles.push(tile("Benford conformity", r.conformity, `Mean absolute deviation: ${fmt(r.conformity_mad)}`));
   const title = pair ? `${pair[0]} and ${pair[1]}` : (r.column ?? "");
   return h(
     "section",
@@ -213,7 +212,7 @@ function fitBars(rows: FitRow[]): HTMLElement {
         ),
         h("span", { class: "num" }, formatCount(r.observed)),
         h("span", { class: "num" }, fmt(r.expected)),
-        h("span", { class: "num", title: "Standardized residual: (seen - expected) / sqrt(expected); beyond 2 is notable" }, `${r.residual > 0 ? "+" : ""}${fmt(r.residual)}`),
+        h("span", { class: "num", title: "Standardized residual" }, `${r.residual > 0 ? "+" : ""}${fmt(r.residual)}`),
       ),
     ),
     rows.length > shown.length ? h("p", { class: "hint" }, `and ${formatCount(rows.length - shown.length)} more values`) : null,
@@ -224,7 +223,7 @@ function cellTable(cells: NonNullable<FitResult["cells"]>, pair: string[]): HTML
   return h(
     "table",
     { class: "small" },
-    h("caption", { class: "hint" }, "The combinations furthest from independence"),
+    h("caption", { class: "hint" }, "Furthest from independence"),
     h("thead", {}, h("tr", {}, h("th", {}, pair[0] ?? ""), h("th", {}, pair[1] ?? ""), h("th", { class: "num" }, "Seen"), h("th", { class: "num" }, "Expected"), h("th", { class: "num" }, "Off by"))),
     h(
       "tbody",
@@ -239,7 +238,7 @@ function cellTable(cells: NonNullable<FitResult["cells"]>, pair: string[]): HTML
 // ===== outliers =====
 
 const METHODS: [string, string][] = [
-  ["robust", "Robust: distance from the median"],
+  ["robust", "Robust (median)"],
   ["iqr", "Quartile fences (Tukey)"],
   ["zscore", "Mean and standard deviation"],
 ];
@@ -281,7 +280,7 @@ export async function openOutliers(column?: string): Promise<void> {
     if (!numeric) look.value = "frequency";
     sync();
   });
-  const look = select("Look at", [["amount", "Amount: values far from the rest"], ["frequency", "Frequency: values seen too often or too rarely"]], isNumericType(columnType(which.value)) ? "amount" : "frequency", () => sync());
+  const look = select("Look at", [["amount", "Amount"], ["frequency", "Frequency"]], isNumericType(columnType(which.value)) ? "amount" : "frequency", () => sync());
   look.options[0]!.disabled = !isNumericType(columnType(which.value));
   const method = select("Method", METHODS, "robust", () => (threshold.placeholder = DEFAULT[method.value] ?? ""));
   const threshold = h("input", { type: "number", min: "0.1", step: "0.1", size: 5, placeholder: DEFAULT.robust, "aria-label": "How far out counts" });
@@ -294,8 +293,8 @@ export async function openOutliers(column?: string): Promise<void> {
   const add = async (step: Step | null): Promise<void> => {
     if (step) await state.addStep(step).then(close, (e: Error) => toast(e.message, "error"));
   };
-  const show = button("Show these rows", () => void add(steps.show), { icon: "filter", class: "primary", title: "Add a step that keeps only these rows (undo it like any step)" });
-  const exclude = button("Exclude these", () => void add(steps.exclude), { icon: "exclude", title: "Add a step that leaves these rows out (blank rows stay)" });
+  const show = button("Show these rows", () => void add(steps.show), { icon: "filter", class: "primary", title: "Keep only these rows" });
+  const exclude = button("Exclude these", () => void add(steps.exclude), { icon: "exclude", title: "Leave these rows out" });
   const run = async (): Promise<void> => {
     clear(results, h("p", { class: "hint" }, "Looking…"));
     clear(actions);
@@ -370,7 +369,6 @@ function amountView(r: AmountResult, column: string): HTMLElement {
       ? h(
           "table",
           { class: "small" },
-          h("caption", { class: "hint" }, "The furthest out first. Score: how many spreads from the middle."),
           h("thead", {}, h("tr", {}, r.by ? h("th", {}, r.by) : null, h("th", { class: "num" }, column), h("th", { class: "num" }, "Score"))),
           h("tbody", {}, ...r.outliers.map((o) => h("tr", {}, r.by ? h("td", {}, fmt(o.group)) : null, h("td", { class: "num" }, fmt(o.value)), h("td", { class: "num" }, `${o.score > 0 ? "+" : ""}${fmt(o.score)}`)))),
         )
@@ -394,7 +392,6 @@ function frequencyView(r: FrequencyResult): HTMLElement {
       ? h(
           "table",
           { class: "small" },
-          h("caption", { class: "hint" }, "Rarer values are often typos; commoner ones, copies or defaults."),
           h("thead", {}, h("tr", {}, h("th", {}, "Value"), h("th", { class: "num" }, "Rows"), h("th", {}, ""), h("th", { class: "num" }, "Score"))),
           h("tbody", {}, ...r.outliers.map((o) => h("tr", {}, h("td", {}, o.value), h("td", { class: "num" }, formatCount(o.count)), h("td", { class: "hint" }, o.score < 0 ? "rarer" : "commoner"), h("td", { class: "num" }, fmt(o.score))))),
         )
@@ -446,7 +443,7 @@ export async function openOdds(column?: string): Promise<void> {
   const buckets = h("input", { type: "number", min: "2", max: "20", size: 4, placeholder: "auto", "aria-label": "Buckets for a number column" });
   const outcomeColumn = select("Outcome column", columnOptions("(no outcome)"), "");
   const op = select("Outcome test", OPS, "values");
-  const outcomeValue = h("input", { type: "text", size: 16, placeholder: "late, or 1000", "aria-label": "Outcome value" });
+  const outcomeValue = h("input", { type: "text", size: 16, placeholder: "Value", "aria-label": "Outcome value" });
   const outcomeRow = h("span", { class: "analysis-inline" }, op, outcomeValue);
   const sync = (): void => {
     outcomeRow.hidden = !outcomeColumn.value;
@@ -460,7 +457,7 @@ export async function openOdds(column?: string): Promise<void> {
     if (outcomeColumn.value) {
       const text = outcomeValue.value.trim();
       if (!text) {
-        clear(results, h("p", { class: "hint" }, "Say what counts as the outcome, such as late, or above 1000."));
+        clear(results, h("p", { class: "hint" }, "Enter the outcome value."));
         return;
       }
       sent.outcome = op.value === "values"
@@ -473,7 +470,7 @@ export async function openOdds(column?: string): Promise<void> {
       const answer = await api<OddsResult>(`${grid}/odds`, "POST", sent);
       clear(results, oddsView(answer));
       const handoffs = answer.outcome
-        ? [button("Test together", () => { close(); void openFitTest([answer.column, outcomeColumn.value], "together"); }, { icon: "fit", title: "Chi-square: are the column and the outcome related, or is it chance?" })]
+        ? [button("Test together", () => { close(); void openFitTest([answer.column, outcomeColumn.value], "together"); }, { icon: "fit", title: "Chi-square test" })]
         : [];
       clear(
         actions,
@@ -494,7 +491,6 @@ export async function openOdds(column?: string): Promise<void> {
   body.append(
     h("div", { class: "analysis-controls" }, field("Column", which), field("Buckets", buckets), field("Outcome", outcomeColumn), outcomeRow, button("Count", () => void run(), { icon: "play", class: "primary" })),
     cheatSheet("odds", () => [which.value, outcomeColumn.value].filter(Boolean)).element,
-    h("p", { class: "hint" }, "How often each value shows up on any one row. Add an outcome (late, a refund, an amount above a line) for each value's odds of it against every other value."),
     results,
   );
   markStaleOnChange(body, results);
@@ -514,7 +510,7 @@ function oddsView(r: OddsResult): HTMLElement {
     {},
     h("p", { class: `analysis-verdict ${withOutcome && top?.clear ? "off" : "ok"}` }, verdict),
     headline ? h("p", { class: "analysis-headline" }, headline) : null,
-    r.bucketed ? h("p", { class: "hint" }, `${r.column} is a number: shown in equal-sized ranges.`) : null,
+    r.bucketed ? h("p", { class: "hint" }, `${r.column} in equal-sized ranges.`) : null,
     h(
       "table",
       { class: "small odds-table" },
@@ -530,7 +526,7 @@ function oddsView(r: OddsResult): HTMLElement {
           h("th", { class: "num", title: "On any one row" }, "1 in"),
           withOutcome ? h("th", { class: "num" }, "Outcome rate") : null,
           withOutcome ? h("th", { class: "num" }, "Elsewhere") : null,
-          withOutcome ? h("th", { class: "num", title: "The odds of the outcome with this value, against every other value; the 95% range" }, "Odds ratio") : null,
+          withOutcome ? h("th", { class: "num", title: "With its 95% range" }, "Odds ratio") : null,
         ),
       ),
       h(
@@ -551,7 +547,7 @@ function oddsView(r: OddsResult): HTMLElement {
         ),
       ),
     ),
-    withOutcome ? h("p", { class: "hint" }, "Shaded rows are clearly different: their range leaves out 1. * fewer than 30 rows: rough.") : null,
+    withOutcome ? h("p", { class: "hint" }, "* Under 30 rows: rough.") : null,
   );
 }
 
@@ -585,7 +581,7 @@ export async function openPredictors(target?: string): Promise<void> {
   let pool = checklist("Candidates", [], [which.value]);
   const poolSlot = h("div", {}, pool.element);
   const rebuild = (): void => {
-    pool = checklist("Candidates (none ticked: every other column)", [], [which.value]);
+    pool = checklist("Candidates", [], [which.value]);
     clear(poolSlot, pool.element);
   };
   rebuild();
@@ -595,7 +591,7 @@ export async function openPredictors(target?: string): Promise<void> {
     const sent: Record<string, unknown> = { target: which.value };
     if (pool.values().length) sent.candidates = pool.values();
     if (buckets.value) sent.buckets = Number(buckets.value);
-    clear(results, h("p", { class: "hint" }, "Testing every candidate…"));
+    clear(results, h("p", { class: "hint" }, "Testing…"));
     clear(actions);
     try {
       const answer = await api<PredictorsResult>(`${grid}/predictors`, "POST", sent);
@@ -621,7 +617,6 @@ export async function openPredictors(target?: string): Promise<void> {
     h("div", { class: "analysis-controls" }, field("Target", which), field("Buckets", buckets), button("Find", () => void run(), { icon: "play", class: "primary" })),
     poolSlot,
     cheatSheet("predictors", () => [which.value, ...pool.values()]).element,
-    h("p", { class: "hint" }, "Each candidate is tested together with the target (numbers in equal-sized buckets) and ranked by how much it tells about it. Strong ones are worth a regression; of two that say the same thing, keep one."),
     results,
   );
   markStaleOnChange(body, results);
@@ -638,11 +633,11 @@ function predictorsView(r: PredictorsResult, together: (column: string) => void)
     "div",
     {},
     h("p", { class: `analysis-verdict ${strong.length ? "off" : "ok"}` }, head),
-    r.target_bucketed ? h("p", { class: "hint" }, `${r.target} is a number: tested in equal-sized ranges.`) : null,
+    r.target_bucketed ? h("p", { class: "hint" }, `${r.target} in equal-sized ranges.`) : null,
     h(
       "table",
       { class: "small" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Column"), h("th", {}, "Strength"), h("th", { class: "num", title: "Cramér's V: 0 nothing, 1 the column decides the target" }, "Cramér's V"), h("th", { class: "num", title: "Straight-line correlation, for two number columns" }, "Correlation"), h("th", {}, ""), h("th", {}, ""))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Column"), h("th", {}, "Strength"), h("th", { class: "num", title: "0 none, 1 decides it" }, "Cramér's V"), h("th", { class: "num", title: "Number columns only" }, "Correlation"), h("th", {}, ""), h("th", {}, ""))),
       h(
         "tbody",
         {},

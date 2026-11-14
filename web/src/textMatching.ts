@@ -13,10 +13,10 @@ import { button, h, openDialog, toast } from "./dom";
 import { state } from "./state";
 
 const MATCHING: [keyof Settings, string, string][] = [
-  ["case_sensitive", "Match case", "Oslo and oslo are different values"],
-  ["wildcards", "Wildcards", "% matches any run of characters in equals filters, as in SQL: Acme% or %Corp"],
-  ["trim_spaces", "Ignore spaces at the ends", "' Rome ' matches 'Rome'"],
-  ["empty_is_blank", "Empty text is blank", "'' counts as a blank value"],
+  ["case_sensitive", "Match case", "Oslo ≠ oslo"],
+  ["wildcards", "Wildcards", "Acme% or %Corp"],
+  ["trim_spaces", "Ignore spaces at the ends", "' Rome ' = 'Rome'"],
+  ["empty_is_blank", "Empty text is blank", "'' is blank"],
 ];
 
 /** What is on, in a few words: "case, trim", or "ignore case" when nothing is. */
@@ -33,12 +33,9 @@ export function openTextMatching(): void {
   const { body, foot, close } = openDialog("Text matching");
   const boxes = MATCHING.map(([key, label, example]) => {
     const box = h("input", { type: "checkbox", checked: info.settings[key], onchange: () => void toggleSetting(key, boxes) });
-    return { key, element: h("label", { class: "choice" }, box, h("span", {}, h("strong", {}, label), h("small", {}, example))), box };
+    return { key, element: h("label", { class: "choice", title: example }, box, h("span", {}, h("strong", {}, label))), box };
   });
-  body.append(
-    h("p", { class: "hint" }, "How this table's filters and categorize rules compare text. Saved with its steps, so the exported Python matches the same way."),
-    ...boxes.map((b) => b.element),
-  );
+  body.append(...boxes.map((b) => b.element));
   foot.append(button("Close", close, { class: "primary" }));
   boxes[0]?.box.focus();
 }

@@ -35,10 +35,10 @@ const pct = (share: number): string => `${(Math.round(share * 1000) / 10).toLoca
 export function openCompareDialog(left: Context, right: Context): void {
   const { body, foot, close } = openDialog(`Compare ${left.dataset} with ${right.dataset}`, true);
   body.classList.add("compare-dialog");
-  const status = h("p", { class: "hint", role: "status" }, "Finding the columns the two tables share…");
+  const status = h("p", { class: "hint", role: "status" }, "Finding shared columns…");
   const tbody = h("tbody", {});
   const rows: { pair: [string, string]; box: HTMLInputElement }[] = [];
-  const compareButton = button("Compare", () => void go(), { class: "primary", title: "Assign the ticked pairs as keys and line the grids up" });
+  const compareButton = button("Compare", () => void go(), { class: "primary", title: "Line up on the ticked keys" });
   const sync = (): void => { compareButton.disabled = !rows.some((r) => r.box.checked); };
 
   const addRow = (pair: [string, string], cells: (string | HTMLElement)[], checked: boolean): void => {
@@ -64,7 +64,6 @@ export function openCompareDialog(left: Context, right: Context): void {
 
   const existing = currentCompare();
   body.append(
-    h("p", {}, `Tick the column pair (or pairs, for a key of several columns) that identifies the same row in both tables. The grids then line up row for row on it. Close to explore the two grids without keys.`),
     status,
     h(
       "table",
@@ -76,7 +75,7 @@ export function openCompareDialog(left: Context, right: Context): void {
       ),
       tbody,
     ),
-    h("div", { class: "kf-form" }, h("span", { class: "hint" }, "Or pick a pair yourself:"), leftPick, h("span", {}, "="), rightPick, button("Add", addPair, { icon: "plus" })),
+    h("div", { class: "kf-form" }, h("span", { class: "hint" }, "By hand:"), leftPick, h("span", {}, "="), rightPick, button("Add", addPair, { icon: "plus" })),
   );
   foot.append(button("Close", close, { title: "Keep the split without keys" }), compareButton);
   sync();
@@ -91,7 +90,7 @@ export function openCompareDialog(left: Context, right: Context): void {
       const known = existing ? [] : knownPairs(left.dataset, right.dataset);
       for (const pair of known) addRow(pair, ["", "", "", "known relationship"], true);
       const top = result.pairs.slice(0, 20);
-      clear(status, top.length ? `${formatCount(result.pair_count)} column pair${result.pair_count === 1 ? "" : "s"} share values; the best ${top.length} are below.` : "No columns share any value. Add a pair by hand, or close to explore without keys.");
+      clear(status, top.length ? `${formatCount(result.pair_count)} column pair${result.pair_count === 1 ? "" : "s"} share values.` : "No shared values.");
       const keep = new Set((existing?.keys ?? []).map((k) => k.join("\u0000")));
       top.forEach((p, i) => {
         const pair: [string, string] = [p.source_column, p.target_column];

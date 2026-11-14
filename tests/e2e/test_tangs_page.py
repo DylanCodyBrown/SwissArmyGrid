@@ -28,7 +28,7 @@ def test_find_accept_run_and_share_a_tang(browser: Browser, server: dict[str, An
         page.locator(".ribbon .ribbon-group").first.get_by_role("button", name="Relationships").click()
         dialog = page.locator("dialog")
         expect(dialog).to_contain_text("No tangs yet")
-        dialog.get_by_role("button", name="Find relationships in the open tables").click()
+        dialog.get_by_role("button", name="Find relationships").click()
         suggestions = dialog.locator(".suggestion")
         expect(suggestions).to_have_count(10, timeout=60000)
         expect(dialog.locator(".suggestion", has_text="ship_date")).to_contain_text("inactive")

@@ -21,7 +21,7 @@ async function copied(text: string): Promise<boolean> {
 }
 
 function told(sent: Sent, clipboard: boolean): void {
-  toast(`${clipboard ? "Copied, and ready" : "Ready"} for Python: run sag.paste() in Jupyter or IPython to put it in the cell.`);
+  toast(clipboard ? "Copied for sag.paste()." : "Queued for sag.paste().");
 }
 
 /** Code (and the imports it needs) for the user's Python. */

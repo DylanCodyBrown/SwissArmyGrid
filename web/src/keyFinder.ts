@@ -83,7 +83,7 @@ export function openKeyFinderWindow(): void {
   const page = `/g/${encodeURIComponent(gridId)}`;
   const url = `${page}?panel=keys#token=${encodeURIComponent(token)}`;
   const win = window.open(url, `keys-${page}`, "width=1180,height=780");
-  if (!win) toast("The browser blocked the Key Finder window; allow pop-ups for this page.", "error");
+  if (!win) toast("Pop-up blocked: allow pop-ups for this page.", "error");
   else win.focus();
 }
 
@@ -112,14 +112,14 @@ export async function renderKeyFinder(body: HTMLElement): Promise<void> {
   picker.append(h("option", { value: "*" }, "Every other open grid"));
   try {
     const { grids } = await api<{ grids: { grid: string; label: string; self: boolean }[] }>(`${grid}/key-finder`);
-    for (const g of grids) picker.append(h("option", { value: g.grid }, g.self ? `${g.label} (this grid: a self-join)` : g.label));
+    for (const g of grids) picker.append(h("option", { value: g.grid }, g.self ? `${g.label} (self-join)` : g.label));
   } catch (e) {
     toast((e as Error).message, "error");
   }
   if (last) picker.value = last.target;
   const trim = h("input", { type: "checkbox", checked: last ? Boolean(last.options.trim) : true });
   const ignoreCase = h("input", { type: "checkbox", checked: last ? Boolean(last.options.ignore_case) : false });
-  const maxLength = h("input", { type: "number", min: "1", max: "4096", value: String(last?.options.max_length ?? 128), "aria-label": "Longest value to consider, in characters", style: { width: "6em" } });
+  const maxLength = h("input", { type: "number", min: "1", max: "4096", value: String(last?.options.max_length ?? 128), "aria-label": "Longest value (characters)", style: { width: "6em" } });
   const results = h("div", { class: "kf-results" });
   const status = h("p", { class: "hint", role: "status" });
 
@@ -130,7 +130,7 @@ export async function renderKeyFinder(body: HTMLElement): Promise<void> {
     const options = { trim: trim.checked, ignore_case: ignoreCase.checked, max_length: Math.floor(Number(maxLength.value) || 128) };
     const target = picker.value;
     const mine = ++asked;
-    clear(status, "Comparing every column's distinct values…");
+    clear(status, "Comparing…");
     status.className = "hint";
     clear(results);
     try {
@@ -149,7 +149,7 @@ export async function renderKeyFinder(body: HTMLElement): Promise<void> {
 
   const draw = (): void => {
     if (!last) {
-      clear(status, "Finds the columns of other grids that share values with this one: the likely join keys, with how much of each side matches.");
+      clear(status);
       return;
     }
     const { result } = last;
@@ -180,16 +180,16 @@ export async function renderKeyFinder(body: HTMLElement): Promise<void> {
                 h("th", {}, "Column"),
                 h("th", {}, "Relationship"),
                 // Each table's name heads the share of its distinct values found in the other table.
-                h("th", { class: "num", title: `Share of the ${result.source} column's distinct values found in the other table` }, result.source),
-                h("th", { class: "num", title: "Share of the other table's column values found here" }, result.targets.length === 1 ? result.targets[0]!.dataset : "Other table"),
+                h("th", { class: "num", title: "Found in the other table" }, result.source),
+                h("th", { class: "num", title: "Found here" }, result.targets.length === 1 ? result.targets[0]!.dataset : "Other table"),
                 h("th", { class: "num" }, "Shared values"),
               ),
             ),
             h("tbody", {}, ...shown.flatMap((pair) => row(pair))),
           )
-        : h("p", {}, "No column shares any value with the chosen grid(s)."),
+        : h("p", {}, "No shared values."),
       result.pairs.length > shown.length ? button(`Show all ${formatCount(result.pairs.length)}`, () => { showAll = true; draw(); }, { class: "small" }) : null,
-      result.pairs.length ? button("Send to Sandbox", () => void sendCards(keyFinderCards(result)), { icon: "image", class: "small", title: "These column pairs, as a table, in the Sandbox" }) : null,
+      result.pairs.length ? button("Send to Sandbox", () => void sendCards(keyFinderCards(result)), { icon: "image", class: "small" }) : null,
       skippedHere.length || skippedThere.length
         ? h(
             "details",
@@ -210,12 +210,12 @@ export async function renderKeyFinder(body: HTMLElement): Promise<void> {
       {
         class: `kf-row ${expanded ? "open" : ""}`,
         tabindex: "0",
-        title: "Show shared values and the values the other side lacks",
+        title: "Shared and missing values",
         "aria-expanded": String(expanded),
         onclick: () => { open = expanded ? null : key; draw(); },
         onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter") { open = expanded ? null : key; draw(); } },
       },
-      h("td", {}, isKnownPair(sourceName, pair.target_dataset, pair.source_column, pair.target_column) ? h("span", { class: "known-pair", title: "A known relationship (the relationship model)" }, icon("crown")) : null, h("strong", {}, pair.source_column)),
+      h("td", {}, isKnownPair(sourceName, pair.target_dataset, pair.source_column, pair.target_column) ? h("span", { class: "known-pair", title: "Known relationship" }, icon("crown")) : null, h("strong", {}, pair.source_column)),
       h("td", {}, h("span", { class: "kf-target" }, pair.target)),
       h("td", {}, h("strong", {}, pair.target_column)),
       h("td", {}, pair.relationship),
@@ -253,7 +253,7 @@ function uniqueKeyTable(found: UniqueKey | undefined, source: string): HTMLEleme
   if (!found) return null;
   const heading = h("h3", { class: "kf-heading" }, `Most distinct column combination in ${source}`);
   if (found.stopped) {
-    return h("div", { class: "kf-unique" }, heading, h("p", { class: "status-error" }, "The search stopped at the time limit. Filter the grid first."));
+    return h("div", { class: "kf-unique" }, heading, h("p", { class: "status-error" }, "Stopped at the time limit. Filter the grid first."));
   }
   const steps = found.steps ?? [];
   const rows = found.rows_checked ?? 0;
@@ -261,7 +261,7 @@ function uniqueKeyTable(found: UniqueKey | undefined, source: string): HTMLEleme
   if (!best) return h("div", { class: "kf-unique" }, heading, h("p", { class: "hint" }, rows ? "No column could be checked." : "The grid has no rows."));
   const scope = found.limited ? `the first ${formatCount(rows)} rows` : `all ${formatCount(rows)} rows`;
   const verdict = best.unique
-    ? `${best.columns.join(" + ")} tells every one of ${scope} apart: the most distinct combination of columns in ${source}.`
+    ? `${best.columns.join(" + ")} tells every one of ${scope} apart.`
     : `No combination tells every row apart: ${formatCount(best.repeated_rows)} of ${scope} repeat an earlier row in every column checked.`;
   const line = (combo: Combo, note: string, answer: boolean): HTMLElement =>
     h(
@@ -293,7 +293,7 @@ function uniqueKeyTable(found: UniqueKey | undefined, source: string): HTMLEleme
           {},
           h("th", {}, "Current Table Column Names"),
           h("th", {}, "Relationship"),
-          h("th", { class: "num", title: `Share of ${scope} each combination tells apart` }, "Unique rows"),
+          h("th", { class: "num", title: `Of ${scope}` }, "Unique rows"),
           h("th", { class: "num" }, "Distinct combinations"),
         ),
       ),
@@ -302,7 +302,7 @@ function uniqueKeyTable(found: UniqueKey | undefined, source: string): HTMLEleme
         {},
         ...steps.map((combo, i) => {
           const answer = i === steps.length - 1;
-          const note = answer ? (combo.unique ? "unique per row: the most distinct combination" : "the most distinct combination") : `add a column (${i + 1} of ${steps.length})`;
+          const note = answer ? (combo.unique ? "unique per row" : "the most distinct combination") : `add a column (${i + 1} of ${steps.length})`;
           return line(combo, note, answer);
         }),
         ...(found.alternatives ?? []).map((combo) => line(combo, "also unique per row", false)),
@@ -329,7 +329,7 @@ async function showSample(pair: Pair, slot: HTMLElement): Promise<void> {
       slot,
       h("div", { class: "kf-sample-body" },
         h("div", {}, h("strong", {}, `${formatCount(sample.matched_count)} shared`), sample.matched.length ? list(sample.matched) : h("span", { class: "hint" }, " none")),
-        h("div", {}, h("strong", {}, `${formatCount(sample.missing_count)} of ${pair.source_column} not in ${pair.target_column}`), h("span", { class: "hint" }, " (rows an inner join would drop)"), sample.missing.length ? list(sample.missing) : h("span", { class: "hint" }, " none")),
+        h("div", {}, h("strong", {}, `${formatCount(sample.missing_count)} of ${pair.source_column} not in ${pair.target_column}`), sample.missing.length ? list(sample.missing) : h("span", { class: "hint" }, " none")),
       ),
     );
   } catch (e) {

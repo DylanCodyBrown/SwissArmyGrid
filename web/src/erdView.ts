@@ -52,8 +52,8 @@ async function render(): Promise<void> {
     "div",
     { class: "erd-actions" },
     file,
-    button("Import a relationship file", () => file.click(), { icon: "export", title: "Load a relationship model (JSON) from disk" }),
-    button("Manage relationships", () => openRelationships(), { icon: "crown", title: "Shared models, export, the keys and joins as a list" }),
+    button("Import a relationship file", () => file.click(), { icon: "export", title: "JSON file" }),
+    button("Manage relationships", () => openRelationships(), { icon: "crown" }),
   );
   if (!covered.length) {
     clear(
@@ -62,10 +62,9 @@ async function render(): Promise<void> {
       h(
         "div",
         { class: "erd-empty" },
-        h("h1", { class: "sandbox-title" }, "ERD"),
-        h("strong", {}, "No relationships defined for the open tables."),
-        h("p", { class: "hint" }, "Find them from the data (nothing changes until you accept), import a relationship file, or apply a shared model."),
-        button("Find relationships in the open tables", () => openRelationships(true), { icon: "zoom", class: "primary", title: "Work out how the open tables join from their values: you see each suggestion and its evidence first" }),
+        h("h1", { class: "sandbox-title" }, "Relationship diagram"),
+        h("strong", {}, "No relationships yet."),
+        button("Find relationships", () => openRelationships(true), { icon: "zoom", class: "primary" }),
         actions,
         await sharedModels(open),
       ),
@@ -75,7 +74,7 @@ async function render(): Promise<void> {
   const slot = h("div", { class: "diagram erd-diagram", role: "img", "aria-label": `Relationships of ${covered.join(", ")}` });
   clear(
     host,
-    h("h1", { class: "sandbox-title" }, "ERD"),
+    h("h1", { class: "sandbox-title" }, "Relationship diagram"),
     actions,
     // ===== DIAGRAM =====
     slot,
@@ -98,7 +97,7 @@ async function sharedModels(open: Set<string>): Promise<HTMLElement | null> {
     return h(
       "div",
       { class: "erd-shared" },
-      h("h3", {}, "Shared models that fit these tables"),
+      h("h3", {}, "Shared models"),
       ...fitting.map((m) =>
         h(
           "div",

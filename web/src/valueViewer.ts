@@ -79,7 +79,7 @@ export function openValueViewer(title: string, value: unknown): void {
   };
 
   foot.append(
-    button("Send to Sandbox", () => void sendCards(valueCards(current().value, layers.map((l) => l.label).join(" › "), state.info?.dataset ?? "")), { icon: "image", title: "This value, as a note, in the Sandbox" }),
+    button("Send to Sandbox", () => void sendCards(valueCards(current().value, layers.map((l) => l.label).join(" › "), state.info?.dataset ?? "")), { icon: "image" }),
     button("Copy", () => {
       const v = current().value;
       const text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
@@ -170,7 +170,7 @@ function formatted(value: unknown, kind: Kind, drill: (label: string, inner: unk
           ),
         ),
       ),
-      items.length > MAX_TABLE_ROWS ? h("p", { class: "hint" }, `Showing the first ${MAX_TABLE_ROWS} of ${formatCount(items.length)}; the JSON tab has them all.`) : null,
+      items.length > MAX_TABLE_ROWS ? h("p", { class: "hint" }, `First ${MAX_TABLE_ROWS} of ${formatCount(items.length)}.`) : null,
     );
   }
   if (kind === "array") {

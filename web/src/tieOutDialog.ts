@@ -156,7 +156,7 @@ export async function openTieOut(cmp: CompareInfo, pair: [Context, Context]): Pr
     const rows = r.groups.map((g) => {
       const label = r.group_by.length ? g.group.map((v) => h("td", {}, v ?? "(blank)")) : [h("td", {}, "All rows")];
       const where = g.only ? ` (only in ${g.only === "left" ? left : right})` : "";
-      const row = h("tr", { class: `tie-row ${g.status}`, title: r.group_by.length ? `Show these rows in both grids${where}` : where.trim() }, ...label, ...cells(g));
+      const row = h("tr", { class: `tie-row ${g.status}`, title: r.group_by.length ? `Filter both grids${where}` : where.trim() }, ...label, ...cells(g));
       if (r.group_by.length) {
         row.tabIndex = 0;
         row.addEventListener("click", () => void show(r, g));
@@ -168,7 +168,6 @@ export async function openTieOut(cmp: CompareInfo, pair: [Context, Context]): Pr
     clear(
       results,
       h("p", { class: `analysis-verdict ${r.off ? "far" : "off"}` }, r.words),
-      r.group_by.length ? h("p", { class: "hint" }, "Click a group to filter both grids to its rows.") : null,
       h("div", { class: "tie-out-table" }, h("table", { class: "small" }, h("thead", {}, head), h("tbody", {}, ...rows), h("tfoot", {}, h("tr", { class: `tie-row total ${r.total.status}` }, ...totalLabel, ...cells(r.total))))),
     );
     const table = asRows(r, left, right);
@@ -185,13 +184,13 @@ export async function openTieOut(cmp: CompareInfo, pair: [Context, Context]): Pr
         void api<{ title: string; markdown: string }>("/analysis-proof", "POST", { analysis: "tie_out", result: r, dataset: `${left} and ${right}` })
           .then((proof) => api("/cards", "POST", { kind: "note", title: proof.title, body: proof.markdown, size: { w: 8, h: 14 } }))
           .then(() => toast("In the Sandbox: the math, step by step."), (e: Error) => toast(e.message, "error"));
-      }, { icon: "steps", title: "Every total and difference worked out: to the Sandbox" }),
+      }, { icon: "steps", title: "Step by step, to the Sandbox" }),
       button("Download CSV", () => saveBlob(new Blob([csv(table.columns, table.rows)], { type: "text/csv" }), `tie-out-${left}-${right}.csv`), { icon: "export" }),
     );
   };
 
   const run = async (): Promise<void> => {
-    clear(results, h("p", { class: "hint" }, "Totalling both sides…"));
+    clear(results, h("p", { class: "hint" }, "Totalling…"));
     clear(actions);
     try {
       draw(await api<Report>(`/compares/${cmp.compare}/tie-out`, "POST", sent()));
@@ -201,7 +200,7 @@ export async function openTieOut(cmp: CompareInfo, pair: [Context, Context]): Pr
   };
 
   body.append(
-    h("div", { class: "tie-out-choices" }, list("Group by", groupTicks), list("Totals (rows are always counted)", measureTicks)),
+    h("div", { class: "tie-out-choices" }, list("Group by", groupTicks), list("Totals", measureTicks)),
     h("div", { class: "analysis-controls" }, h("label", { class: "analysis-field" }, h("span", {}, "Ties within"), tolerance), kind, button("Tie out", () => void run(), { icon: "play", class: "primary" })),
     results,
   );

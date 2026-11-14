@@ -36,7 +36,7 @@ export const SHEETS: Record<Sheet, CheatSheet> = {
       caption: "Already counted: one row per region",
       columns: ["region", "late", "on_time"],
       rows: [["West", "365", "429"], ["North", "484", "2740"]],
-      why: "Odds count rows, so each row must be one chance (one order). Counts are already the answer: push the orders, or test the counts with the Fit test's own shares.",
+      why: "Odds count rows, so each row must be one chance (one order). Push the orders, or test the counts with the Fit test.",
     },
     tips: [
       "A number column is cut into equal-sized ranges; Buckets sets how many.",
@@ -122,7 +122,7 @@ export function cheatSheet(sheet: Sheet, columns: () => string[]): { element: HT
   const content = SHEETS[sheet];
   const checks = h("ul", { class: "cheat-checks" });
   const refresh = (): void => {
-    clear(checks, h("li", { class: "hint" }, "Checking your grid…"));
+    clear(checks, h("li", { class: "hint" }, "Checking…"));
     void api<{ notes: ShapeNote[] }>(`${grid}/shape-check`, "POST", { analysis: sheet, columns: columns() })
       .then(({ notes }) => clear(checks, ...notes.map((n) => h("li", { class: `cheat-${n.level}` }, n.text))))
       .catch((e: Error) => clear(checks, h("li", { class: "cheat-warn" }, e.message)));
@@ -130,14 +130,14 @@ export function cheatSheet(sheet: Sheet, columns: () => string[]): { element: HT
   const element = h(
     "details",
     { class: "cheat-sheet", ontoggle: (event: Event) => { if ((event.target as HTMLDetailsElement).open) refresh(); } },
-    h("summary", {}, "Data shape: what this analysis needs"),
+    h("summary", {}, "Data shape"),
     h(
       "div",
       { class: "cheat-body" },
       h("div", { class: "cheat-pair" }, h("div", { class: "cheat-good" }, h("strong", {}, "Works"), mockTable(content.good)), h("div", { class: "cheat-bad" }, h("strong", {}, "Does not work"), mockTable(content.bad), h("p", {}, content.bad.why))),
       h("ul", { class: "cheat-tips" }, ...content.tips.map((t) => h("li", {}, t))),
       h("div", { class: "cheat-yours" }, h("strong", {}, "Your grid"), checks),
-      button("Send to Sandbox", () => void sendCards(cheatCards(sheet)), { icon: "image", class: "small", title: "This cheat sheet as a note in the Sandbox" }),
+      button("Send to Sandbox", () => void sendCards(cheatCards(sheet)), { icon: "image", class: "small" }),
     ),
   );
   return { element, refresh };

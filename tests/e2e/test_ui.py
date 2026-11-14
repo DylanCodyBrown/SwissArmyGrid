@@ -1622,7 +1622,7 @@ def test_relationships_mark_keys_and_draw_an_erd(browser: Browser, server: dict[
     dialog = page.locator("dialog")
     expect(dialog).to_contain_text("No tangs yet")  # the package ships no tangs
     expect(dialog).to_contain_text("rel_orders")
-    dialog.get_by_role("button", name="Draw ERD").click()
+    dialog.get_by_role("button", name="Draw diagram").click()
     expect(page.locator(".workspace")).to_have_attribute("data-view", "agent")
     expect(page.locator(".card .diagram svg")).to_be_visible(timeout=30000)
     call(server, "POST", "/relationships", {"model": {"name": "empty"}, "replace": True})
@@ -1639,7 +1639,7 @@ def test_the_erd_tab_shows_keys_or_says_none_are_defined(browser: Browser, serve
     assert tabs.nth(1).get_by_role("button").count() == 0
     tabs.nth(1).click()
     erd = page.locator("#erd-view")
-    expect(erd).to_contain_text("No relationships defined for the open tables")
+    expect(erd).to_contain_text("No relationships yet")
     expect(erd.get_by_role("button", name="Import a relationship file")).to_be_visible()
     model = {
         "name": "erd_test",

@@ -72,7 +72,7 @@ export async function runBladeAnalysis(blade: AnalysisBlade): Promise<void> {
   body.append(blade.description ? h("p", { class: "hint" }, blade.description) : "", results);
   foot.append(actions, button("Close", close));
   const run = async (): Promise<void> => {
-    clear(results, h("p", { class: "hint" }, `Running ${blade.name} on this grid's rows${columns.length ? ` (${columns.join(", ")})` : ""}…`));
+    clear(results, h("p", { class: "hint" }, `Running ${blade.name}…`));
     clear(actions);
     try {
       const answer = await api<{ title: string; cards: Card[] }>(`${grid}/blade-analysis`, "POST", { name: blade.name, columns });
@@ -89,7 +89,7 @@ export async function runBladeAnalysis(blade: AnalysisBlade): Promise<void> {
       );
     } catch (e) {
       const message = e instanceof ApiError ? e.message : (e as Error).message;
-      clear(results, h("p", { class: "status-error" }, message), h("p", { class: "hint" }, "The blade runs in the grid server's own Python: a package it needs may be installed from the blades page."));
+      clear(results, h("p", { class: "status-error" }, message));
       clear(actions, button("Edit on the blades page", openBladesPage, { icon: "edit" }));
     }
   };
