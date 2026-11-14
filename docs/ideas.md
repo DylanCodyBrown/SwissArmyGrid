@@ -677,22 +677,41 @@ An agent drove every area of the app in a browser with made-up data against two 
 
 Bugs: fix all 11 (Workbench: SQL error panel "s.notes is not iterable", new SQL cell's connection box; Connections: empty-Name Test message, stale "Not installed" note on a vault; Compare and relationships: Diff jump scrolls only the left, Find relationships includes closed tables and both directions of a pair, Key Finder crowns ship_date over order_date, compare lost on reload, wrong key pre-ticked; Server: stop lingers and crashes on open long-polls). Kernels of a closed Workbench window stop a minute after it closes.
 
-## Tables managed behind the scenes: Apply and the code behind (2026-11-14, the owner's call)
+## Every table has a read-only cell: its transformations in DuckDB SQL (2026-11-14, the owner's calls)
 
-"Tables should be managed behind the scene and the variables pane can be used to track tables. With an
-apply transformation button that updates the variables. Then the variable used in the workbench just
-reflects what is in the variable pane as code behind." Today a grid's steps reach Python only through
-Copy as SQL, Copy as Python and To Python, and To Python does not work in a Workbench cell. Decided:
+Replaces an Apply-button idea from the same day (dropped: a button far from the grid, a "did I press
+it?" state, and a notebook that no longer held its own transformations). The owner: "Transformations
+are read only and always appear as the last steps in a table cell with the output always being the
+original table name. Transformations are not two way and table cells are read only. Transformations
+should be code behind in the read only cell using duck db." Decided:
 
-- **Steps stay live.** The app keeps each table's original behind the scenes. Apply sets the variable
-  to the original plus the grid's current steps (DuckDB SQL); the grid keeps its steps, so removing one
-  and applying again recomputes from the original (Power Query's Close and Apply). An applied write is
-  not new data: the kernel's watcher must not push it back as a new original, or the steps would apply
-  twice.
-- **Apply lives in the Workbench's Variables pane,** on each table's row beside its code behind (the
-  SQL that makes it).
-- **A table that did not come from Python** (a file, a paste, a connection) is applied into the
-  Workbench document in front, as a variable named after the table.
-- **The steps strip loses Copy as SQL, Copy as Python and To Python.** Each table's code behind has
-  Copy as SQL and Copy as Python, for tools outside the app; To Python and its queue go.
-- The golden rule: Apply and the code behind get their agent commands in the same change.
+- **Every table, always,** has its own read-only cell in the Workbench notebook or script it belongs
+  to, from the moment it exists. In a script it is a `# %% [table] orders` block closed by a plain
+  `# %%` (the cell marker VS Code, Spyder, PyCharm and Jupytext read), so the file still runs as Python.
+- **Only the transformations are in it,** as one DuckDB query, ending in the table's own name:
+  `orders = duckdb.sql("""SELECT ... FROM orders ...""").df()`. The code that made the table stays the
+  user's own editable cell. A table no code made (a file, a paste, a connection) has its load first in
+  its cell, then the transformations as the last lines.
+- **One way only.** Transformations are made in the grid; the cell follows and is never typed in.
+- **DuckDB covers them all:** the grid's 11 step kinds (filter, sort, columns, rename, group by,
+  distinct, limit, transform, bucket, categorize, SQL) already compile to one DuckDB query
+  (domain/steps.py compile_view), the query the grid itself runs; the generated DuckDB code is already
+  checked against the grid's rows. The pandas and plain-Python translations can go.
+- **Nothing runs by itself.** A grid change rewrites the cell at once and turns it yellow: "Out of
+  date · last run 10:42 · Run". The variable changes when the user runs it. The cell keeps the code it
+  last ran and compares the text, so undoing a change clears the yellow by itself. "Not run yet" before
+  its first run; "Not run since opening" after a reload.
+- **Under its maker:** right under the cell that made the table; a table no cell made goes in a Tables
+  section at the top. The file runs top to bottom.
+- **The output is the table's own name.** So a second run never transforms an already-transformed
+  table, the app keeps a reference to the original the maker cell made (no copy) and the table's cell
+  always starts from it; top to bottom, the maker makes it and the cell transforms it once. Cost: the
+  original and the transformed table are both in memory while working.
+- **The copy buttons go:** Copy as SQL, Copy as Python and To Python leave the steps strip and are not
+  moved anywhere; the table's cell is the code. (Open: the catalog's Script as also queues code for
+  sag.paste; whether it stays.)
+
+Proposed, not yet asked: cells that use an out-of-date table get a quieter mark; the grid's steps strip
+and the Variables pane say "Out of date in <notebook> · Run" too; the agent can read what is out of date
+and run a table's cell (the golden rule). Limit: a notebook in plain Jupyter or a script in another
+editor cannot be written live, and with the copy buttons gone the grid has no way into it.
