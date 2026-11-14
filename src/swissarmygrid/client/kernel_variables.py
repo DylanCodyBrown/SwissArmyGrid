@@ -14,6 +14,7 @@ import json
 import os
 import reprlib
 import sys
+import time
 import types
 from typing import Any
 
@@ -23,6 +24,7 @@ _PREVIEW.maxother = 120
 _PREVIEW.maxlist = _PREVIEW.maxtuple = _PREVIEW.maxset = _PREVIEW.maxdict = 8
 _MAX_VARIABLES: int = 500
 _MAX_PREVIEW: int = 200
+_PREVIEW_SECONDS: float = 1.0
 # IPython's own names, and the names the Workbench's setup makes.
 _HIDDEN = frozenset({"In", "Out", "exit", "quit", "get_ipython", "open", "sag"})
 
@@ -66,10 +68,20 @@ def _preview(value: Any) -> str:
     return text if len(text) <= _MAX_PREVIEW else text[: _MAX_PREVIEW - 1] + "…"
 
 
+def _safe_preview(value: Any) -> str:
+    try:
+        return _preview(value)
+    except Exception as error:
+        return f"<could not be read: {type(error).__name__}>"
+
+
 def _is_table(value: Any) -> bool:
     """Something the grid can open (sag.push takes it): a DataFrame or an Arrow table."""
     module = type(value).__module__.split(".")[0]
-    return module in ("pandas", "polars", "pyarrow") and hasattr(value, "columns")
+    try:
+        return module in ("pandas", "polars", "pyarrow") and hasattr(value, "columns")
+    except Exception:  # a property that raises something other than AttributeError
+        return False
 
 
 def snapshot(env_names: list[str] | None = None, namespace: dict[str, Any] | None = None) -> str:
@@ -85,22 +97,27 @@ def snapshot(env_names: list[str] | None = None, namespace: dict[str, Any] | Non
     except Exception:
         connections = {}
     rows: list[dict[str, Any]] = []
+    left_out = 0
+    started = time.monotonic()
     for name, value in list(namespace.items()):
         if name.startswith("_") or name in _HIDDEN or name in connections:
             continue
         if isinstance(value, types.ModuleType | types.FunctionType | types.BuiltinFunctionType | type):
             continue
-        rows.append(
-            {
-                "name": name,
-                "type": _type_name(value),
-                "size": _size(value),
-                "value": _preview(value),
-                "table": _is_table(value),
-            }
-        )
         if len(rows) >= _MAX_VARIABLES:
-            break
+            left_out += 1
+            continue
+        # One object that misbehaves (a property that raises, a slow repr) costs its own row, never the
+        # list: its row says so; after a second of previews the rest show without one.
+        row: dict[str, Any] = {"name": name, "type": "", "size": "", "value": "", "table": False}
+        try:
+            row["type"] = _type_name(value)
+            row["table"] = _is_table(value)
+            row["size"] = _size(value)
+            row["value"] = _preview(value) if time.monotonic() - started < _PREVIEW_SECONDS else "…"
+        except Exception as error:
+            row["value"] = f"<could not be read: {type(error).__name__}>"
+        rows.append(row)
     rows.sort(key=lambda r: r["name"].casefold())
     opened = [
         {
@@ -108,10 +125,13 @@ def snapshot(env_names: list[str] | None = None, namespace: dict[str, Any] | Non
             "connection": connection,
             "open": name in namespace,
             "type": _type_name(namespace[name]) if name in namespace else "",
-            "value": _preview(namespace[name]) if name in namespace else "opened when a cell first uses it",
+            "value": _safe_preview(namespace[name])
+            if name in namespace
+            else "opened when a cell first uses it",
             "table": name in namespace and _is_table(namespace[name]),
         }
         for name, connection in sorted(connections.items())
     ]
     environment = [{"name": env, "set": bool(os.environ.get(env))} for env in sorted(set(env_names or []))]
-    return json.dumps({"connections": opened, "variables": rows, "environment": environment}, default=str)
+    found = {"connections": opened, "variables": rows, "environment": environment, "left_out": left_out}
+    return json.dumps(found, default=str)

@@ -189,3 +189,10 @@ def kind_of(path: str) -> str:
     if lowered.endswith(".py"):
         return "script"
     raise NotebookError("The Workbench opens notebooks (.ipynb) and Python scripts (.py).")
+
+
+def quote_path(path: str) -> str:
+    """A path as IPython's %run reads it: quoted when it has spaces (Windows backslashes kept)."""
+    if not re.search(r'[\s"\']', path):
+        return path
+    return '"' + path.replace('"', '\\"') + '"'

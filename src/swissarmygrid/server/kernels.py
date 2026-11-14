@@ -13,6 +13,7 @@ import ast
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,10 +36,10 @@ _IDLE_POLL_SECONDS: float = 0.5
 _SETUP = (
     "try:\n"
     "    import swissarmygrid as sag\n"
-    "    from swissarmygrid.client.kernel_connections import install as _sag_connections\n"
+    "    from swissarmygrid.server.kernel_setup import setup as _sag_setup\n"
     "\n"
-    "    _sag_connections()\n"
-    "    del _sag_connections\n"
+    "    _sag_setup()\n"
+    "    del _sag_setup\n"
     "except ImportError:\n"
     "    pass\n"
 )
@@ -100,6 +101,10 @@ class Kernel:
         self._sockets = sockets  # the private folder of its local sockets, removed when it ends
         self._lock = asyncio.Lock()
         self._shell = asyncio.Lock()  # one completion or hover at a time reads the shell channel's replies
+        self._interrupts = 0  # Interrupt counts up: a run queued before it is cancelled
+        self._generation = 0  # Restart counts up: a run under way ends
+        self._runs: list[str] = []  # recent runs' ids: their late output still comes through
+        self._input: asyncio.Queue[str] = asyncio.Queue()
         self._warm: asyncio.Task[Any] | None = None
 
     async def ready(self) -> None:
@@ -113,48 +118,118 @@ class Kernel:
         # The first completion loads Jedi (about 3 seconds): do it now, so the user's first Tab is quick.
         self._warm = asyncio.create_task(self.complete("im", 2))
 
-    async def execute(self, code: str, silent: bool = False) -> AsyncIterator[dict[str, Any]]:
+    def _record(self, kind: str, content: dict[str, Any]) -> dict[str, Any] | None:
+        """An iopub message as nbformat's output record (None: not an output)."""
+        if kind == "stream":
+            return {"output_type": "stream", "name": content["name"], "text": content["text"]}
+        if kind in ("execute_result", "display_data"):
+            record = {
+                "output_type": kind,
+                "data": content.get("data", {}),
+                "metadata": content.get("metadata", {}),
+            }
+            if kind == "execute_result":
+                record["execution_count"] = content.get("execution_count")
+            return record
+        if kind == "error":
+            return {
+                "output_type": "error",
+                "ename": content.get("ename", ""),
+                "evalue": content.get("evalue", ""),
+                "traceback": content.get("traceback", []),
+            }
+        if kind == "clear_output":
+            return {"clear": True}
+        return None
+
+    async def execute(
+        self, code: str, silent: bool = False, stdin: bool = True
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Run code; its outputs as they arrive, then {"done": ...}. A run queued behind another is
+        cancelled by Interrupt; a Restart ends the run it interrupts; `input()` asks the page
+        ({"input_request": ...}, answered by `answer_input`); output a thread prints after its own run
+        ended comes through the next run, marked late."""
+        ticket, generation = self._interrupts, self._generation
         async with self._lock:
-            msg_id = self.client.execute(code, silent=silent, store_history=not silent, allow_stdin=False)
+            if self._interrupts != ticket:  # interrupted while it waited its turn
+                yield {"done": {"ok": False, "cancelled": True, "execution_count": None}}
+                return
+            msg_id = self.client.execute(
+                code,
+                silent=silent,
+                store_history=not silent,
+                allow_stdin=stdin and not silent,
+                stop_on_error=False,
+            )
+            self._runs.append(msg_id)
+            del self._runs[:-50]
             count: int | None = None
             ok = True
             while True:
+                if self._generation != generation:  # restarted under it
+                    yield {"done": {"ok": False, "restarted": True, "execution_count": count}}
+                    return
                 try:
                     msg = await self.client.get_iopub_msg(timeout=_IDLE_POLL_SECONDS)
-                except Exception:  # queue.Empty: nothing yet; is the kernel still alive?
-                    if not await self.manager.is_alive():
+                except Exception:  # queue.Empty: nothing yet; is it asking for input, or gone?
+                    if stdin and not silent and (asked := await self._input_request()) is not None:
+                        yield {"input_request": asked}
+                        value = await self._wait_for_input(generation)
+                        if value is None:
+                            continue
+                        self.client.input(value)
+                        continue
+                    if self._generation == generation and not await self.manager.is_alive():
                         yield {"done": {"ok": False, "dead": True, "execution_count": count}}
                         return
                     continue
-                if msg.get("parent_header", {}).get("msg_id") != msg_id:
-                    continue
+                parent = msg.get("parent_header", {}).get("msg_id")
                 kind, content = msg["msg_type"], msg["content"]
+                if parent != msg_id:
+                    # A thread of an earlier run still printing: hand it on rather than lose it.
+                    if (
+                        parent in self._runs
+                        and (record := self._record(kind, content))
+                        and "clear" not in record
+                    ):
+                        yield record | {"late": True}
+                    continue
                 if kind == "status" and content.get("execution_state") == "idle":
                     break
                 if kind == "execute_input":
                     count = content.get("execution_count")
-                elif kind == "stream":
-                    yield {"output_type": "stream", "name": content["name"], "text": content["text"]}
-                elif kind in ("execute_result", "display_data"):
-                    record = {
-                        "output_type": kind,
-                        "data": content.get("data", {}),
-                        "metadata": content.get("metadata", {}),
-                    }
-                    if kind == "execute_result":
-                        record["execution_count"] = content.get("execution_count")
-                    yield record
-                elif kind == "error":
+                    continue
+                record = self._record(kind, content)
+                if record is None:
+                    continue
+                if record.get("output_type") == "error":
                     ok = False
-                    yield {
-                        "output_type": "error",
-                        "ename": content.get("ename", ""),
-                        "evalue": content.get("evalue", ""),
-                        "traceback": content.get("traceback", []),
-                    }
-                elif kind == "clear_output":
-                    yield {"clear": True}
+                yield record
             yield {"done": {"ok": ok, "execution_count": count}}
+
+    async def _input_request(self) -> dict[str, Any] | None:
+        """The kernel asking for a line of input (input(), getpass, pdb), if it is."""
+        try:
+            msg = await self.client.get_stdin_msg(timeout=0.01)
+        except Exception:  # queue.Empty
+            return None
+        if msg.get("msg_type") != "input_request":
+            return None
+        content = msg["content"]
+        return {"prompt": str(content.get("prompt", "")), "password": bool(content.get("password"))}
+
+    async def _wait_for_input(self, generation: int) -> str | None:
+        """The page's answer; None when the run was interrupted or restarted meanwhile."""
+        while True:
+            try:
+                return await asyncio.wait_for(self._input.get(), timeout=_IDLE_POLL_SECONDS)
+            except TimeoutError:
+                if self._generation != generation or not await self.manager.is_alive():
+                    return None
+
+    def answer_input(self, value: str) -> None:
+        """The line the user typed for input(), getpass or pdb."""
+        self._input.put_nowait(value)
 
     async def _ask(self, send: Any) -> dict[str, Any] | None:
         """Send one request (`send()` gives its id) and wait for the shell channel's reply to it (a run's
@@ -192,7 +267,8 @@ class Kernel:
         content = await self._ask(lambda: self.client.inspect(code, offset, detail_level=0))
         if not content or not content.get("found"):
             return ""
-        return str(content.get("data", {}).get("text/plain", ""))[:_MAX_HELP]
+        text = str(content.get("data", {}).get("text/plain", ""))
+        return re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)[:_MAX_HELP]  # no colour codes in a hover
 
     async def evaluate(self, expression: str) -> Any:
         """A Python expression's value, worked out in the kernel without printing or entering the history
@@ -225,9 +301,23 @@ class Kernel:
         return None if url is None else str(url)
 
     async def interrupt(self) -> None:
+        self._interrupts += 1
+        self._input.put_nowait("")  # a run waiting at input() goes on (and is interrupted)
         await self.manager.interrupt_kernel()
 
+    async def alive(self) -> bool:
+        return bool(await self.manager.is_alive())
+
+    async def is_complete(self, code: str) -> dict[str, Any]:
+        """Whether code is a whole statement yet (the console's Enter), and the indent to go on with."""
+        content = await self._ask(lambda: self.client.is_complete(code))
+        if not content:
+            return {"status": "unknown", "indent": ""}
+        return {"status": content.get("status", "unknown"), "indent": content.get("indent", "")}
+
     async def restart(self) -> None:
+        self._generation += 1
+        self._interrupts += 1
         await self.manager.restart_kernel(now=True)
         self.client.stop_channels()
         self.client = self.manager.client()

@@ -2112,6 +2112,10 @@ def _outputs(lines: list[Any]) -> dict[str, Any]:
         elif item.get("output_type") in ("execute_result", "display_data"):
             data = item.get("data", {})
             shown.append({"result": data.get("text/plain", ""), "kinds": sorted(data)})
+        elif "input_request" in item:
+            shown.append(
+                {"waiting_for_input": item["input_request"]["prompt"], "answer_with": "workbench_input"}
+            )
     for part in shown:
         if "text" in part and len(part["text"]) > 20_000:
             part["text"] = part["text"][:10_000] + "\n… (cut) …\n" + part["text"][-10_000:]
@@ -2120,16 +2124,40 @@ def _outputs(lines: list[Any]) -> dict[str, Any]:
 
 @command(
     "workbench_run",
-    "Run code in a kernel (a SQL cell: kind sql and its connection); the outputs when it ends",
+    "Run code in a kernel (kind sql: a SQL cell on its connection; kind file: a script as python would)",
     req("kernel", "The kernel's id."),
-    req("code", "Python, or SQL with kind sql."),
-    opt("kind", "code (default) or sql."),
+    opt("code", "Python; SQL with kind sql; an unsaved script's text with kind file."),
+    opt("kind", "code (default), sql or file."),
     opt("connection", "A SQL cell's connection."),
+    opt("path", "kind file: a saved script to run (its __file__)."),
+    opt("args", "kind file: its command-line arguments (sys.argv)."),
     values=True,
 )
 def workbench_run(a: dict[str, Any]) -> Any:
-    body = {k: a[k] for k in ("code", "kind", "connection") if a.get(k) is not None}
+    body = {k: a[k] for k in ("code", "kind", "connection", "path", "args") if a.get(k) is not None}
+    # This call waits for the run's end, so it could never answer input(): there input() raises instead.
+    body["stdin"] = False
     return _outputs(api.call_lines("POST", f"/workbench/kernels/{_q(a['kernel'])}/execute", body))
+
+
+@command(
+    "workbench_input",
+    "Answer a run the user started that waits at input(), getpass or pdb",
+    req("kernel", "The kernel's id."),
+    req("value", "The line to type."),
+)
+def workbench_input(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/workbench/kernels/{_q(a['kernel'])}/input", {"value": a["value"]})
+
+
+@command(
+    "workbench_is_complete",
+    "Whether code is a whole statement yet (complete, incomplete with its indent, or invalid)",
+    req("kernel", "The kernel's id."),
+    req("code", "The code."),
+)
+def workbench_is_complete(a: dict[str, Any]) -> Any:
+    return api.call("POST", f"/workbench/kernels/{_q(a['kernel'])}/is-complete", {"code": a["code"]})
 
 
 @command(

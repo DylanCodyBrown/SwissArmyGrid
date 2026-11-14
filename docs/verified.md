@@ -346,3 +346,18 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   sag.connection line. With the suggestion list open, Monaco took Ctrl+Enter for the list and the cell
   never ran; the run keys are now caught first and close the list.
 
+- (2026-11-14) The Workbench stress test's kernel findings, each now a test (tests/test_workbench.py) on
+  real IPython 9.18.1 kernels: Run file is `%run` (so `__name__ == "__main__"`, `__file__`, `sys.argv`,
+  `asyncio.run` and a spawn `multiprocessing.Pool` all work; an unsaved script runs from a private
+  copy); `input()` asks the page and the answer goes back on the stdin channel (the agent's runs have no
+  stdin and get StdinNotImplementedError at once); Interrupt cancels runs queued behind the one it
+  stops; Restart ends the run under way; `os._exit` is reported as a dead kernel and the kernel is
+  dropped; an error no longer drops the next queued run (`stop_on_error=False`); a thread printing after
+  its run ended shows with the next run, marked late. IPython catches SystemExit before any custom
+  handler, so `sys.exit(3)` is quieted by wrapping `showtraceback` (one line: "The code ended with
+  sys.exit(3)."). The pager hook is read when the shell starts, so `display_page = True` set later did
+  nothing; setting the `show_in_pager` hook (priority 90, before ipykernel's 99) makes `len?` an output.
+  Saving keeps a UTF-8 byte-order mark, CRLF line endings, a latin-1 coding line and the file's mode; a
+  file with no write bits is refused as read-only unless forced (as root `os.access` always says yes).
+  Connection names never hide a builtin (`Print` becomes `print_`), and a cell that assigns a name
+  never opens the connection of that name. One misbehaving object costs its own row in Variables.

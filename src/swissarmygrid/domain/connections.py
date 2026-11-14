@@ -9,6 +9,7 @@ connections, what kind each is, and how a starter becomes the Add connection for
 
 from __future__ import annotations
 
+import builtins
 import re
 import unicodedata
 from typing import Any
@@ -128,7 +129,13 @@ def code_names(names: list[str]) -> dict[str, str]:
     return out
 
 
-_PYTHON_WORDS = frozenset(
-    "False None True and as assert async await break class continue def del elif else except finally for "
-    "from global if import in is lambda nonlocal not or pass raise return try while with yield sag".split()
+# Never a connection's name in code: Python's words, its built-ins (a connection named Print or List must
+# not hide print or list in every kernel), and the names every notebook leans on.
+_PYTHON_WORDS = (
+    frozenset(
+        "False None True and as assert async await break class continue def del elif else except finally for "
+        "from global if import in is lambda nonlocal not or pass raise return try while with yield".split()
+    )
+    | frozenset(name.lower() for name in dir(builtins))
+    | frozenset({"sag", "pd", "np", "plt", "df", "display", "get_ipython", "in", "out"})
 )

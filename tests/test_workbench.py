@@ -343,3 +343,225 @@ def test_the_variables_overlay_through_a_kernel(
         assert client.get(f"/workbench/kernels/{kernel}/variables", headers=AGENT).status_code == 200
     finally:
         client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)
+
+
+# ===== the stress test's findings (2026-11-14), each kept fixed =====
+
+
+def stream(client: TestClient, kernel: str, body: dict[str, Any], seen: list[dict[str, Any]]) -> None:
+    """Run in a thread: each output appended to `seen` as it arrives (so a test can answer input())."""
+    with client.stream("POST", f"/workbench/kernels/{kernel}/execute", json=body, headers=AUTH) as answer:
+        for line in answer.iter_lines():
+            if line:
+                seen.append(json.loads(line))
+
+
+def wait_for(seen: list[dict[str, Any]], test: Any, seconds: float = 30) -> None:
+    deadline = time.monotonic() + seconds
+    while not any(test(item) for item in seen):
+        assert time.monotonic() < deadline, seen
+        time.sleep(0.05)
+
+
+def test_a_dead_kernel_is_dropped_and_said_so(client: TestClient) -> None:
+    kernel = client.post("/workbench/kernels", json={}, headers=AUTH).json()["kernel"]
+    outputs = run(client, kernel, "import os\nos._exit(3)")
+    assert outputs[-1]["done"]["dead"] is True
+    # Gone from the running kernels: it no longer counts against the limit.
+    assert (
+        client.post(f"/workbench/kernels/{kernel}/execute", json={"code": "1"}, headers=AUTH).status_code
+        == 404
+    )
+
+
+def test_interrupt_cancels_queued_runs_and_restart_ends_the_run_under_way(client: TestClient) -> None:
+    kernel = client.post("/workbench/kernels", json={}, headers=AUTH).json()["kernel"]
+    try:
+        first: list[dict[str, Any]] = []
+        queued: list[dict[str, Any]] = []
+        threads = [
+            threading.Thread(
+                target=stream, args=(client, kernel, {"code": "import time\ntime.sleep(30)"}, first)
+            ),
+            threading.Thread(
+                target=stream, args=(client, kernel, {"code": "print('should not run')"}, queued)
+            ),
+        ]
+        threads[0].start()
+        time.sleep(1.0)
+        threads[1].start()
+        time.sleep(0.5)
+        assert client.post(f"/workbench/kernels/{kernel}/interrupt", headers=AUTH).status_code == 200
+        for t in threads:
+            t.join(30)
+        assert any(o.get("ename") == "KeyboardInterrupt" for o in first)
+        assert queued == [{"done": {"ok": False, "cancelled": True, "execution_count": None}}]
+        # A run under way when the kernel restarts ends, saying so.
+        under: list[dict[str, Any]] = []
+        worker = threading.Thread(
+            target=stream, args=(client, kernel, {"code": "import time\ntime.sleep(30)"}, under)
+        )
+        worker.start()
+        time.sleep(1.0)
+        assert client.post(f"/workbench/kernels/{kernel}/restart", headers=AUTH).status_code == 200
+        worker.join(30)
+        assert under[-1]["done"]["restarted"] is True
+        # An error no longer drops the run queued behind it (stop_on_error is off).
+        assert run(client, kernel, "1/0")[-1]["done"]["ok"] is False
+        assert run(client, kernel, "print('next')")[0]["text"] == "next\n"
+    finally:
+        client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)
+
+
+def test_input_is_asked_of_the_page_and_late_output_still_arrives(client: TestClient) -> None:
+    kernel = client.post("/workbench/kernels", json={}, headers=AUTH).json()["kernel"]
+    try:
+        seen: list[dict[str, Any]] = []
+        worker = threading.Thread(
+            target=stream,
+            args=(client, kernel, {"code": "name = input('Who? ')\nprint('hello', name)"}, seen),
+        )
+        worker.start()
+        wait_for(seen, lambda o: "input_request" in o)
+        assert next(o for o in seen if "input_request" in o)["input_request"] == {
+            "prompt": "Who? ",
+            "password": False,
+        }
+        assert (
+            client.post(f"/workbench/kernels/{kernel}/input", json={"value": "Ana"}, headers=AUTH).status_code
+            == 200
+        )
+        worker.join(30)
+        assert any(o.get("text") == "hello Ana\n" for o in seen)
+        # The agent's runs have no stdin: input() says so instead of waiting for ever.
+        refused = run(client, kernel, "input('x')", stdin=False)
+        assert refused[0]["ename"] == "StdinNotImplementedError"
+        # A thread that prints after its run ended: its output comes with the next run, marked late.
+        run(client, kernel, "import threading, time\nthreading.Timer(0.3, lambda: print('later')).start()")
+        time.sleep(0.8)
+        nxt = run(client, kernel, "print('now')")
+        assert {"output_type": "stream", "name": "stdout", "text": "later\n", "late": True} in nxt
+        # Complete or not, for the console's Enter.
+        assert (
+            client.post(
+                f"/workbench/kernels/{kernel}/is-complete", json={"code": "for i in range(3):"}, headers=AUTH
+            ).json()["status"]
+            == "incomplete"
+        )
+        assert (
+            client.post(
+                f"/workbench/kernels/{kernel}/is-complete", json={"code": "x = 1"}, headers=AUTH
+            ).json()["status"]
+            == "complete"
+        )
+    finally:
+        client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)
+
+
+def test_run_file_runs_a_script_as_python_would(client: TestClient, tmp_path: Path) -> None:
+    script = tmp_path / "my script.py"
+    script.write_text(
+        "import asyncio, multiprocessing, sys\n"
+        "def square(n):\n    return n * n\n"
+        "async def main():\n    return 'async ok'\n"
+        "if __name__ == '__main__':\n"
+        "    print(__file__.endswith('my script.py'), sys.argv[1:])\n"
+        "    print(asyncio.run(main()))\n"
+        "    with multiprocessing.get_context('spawn').Pool(2) as pool:\n"
+        "        print(pool.map(square, [1, 2, 3]))\n",
+        encoding="utf-8",
+    )
+    kernel = client.post("/workbench/kernels", json={"path": str(script)}, headers=AUTH).json()["kernel"]
+    try:
+        outputs = run(client, kernel, "", kind="file", path=str(script), args="north 2024")
+        text = "".join(o.get("text", "") for o in outputs if o.get("output_type") == "stream")
+        assert "True ['north', '2024']" in text and "async ok" in text and "[1, 4, 9]" in text, outputs
+        assert outputs[-1]["done"]["ok"] is True
+        # Its variables stay for the Variables pane; an unsaved script runs from a private copy.
+        assert run(client, kernel, "square(5)")[0]["data"]["text/plain"] == "25"
+        assert "untitled" in "".join(
+            o.get("text", "") for o in run(client, kernel, "print(__file__)", kind="file")
+        )
+        # exit() and sys.exit() say what happened in one line; help shows as output.
+        assert (
+            run(client, kernel, "import sys\nsys.exit(3)")[0]["text"] == "The code ended with sys.exit(3).\n"
+        )
+        helped = run(client, kernel, "len?")
+        assert any("Return the number of items" in json.dumps(o) for o in helped)
+    finally:
+        client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)
+
+
+def test_saving_keeps_the_files_encoding_line_endings_and_permissions(
+    client: TestClient, tmp_path: Path
+) -> None:
+    import os
+    import stat
+
+    crlf = tmp_path / "windows.py"
+    crlf.write_bytes(b"\xef\xbb\xbfprint('caf\xc3\xa9')\r\nx = 1\r\n")  # UTF-8 with a byte-order mark, CRLF
+    os.chmod(crlf, 0o644)
+    opened = client.post("/workbench/open", json={"path": str(crlf)}, headers=AUTH).json()
+    assert opened["text"] == "print('café')\r\nx = 1\r\n"  # the mark taken off, the line endings kept
+    client.post(
+        "/workbench/save", json={"path": str(crlf), "text": opened["text"] + "y = 2\r\n"}, headers=AUTH
+    )
+    assert crlf.read_bytes() == b"\xef\xbb\xbfprint('caf\xc3\xa9')\r\nx = 1\r\ny = 2\r\n"
+    assert stat.S_IMODE(crlf.stat().st_mode) == 0o644
+    latin = tmp_path / "old.py"
+    latin.write_bytes(b"# -*- coding: latin-1 -*-\nname = 'Ren\xe9'\n")
+    assert "René" in client.post("/workbench/open", json={"path": str(latin)}, headers=AUTH).json()["text"]
+    client.post(
+        "/workbench/save",
+        json={"path": str(latin), "text": "# -*- coding: latin-1 -*-\nname = 'Zoë'\n"},
+        headers=AUTH,
+    )
+    assert latin.read_bytes().endswith(b"'Zo\xeb'\n")
+    locked = tmp_path / "locked.py"
+    locked.write_text("x = 1\n", encoding="utf-8")
+    os.chmod(locked, 0o444)
+    refused = client.post("/workbench/save", json={"path": str(locked), "text": "x = 2\n"}, headers=AUTH)
+    assert refused.status_code == 409 and "read-only" in refused.text
+    assert locked.read_text(encoding="utf-8") == "x = 1\n"
+    forced = client.post(
+        "/workbench/save", json={"path": str(locked), "text": "x = 2\n", "force": True}, headers=AUTH
+    )
+    assert forced.status_code == 200 and locked.read_text(encoding="utf-8") == "x = 2\n"
+
+
+def test_connection_names_never_hide_a_builtin_or_the_cells_own_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ast
+
+    from swissarmygrid.client import kernel_connections
+    from swissarmygrid.domain.connections import code_names
+
+    assert code_names(["Print", "List", "Input", "ID", "Type", "Open"]) == {
+        "Print": "print_",
+        "List": "list_",
+        "Input": "input_",
+        "ID": "id_",
+        "Type": "type_",
+        "Open": "open_",
+    }
+    tree = ast.parse(
+        "broken_db = 1\nprint(broken_db + 1)\nfor sales_db in []: pass\nimport orders\nwarehouse.cursor()"
+    )
+    assert kernel_connections.used_names(tree) == {"print", "warehouse"}
+
+
+def test_one_odd_object_costs_its_row_never_the_list() -> None:
+    from swissarmygrid.client import kernel_variables
+
+    class Odd:
+        columns = ("a",)
+
+        @property
+        def shape(self) -> Any:
+            raise RuntimeError("no shape today")
+
+        def __repr__(self) -> str:
+            raise ValueError("no repr either")
+
+    found = json.loads(kernel_variables.snapshot([], {"odd": Odd(), "fine": [1, 2]}))
+    rows = {v["name"]: v for v in found["variables"]}
+    assert rows["fine"]["size"] == "2" and rows["odd"]["value"].startswith("<could not be read")

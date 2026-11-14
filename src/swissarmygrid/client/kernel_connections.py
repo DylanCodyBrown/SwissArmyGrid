@@ -39,8 +39,20 @@ def code_names() -> dict[str, str]:
 
 
 def used_names(tree: ast.AST) -> set[str]:
-    """The names a cell reads (not those it only assigns)."""
-    return {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    """The names a cell reads and never makes itself: a cell that assigns, imports, defines or loops over a
+    name means its own variable, so that name opens no connection."""
+    loaded: set[str] = set()
+    made: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name):
+            (loaded if isinstance(n.ctx, ast.Load) else made).add(n.id)
+        elif isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            made.add(n.name)
+        elif isinstance(n, ast.Import | ast.ImportFrom):
+            made.update((alias.asname or alias.name).split(".")[0] for alias in n.names)
+        elif isinstance(n, ast.arg):
+            made.add(n.arg)
+    return loaded - made
 
 
 def open_used(tree: ast.AST, namespace: dict[str, Any]) -> list[str]:

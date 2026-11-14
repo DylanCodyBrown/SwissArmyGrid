@@ -23,7 +23,7 @@ class Documents(Protocol):
 
     def modified(self, path: str) -> float | None: ...
 
-    def write(self, path: str, text: str) -> tuple[str, float]: ...
+    def write(self, path: str, text: str, force: bool = False) -> tuple[str, float]: ...
 
     def recent(self) -> list[dict[str, Any]]: ...
 
@@ -33,13 +33,23 @@ class Documents(Protocol):
 
     def remember_environment(self, path: str, python: str) -> None: ...
 
+    def scratch(self, text: str) -> str: ...
+
 
 class Kernel(Protocol):
     python: str
 
-    def execute(self, code: str, silent: bool = False) -> AsyncIterator[dict[str, Any]]: ...
+    def execute(
+        self, code: str, silent: bool = False, stdin: bool = True
+    ) -> AsyncIterator[dict[str, Any]]: ...
 
     async def complete(self, code: str, offset: int) -> dict[str, Any]: ...
+
+    async def is_complete(self, code: str) -> dict[str, Any]: ...
+
+    def answer_input(self, value: str) -> None: ...
+
+    async def alive(self) -> bool: ...
 
     async def inspect(self, code: str, offset: int) -> str: ...
 
@@ -136,9 +146,11 @@ class Workbench:
         ):
             raise Conflict(f"{path} changed on disk since it was opened here. Save anyway to replace it.")
         try:
-            full, modified = self._documents.write(path, text)
+            full, modified = self._documents.write(path, text, force=bool(body.get("force")))
         except FileNotFoundError as error:
             raise NotFound(str(error)) from None
+        except PermissionError as error:
+            raise Conflict(str(error)) from None
         self._documents.remember(full, self._now())
         self.ws.audit.write("user", "save_document", full)
         return {"path": full, "modified": modified}
@@ -194,6 +206,7 @@ class Workbench:
         """A kernel for one document, in the Python chosen (this server's own when none is)."""
         if not isinstance(body, dict):
             body = {}
+        await self._prune()
         if len(self._running) >= MAX_KERNELS:
             raise Conflict(f"{MAX_KERNELS} kernels are running: close a notebook or script first.")
         python = body.get("python") or self.pythons()["pythons"][0]["python"]
@@ -212,16 +225,60 @@ class Workbench:
         return kernel
 
     def execute(self, kernel_id: str, body: Any) -> AsyncIterator[dict[str, Any]]:
-        if not isinstance(body, dict) or not isinstance(body.get("code"), str):
+        """Run code (kind code), a SQL cell (kind sql, its connection) or a script file (kind file: `path`
+        of a saved script, or `code` of an unsaved one, run with %run: its own __main__, __file__ and
+        sys.argv, as `python script.py` would). A kernel that dies is dropped."""
+        if not isinstance(body, dict):
             raise ValueError('Send {"code": "..."}.')
-        if body.get("kind") == "sql":
+        kind = body.get("kind") or "code"
+        if kind == "file":
+            path = body.get("path")
+            if not isinstance(path, str) or not path:
+                if not isinstance(body.get("code"), str):
+                    raise ValueError("A file run sends the script's path, or its code when it is not saved.")
+                path = self._documents.scratch(body["code"])
+            args = body.get("args") if isinstance(body.get("args"), str) else ""
+            line = rules.quote_path(path) + (" " + args if args else "")
+            code = f"get_ipython().run_line_magic('run', {line!r})"
+        elif not isinstance(body.get("code"), str):
+            raise ValueError('Send {"code": "..."}.')
+        elif kind == "sql":
             connection = body.get("connection")
-            code = rules.code_of(
-                rules.Cell("sql", body["code"], connection if isinstance(connection, str) else None)
-            )
+            named = connection if isinstance(connection, str) else None
+            code = rules.code_of(rules.Cell("sql", body["code"], named))
         else:
             code = body["code"]
-        return self._kernel(kernel_id).execute(code)
+        kernel = self._kernel(kernel_id)
+
+        stdin = body.get("stdin") is not False
+
+        async def run() -> AsyncIterator[dict[str, Any]]:
+            async for item in kernel.execute(code, stdin=stdin):
+                if item.get("done", {}).get("dead"):
+                    await self.stop(kernel_id)  # gone: it no longer counts against the limit
+                yield item
+
+        return run()
+
+    async def _prune(self) -> None:
+        """Drop the kernels that died (out of memory, os._exit) without saying so."""
+        for kernel_id, kernel in list(self._running.items()):
+            if not await kernel.alive():
+                await self.stop(kernel_id)
+
+    def answer_input(self, kernel_id: str, body: Any) -> dict[str, Any]:
+        """The line typed for input(), getpass or pdb."""
+        value = body.get("value") if isinstance(body, dict) else None
+        if not isinstance(value, str) or len(value) > 100_000:
+            raise ValueError('Send {"value": "the line typed"}.')
+        self._kernel(kernel_id).answer_input(value)
+        return {"ok": True}
+
+    async def is_complete(self, kernel_id: str, body: Any) -> dict[str, Any]:
+        """Whether the console's code is a whole statement yet (Enter runs it, or goes to a new line)."""
+        if not isinstance(body, dict) or not isinstance(body.get("code"), str):
+            raise ValueError('Send {"code": "..."}.')
+        return await self._kernel(kernel_id).is_complete(body["code"])
 
     @staticmethod
     def _code_at(body: Any) -> tuple[str, int]:

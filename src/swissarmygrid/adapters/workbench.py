@@ -3,14 +3,31 @@ recent list (the last files opened, kept in the state folder). Nothing else is w
 
 from __future__ import annotations
 
+import codecs
+import io
 import json
 import os
+import stat
 import tempfile
+import tokenize
 from pathlib import Path
 from typing import Any
 
 MAX_FILE_BYTES: int = 20 * 1024 * 1024
 MAX_RECENT: int = 15
+
+
+def _encoding_of(raw: bytes, suffix: str) -> str:
+    """How a file is written: UTF-8 with its byte-order mark, a script's coding line (PEP 263), else UTF-8."""
+    if raw.startswith(codecs.BOM_UTF8):
+        return "utf-8-sig"
+    if suffix.lower() == ".py":
+        try:
+            found, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
+        except SyntaxError:
+            return "utf-8"
+        return found
+    return "utf-8"
 
 
 class Documents:
@@ -37,7 +54,14 @@ class Documents:
             raise ValueError(
                 f"{file.name} is over {MAX_FILE_BYTES // 1024 // 1024} MB: too large to open here."
             )
-        return file.read_text(encoding="utf-8"), str(file), file.stat().st_mtime
+        raw = file.read_bytes()
+        encoding = _encoding_of(raw, file.suffix)
+        try:
+            # Decoded as it is: line endings kept (CRLF stays CRLF), a byte-order mark taken off.
+            text = raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError) as error:
+            raise ValueError(f"{file.name} is not readable as {encoding}: {error}") from None
+        return text, str(file), file.stat().st_mtime
 
     def modified(self, path: str) -> float | None:
         try:
@@ -46,7 +70,7 @@ class Documents:
         except OSError:
             return None
 
-    def write(self, path: str, text: str) -> tuple[str, float]:
+    def write(self, path: str, text: str, force: bool = False) -> tuple[str, float]:
         """Write the file whole (a temporary file renamed over it, so a failed save leaves the old one).
         Its folder must exist, except the Workbench's own default folder, made on its first save."""
         try:
@@ -59,15 +83,42 @@ class Documents:
             file.parent.mkdir(parents=True, exist_ok=True)
         if not file.parent.is_dir():
             raise FileNotFoundError(f"The folder {file.parent} is not there.")
+        # A file that is there keeps its encoding (a byte-order mark, a coding line), its permissions, and
+        # is replaced only when it may be written (or the user said Save anyway: `force`).
+        encoding, mode = "utf-8", None
+        if file.is_file():
+            # Read-only to its owner: no write permission for this user, or no write bit at all (the
+            # read-only attribute; root's os.access says yes regardless).
+            no_bits = not file.stat().st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
+            if not force and (no_bits or not os.access(file, os.W_OK)):
+                raise PermissionError(f"{file.name} is read-only. Save anyway to replace it.")
+            encoding = _encoding_of(file.read_bytes(), file.suffix)
+            mode = stat.S_IMODE(file.stat().st_mode)
+        try:
+            data = text.encode(encoding)
+        except UnicodeEncodeError as error:
+            raise ValueError(
+                f"{file.name} is {encoding}, which cannot hold {error.object[error.start : error.end]!r}."
+            ) from None
         handle, temporary = tempfile.mkstemp(dir=file.parent, prefix=f".{file.name}.", suffix=".saving")
         try:
-            with os.fdopen(handle, "w", encoding="utf-8", newline="") as out:
-                out.write(text)
+            with os.fdopen(handle, "wb") as out:
+                out.write(data)
+            if mode is not None:
+                os.chmod(temporary, mode)
             os.replace(temporary, file)
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
             raise
         return str(file), file.stat().st_mtime
+
+    def scratch(self, text: str) -> str:
+        """An unsaved script written to a private folder of its own, so %run can run it as a file."""
+        if not hasattr(self, "_scratch"):
+            self._scratch = Path(tempfile.mkdtemp(prefix="swissarmygrid-script-"))
+        file = self._scratch / "untitled.py"
+        file.write_text(text, encoding="utf-8")
+        return str(file)
 
     def recent(self) -> list[dict[str, Any]]:
         try:

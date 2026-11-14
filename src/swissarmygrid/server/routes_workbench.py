@@ -13,6 +13,8 @@ run them. The golden rule (the owner, 2026-11-14): the agent may do all of it to
   POST   /workbench/kernels   {"python", "path"}   start one, for a document
   POST   /workbench/kernels/{id}/execute    {"code", "kind", "connection"}: the outputs as they come,
                                             one JSON object a line, the last {"done": ...}
+  POST   /workbench/kernels/{id}/input      {"value"}: the line typed for input(), getpass or pdb
+  POST   /workbench/kernels/{id}/is-complete {"code"}: a whole statement yet? (the console's Enter)
   POST   /workbench/kernels/{id}/complete   {"code", "offset"}: the kernel's completions there
   POST   /workbench/kernels/{id}/inspect    {"code", "offset"}: the signature and help of the name there
   GET    /workbench/kernels/{id}/variables  the Variables overlay (values of secrets never included)
@@ -95,6 +97,14 @@ def routes(workbench: Workbench) -> list[BaseRoute]:
             lines(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store"}
         )
 
+    async def answer_input(request: Request) -> Response:
+        return json_response(workbench.answer_input(request.path_params["kernel"], await read_json(request)))
+
+    async def is_complete(request: Request) -> Response:
+        return json_response(
+            await workbench.is_complete(request.path_params["kernel"], await read_json(request))
+        )
+
     async def complete(request: Request) -> Response:
         return json_response(
             await workbench.complete(request.path_params["kernel"], await read_json(request))
@@ -131,6 +141,8 @@ def routes(workbench: Workbench) -> list[BaseRoute]:
         Route("/workbench/environment", user_only(choose_environment), methods=["POST"]),
         Route("/workbench/kernels", user_only(start), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/execute", user_only(execute), methods=["POST"]),
+        Route("/workbench/kernels/{kernel}/input", user_only(answer_input), methods=["POST"]),
+        Route("/workbench/kernels/{kernel}/is-complete", user_only(is_complete), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/complete", user_only(complete), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/inspect", user_only(inspect), methods=["POST"]),
         Route("/workbench/kernels/{kernel}/variables", user_only(variables)),
