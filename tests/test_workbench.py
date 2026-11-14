@@ -803,3 +803,23 @@ def test_no_vault_starts_no_child_process(client: TestClient) -> None:
         assert started["vaults"] == {"set": [], "problems": []}
     finally:
         client.delete(f"/workbench/kernels/{started['kernel']}", headers=AUTH)
+
+
+def test_a_vault_that_loads_every_secret_sets_each_under_its_own_name(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code = "values = {'SqlPassword': 'made-up', 'Sql--Password': 'made-up-2'}\n\n\n"
+    code += "def names():\n    return list(values)\n\n\ndef get(name):\n    return values[name]\n"
+    every = VAULT | {"code": code, "vault_all": True, "vault_mapping": []}
+    assert client.post("/connections", json=every, headers=AUTH).status_code == 200
+    started = client.post("/workbench/kernels", json={}, headers=AUTH).json()
+    kernel = started["kernel"]
+    try:
+        assert started["vaults"] == {"set": ["SqlPassword", "Sql__Password"], "problems": []}
+        out = run(client, kernel, "import os\n(os.environ['SqlPassword'], os.environ['Sql__Password'])")
+        assert out[0]["data"]["text/plain"] == "('made-up', 'made-up-2')"
+        # The Variables pane lists them (names only), though no blade names them ahead.
+        shown = client.get(f"/workbench/kernels/{kernel}/variables", headers=AUTH).json()["environment"]
+        assert {"name": "SqlPassword", "set": True} in shown and "made-up" not in json.dumps(shown)
+    finally:
+        client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)

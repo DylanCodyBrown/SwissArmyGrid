@@ -102,6 +102,9 @@ class Workbench:
         # Every vault's entries (variable -> value) and the vaults that failed, read as a kernel starts: the
         # values go into that kernel's environment and nowhere else (never in an answer, never saved).
         self._vault_environment = vault_environment
+        # The variables the vaults set at the last kernel start (names only): a vault that loads every
+        # secret names them only when it runs, and the Variables pane lists them.
+        self._vault_names: set[str] = set()
         self._running: dict[str, Kernel] = {}
 
     # ===== files =====
@@ -225,6 +228,7 @@ class Workbench:
         kernel_id = tokens.token_hex(6)
         self._running[kernel_id] = kernel
         self.ws.audit.write("user", "start_kernel", str(python))
+        self._vault_names |= set(from_vaults)
         if from_vaults:
             self.ws.audit.write("user", "vault_variables", ", ".join(sorted(from_vaults)))
         # Names only: which variables the vaults set, and why a vault could not.
@@ -342,7 +346,8 @@ class Workbench:
     async def variables(self, kernel_id: str) -> dict[str, Any]:
         """The Variables overlay: every variable, the connections and blades, the environment's names
         (values hidden). `busy`: the kernel is running code; ask again when it is done."""
-        found = await self._kernel(kernel_id).variables(self._secret_names())
+        names = sorted(set(self._secret_names()) | self._vault_names)
+        found = await self._kernel(kernel_id).variables(names)
         return {"busy": True} if found is None else found | {"busy": False}
 
     async def grid(self, kernel_id: str, body: Any) -> dict[str, Any]:

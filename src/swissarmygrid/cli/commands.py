@@ -1129,6 +1129,7 @@ _BLADE_ARGS = (
     opt("tags", "Words to find it by.", "list"),
     opt("catalog", '{"language": "sql" or "python", "command": "..."}: lists the source\'s columns.', "json"),
     opt("vault_mapping", 'For vault: [{"env": "VAR", "secret": "name in the vault"}].', "json"),
+    opt("vault_all", "For vault: every secret it holds, each under its own name (needs names()).", "bool"),
     opt("env_names", "For secret: the environment variable names.", "list"),
     opt("template", "The starter it came from (blades_templates)."),
     opt("folder", "Save it as a .blade.py file in this blade folder (new blades)."),
@@ -1144,6 +1145,7 @@ _BLADE_KEYS = (
     "tags",
     "catalog",
     "vault_mapping",
+    "vault_all",
     "env_names",
     "template",
     "folder",
@@ -1954,7 +1956,7 @@ _CONNECTION_ARGS = (
     req(
         "kind",
         "sql for a database, other for a file (with template csv, excel, parquet, json or folder), vault "
-        "for a key vault (with vault_mapping).",
+        "for a key vault (with vault_mapping, vault_all or both).",
     ),
     req("code", "The connection's Python (a type's code from connections_types, filled in)."),
     opt("template", "The type it came from (connections_types id)."),
@@ -1966,8 +1968,15 @@ _CONNECTION_ARGS = (
     opt(
         "vault_mapping",
         'A vault\'s entries: [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-password"}] (each secret '
-        "in the vault becomes that environment variable in every Workbench kernel).",
+        "in the vault becomes that environment variable in every Workbench kernel). With vault_all, only "
+        "the renamed ones.",
         "json",
+    ),
+    opt(
+        "vault_all",
+        "A vault: every secret it holds (its names(), read each time), each a variable under its own name "
+        "(SqlPassword, Sql--Password -> Sql__Password).",
+        "bool",
     ),
 )
 _CONNECTION_KEYS = (
@@ -1981,6 +1990,7 @@ _CONNECTION_KEYS = (
     "catalog",
     "secrets",
     "vault_mapping",
+    "vault_all",
 )
 
 

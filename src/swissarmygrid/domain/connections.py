@@ -16,6 +16,10 @@ import re
 import unicodedata
 from typing import Any
 
+from swissarmygrid.domain.blades import env_name_for_secret
+
+__all__ = ["env_name_for_secret"]  # with the rules below: a vault's secret as a variable
+
 # The file starters (server/blade_templates.py FILES): a blade made from one is a file connection.
 FILE_STARTERS: dict[str, str] = {
     "csv": "CSV file",
@@ -83,6 +87,7 @@ def form(template: dict[str, Any], inspected: dict[str, Any]) -> dict[str, Any]:
         "packages": inspected.get("packages", []),
         "install_here": inspected.get("install_here"),
         "vault_mapping": list(template.get("vault_mapping") or []),
+        "vault_all": bool(template.get("vault_all")),
     }
 
 
@@ -104,14 +109,6 @@ def env_name_for(connection: str, secret: str) -> str:
     """A variable's name for a connection's password: Sales DB, password -> SALES_DB_PASSWORD."""
     words = re.sub(r"[^A-Za-z0-9]+", "_", f"{connection}_{secret}").strip("_").upper()
     return words if words and not words[0].isdigit() else f"_{words}"
-
-
-def env_name_for_secret(secret: str) -> str:
-    """A variable's name for a secret in a vault: warehouse-password -> WAREHOUSE_PASSWORD,
-    op://Private/Warehouse/password -> PRIVATE_WAREHOUSE_PASSWORD."""
-    bare = re.sub(r"^[a-z][a-z0-9+.-]*://", "", secret.strip(), flags=re.IGNORECASE)
-    words = re.sub(r"[^A-Za-z0-9]+", "_", bare).strip("_").upper()[:128] or "SECRET"
-    return words if not words[0].isdigit() else f"_{words}"[:128]
 
 
 MAX_VAULT_NAMES: int = 5_000

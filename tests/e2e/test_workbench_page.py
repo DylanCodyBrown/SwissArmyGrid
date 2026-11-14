@@ -91,22 +91,33 @@ def test_a_key_vault_is_a_connection_made_from_a_password_and_mapped_to_variable
         dialog.get_by_role("button", name="Read the vault").click()
         secrets = dialog.locator(".vault-map tbody tr:not(.vault-new)")
         expect(secrets).to_have_count(3)
-        expect(secrets.first.get_by_role("textbox")).to_have_value("_3D_TOKEN")
+        expect(secrets.first.get_by_role("textbox")).to_have_value("_3d_token")  # the vault's own name
         expect(dialog.locator(".vault-map")).not_to_contain_text("made-up")  # names only, never a value
-        dialog.get_by_role("checkbox", name="Use warehouse-password").check()
+        # Every secret is the default: nothing to tick; a box renames one.
+        expect(dialog.get_by_role("checkbox", name="Every secret in the vault")).to_be_checked()
+        dialog.get_by_role("textbox", name="api-key: the variable's name").fill("CRM_KEY")
         dialog.locator(".dialog-foot").get_by_role("button", name="Save").click()
-        # Back on the PostgreSQL form, its password pointed at the new vault's entry.
+        # Back on the PostgreSQL form: its password is a secret in the new vault, under its own name.
         expect(dialog.locator("h3")).to_have_text("New PostgreSQL connection")
         expect(dialog.get_by_role("combobox", name="Vault", exact=True)).to_have_value("Azure Key Vault")
+        dialog.get_by_role("textbox", name="The secret's name in the vault").fill("warehouse-password")
         dialog.get_by_role("button", name="Use it").click()
-        expect(code_box(dialog)).to_have_value(re.compile(r'secret\("WAREHOUSE_PASSWORD"\)'))
+        expect(code_box(dialog)).to_have_value(re.compile(r'secret\("warehouse_password"\)'))
+        # Drawn again as chosen: the vault, and the secret's name there.
+        expect(dialog.get_by_role("combobox", name="Where Password comes from")).to_have_value("vault")
+        expect(dialog.get_by_role("textbox", name="The secret's name in the vault")).to_have_value(
+            "warehouse-password"
+        )
         # The vault is a connection: in the list under Key vaults, with what it sets.
         dialog.locator(".dialog-foot").get_by_role("button", name="Back").click()
         dialog.locator(".dialog-foot").get_by_role("button", name="Back").click()
         expect(dialog.get_by_role("heading", name="Key vaults")).to_be_visible()
-        expect(page.locator(".connection-list")).to_contain_text("WAREHOUSE_PASSWORD ← warehouse-password")
+        expect(page.locator(".connection-list")).to_contain_text("Every secret")
+        expect(page.locator(".connection-list")).to_contain_text("CRM_KEY ← api-key")
         listed = call(server, "GET", "/connections")["connections"]
-        assert [(c["name"], c["connection"]) for c in listed] == [("Azure Key Vault", "vault")]
+        assert [(c["name"], c["connection"], c["every"]) for c in listed] == [
+            ("Azure Key Vault", "vault", True)
+        ]
     finally:
         try:
             call(server, "DELETE", f"/blades/{quote('Azure Key Vault')}")

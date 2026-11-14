@@ -133,12 +133,22 @@ def blade(name: str) -> Any:
         return list(spec["env_names"])
     try:
         for vault in spec.get("vaults", []):
-            run_vault(vault["code"], vault["variable"], vault["mapping"], vault["secrets"], vault["label"])
+            every = bool(vault.get("every"))
+            run_vault(
+                vault["code"], vault["variable"], vault["mapping"], vault["secrets"], vault["label"], every
+            )
         for env, source in spec.get("typed", {}).items():
             _ask([env], source)
         if spec["kind"] == "vault":
             return sorted(
-                run_vault(spec["code"], spec["variable"], spec["vault_mapping"], spec["secrets"], label)
+                run_vault(
+                    spec["code"],
+                    spec["variable"],
+                    spec["vault_mapping"],
+                    spec["secrets"],
+                    label,
+                    bool(spec.get("vault_all")),
+                )
             )
         value, _ = run_code(spec["code"], spec["variable"], spec["secrets"], label)
     except BladeRunError as error:

@@ -63,12 +63,14 @@ def payload(
         "secrets": store.saved_secrets(blade) | dict((extra or {}).get("secrets", {})),
         "catalog": {"language": blade.catalog_language, "command": blade.catalog_command},
         "vault_mapping": blade.vault_mapping,
+        "vault_all": blade.vault_all,
         "vaults": [
             {
                 "label": v.name,
                 "code": v.code,
                 "variable": v.variable,
                 "mapping": v.vault_mapping,
+                "every": v.vault_all,
                 "secrets": store.saved_secrets(v),
             }
             for v in vaults
@@ -80,7 +82,7 @@ def payload(
 def load_payload(store: BladeStore) -> dict[str, Any] | None:
     """Every vault blade, to read all their entries at once (a Workbench kernel's environment); None when
     there are none (no child is started)."""
-    vaults = [b for b in store.all() if b.kind == "vault" and b.vault_mapping]
+    vaults = [b for b in store.all() if b.kind == "vault" and (b.vault_mapping or b.vault_all)]
     if not vaults:
         return None
     return {
@@ -93,6 +95,7 @@ def load_payload(store: BladeStore) -> dict[str, Any] | None:
                 "code": v.code,
                 "variable": v.variable,
                 "mapping": v.vault_mapping,
+                "every": v.vault_all,
                 "secrets": store.saved_secrets(v),
             }
             for v in vaults
@@ -186,13 +189,21 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
     try:
         for vault in job.get("vaults", []):
             values = run_vault(
-                vault["code"], vault["variable"], vault["mapping"], vault["secrets"], vault["label"]
+                vault["code"],
+                vault["variable"],
+                vault["mapping"],
+                vault["secrets"],
+                vault["label"],
+                bool(vault.get("every")),
             )
             hidden.update({f"vault:{k}": v for k, v in values.items()})
         if job["mode"] == "names":
             return _names(job, secrets)
         if job["kind"] == "vault":
-            values = run_vault(job["code"], job["variable"], job["vault_mapping"], secrets, job["label"])
+            every = bool(job.get("vault_all"))
+            values = run_vault(
+                job["code"], job["variable"], job["vault_mapping"], secrets, job["label"], every
+            )
             return {"ok": True, "variables": sorted(values)}  # names only: the values stay in this process
         value, names = run_code(job["code"], job["variable"], secrets, job["label"])
         if job["mode"] == "analysis":
@@ -246,7 +257,12 @@ def _load(job: dict[str, Any]) -> dict[str, Any]:
         try:
             values.update(
                 run_vault(
-                    vault["code"], vault["variable"], vault["mapping"], vault["secrets"], vault["label"]
+                    vault["code"],
+                    vault["variable"],
+                    vault["mapping"],
+                    vault["secrets"],
+                    vault["label"],
+                    bool(vault.get("every")),
                 )
             )
         except BladeRunError as error:

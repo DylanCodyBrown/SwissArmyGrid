@@ -260,8 +260,10 @@ blades (so folders, packs, the catalog and Refresh work the same) but listed apa
 
 A **key vault** (Azure Key Vault, AWS Secrets Manager or Parameter Store, Google Secret Manager,
 HashiCorp, 1Password, a `.env` file, the operating system's vault) is a connection whose secrets become
-environment variables. **Read the vault** lists the secrets' names (never a value); tick the ones you
-need and each gets a variable (`warehouse-password` becomes `WAREHOUSE_PASSWORD`, renamed as you like).
+environment variables. By default it loads **every secret in the vault**, new ones included, each under
+its own name: `SqlPassword` stays `SqlPassword`, `Sql--Password` becomes `Sql__Password` (Azure's
+convention for a section), any other character a variable cannot hold becomes `_`. **Read the vault**
+lists the secrets' names (never a value) so you can rename one; or untick Every secret and choose them.
 Every Workbench kernel starts with those variables set, so `os.environ["WAREHOUSE_PASSWORD"]` and a
 connection's `secret("WAREHOUSE_PASSWORD")` just work. The values go straight into the kernel's
 environment: never saved, never shown, never sent to an agent. A password's **A key vault** offers

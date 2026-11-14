@@ -66,6 +66,13 @@ def test_vault_and_secret_blades() -> None:
     text = write_blade(vault)
     assert '# WAREHOUSE_PASSWORD = "warehouse-password"' in text
     assert read_blade(text)["vault_mapping"] == vault["vault_mapping"]
+    assert read_blade(text)["vault_all"] is False
+    # Every secret in the vault, nothing renamed: the header says so and needs no [vault] table.
+    every = vault | {"vault_all": True, "vault_mapping": []}
+    text = write_blade(every)
+    assert "# vault_all = true" in text and "[vault]" not in text
+    back = read_blade(text)
+    assert back["vault_all"] is True and back["vault_mapping"] == []
     secret = {
         "name": "Warehouse login",
         "kind": "secret",

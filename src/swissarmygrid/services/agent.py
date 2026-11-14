@@ -58,6 +58,7 @@ AGENT_BLADE_FIELDS: tuple[str, ...] = (
     "tags",
     "catalog",
     "vault_mapping",
+    "vault_all",
     "env_names",
     "template",
 )

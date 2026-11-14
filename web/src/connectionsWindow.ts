@@ -9,8 +9,9 @@
  *   [FORM]   a name; the starter's settings as fields (a file or folder field has Browse…); its
  *            passwords (kept in the system keyring); Test connection (runs the form, nothing saved);
  *            Save. The Python it makes shows underneath, editable for the unusual case
- *   [VAULT]  a vault's form adds its secrets: Read the vault lists their names (never a value); each one
- *            ticked becomes that environment variable in every Workbench kernel (it starts with them)
+ *   [VAULT]  a vault's form adds its secrets: Every secret (each under its own name, new ones too), or
+ *            the ones ticked; Read the vault lists their names (never a value) and a variable's box
+ *            renames one. Every Workbench kernel starts with them set
  *
  * ROUTING: [LIST]  GET /connections; Remove -> DELETE /blades/{name}; Refresh -> POST /blades/{name}/refresh
  *          [TYPES] GET /connections/types        [EDIT] GET /connections/{name}
@@ -51,6 +52,7 @@ interface Form {
   description?: string;
   summary?: { secrets: Record<string, boolean> };
   vault_mapping: Mapping[];
+  vault_all?: boolean;
 }
 
 interface Mapping {
@@ -61,6 +63,8 @@ interface Mapping {
 interface Vault {
   name: string;
   entries: Mapping[];
+  /** Every secret it holds, each under its own name. */
+  every: boolean;
   read_only: boolean;
 }
 
@@ -70,8 +74,9 @@ type Then = (saved: string | null) => void;
 interface Connection {
   name: string;
   connection: "database" | "file" | "vault";
-  /** A key vault's: each variable it sets, from which secret. */
+  /** A key vault's: each variable it sets, from which secret; `every`: every secret it holds. */
   entries?: Mapping[];
+  every?: boolean;
   type: string;
   dialect: string;
   has_catalog: boolean;
@@ -99,10 +104,11 @@ const plain = (label: string): string => {
 };
 /** A path's file or folder name without its kind: C:\data\orders.csv -> orders. */
 const stem = (path: string): string => (path.split(/[\\/]/).filter(Boolean).pop() ?? "").replace(/\.[^.]+$/, "");
-/** A variable's name for a secret in a vault (as the server suggests): warehouse-password -> WAREHOUSE_PASSWORD. */
+/** A secret's variable, named as in the vault (domain/blades.py env_name_for_secret): SqlPassword stays,
+ *  Sql--Password -> Sql__Password, warehouse-password -> warehouse_password. */
 const envFor = (secret: string): string => {
-  const w = secret.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toUpperCase().slice(0, 128) || "SECRET";
-  return /^\d/.test(w) ? `_${w}` : w;
+  const w = secret.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/--/g, "__").replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "").slice(0, 128) || "SECRET";
+  return (/^\d/.test(w) ? `_${w}` : w).slice(0, 128);
 };
 /** What a Test answers: a vault reads its variables; a connection makes something (a file: is there). */
 const worked = (r: { type?: string; found?: string; variables?: string[] }): string => (r.variables ? `read ${r.variables.join(", ")}` : (r.found ?? `made a ${r.type}`));
@@ -137,7 +143,7 @@ export async function openConnections(): Promise<void> {
           h("div", { class: "pack-title" }, h("strong", {}, c.name), h("span", { class: "badge" }, c.type ? plain(c.type) : { database: "Database", file: "File", vault: "Key vault" }[c.connection]), c.catalog_loaded ? h("span", { class: "hint" }, "catalog loaded") : null),
           c.description ? h("div", { class: "hint" }, c.description) : null,
           c.entries
-            ? h("div", { class: "vault-entries" }, ...c.entries.map((e) => h("code", { class: "hint", title: `${e.secret} in the vault` }, `${e.env} ← ${e.secret}`)))
+            ? h("div", { class: "vault-entries" }, c.every ? h("span", { class: "badge" }, "Every secret") : null, ...c.entries.map((e) => h("code", { class: "hint", title: `${e.secret} in the vault` }, `${e.env} ← ${e.secret}`)))
             : h("code", { class: "hint" }, `sag.connection("${c.name}")  ·  %%sql ${/\s/.test(c.name) ? `"${c.name}"` : c.name}`),
         ),
         h(
@@ -288,6 +294,9 @@ export async function openConnections(): Promise<void> {
     const vaultsRead = readVaults();
     // Each password's source as the user chose it (kept when the passwords are drawn again).
     const chosen = new Map<string, string>();
+    // A password pointed at a vault: which vault, and the secret's name there (shown when drawn again).
+    const pointedAt = new Map<string, string>();
+    const secretOf = new Map<string, string>();
     const looksLikeVariable = (s: string): boolean => /^[A-Z][A-Z0-9_]*$/.test(s) && s.includes("_");
     // Each password keeps the word the starter gave it ("Password") while its source renames it in the code.
     const labels = new Map<string, string>(form.secrets.map((s) => [s, s]));
@@ -301,6 +310,9 @@ export async function openConnections(): Promise<void> {
         labels.set(answer.secret, labels.get(secret) ?? secret);
         if (body.from === "vault") vaults = (await api<{ vaults: Vault[] }>("/connections/vaults")).vaults;
         chosen.delete(secret);
+        chosen.set(answer.secret, String(body.from)); // drawn again as the source just chosen
+        if (body.vault) pointedAt.set(answer.secret, String(body.vault));
+        if (typeof body.vault_secret === "string") secretOf.set(answer.secret, body.vault_secret);
         passwordsSlot.replaceChildren(drawPasswords() ?? "");
         result.replaceChildren(h("p", { class: "hint" }, `${label(answer.secret)}: ${answer.secret}${body.vault ? ` in ${String(body.vault)}` : ""}`));
       } catch (e) {
@@ -311,12 +323,13 @@ export async function openConnections(): Promise<void> {
       passwords.clear();
       if (!form.secrets.length) return null;
       const saved = form.summary?.secrets ?? {};
+      // Which vault each password was pointed at (an every-secret vault has no entry to show it by).
       return h(
         "fieldset",
         { class: "connection-passwords" },
         h("legend", {}, "Passwords"),
         ...form.secrets.map((s) => {
-          const inVault = vaults.find((v) => v.entries.some((e) => e.env === s));
+          const inVault = vaults.find((v) => v.entries.some((e) => e.env === s)) ?? vaults.find((v) => v.name === pointedAt.get(s));
           const origin = chosen.get(s) ?? (inVault ? "vault" : looksLikeVariable(s) && !saved[s] ? "env" : "keyring");
           const from = h("select", { "aria-label": `Where ${label(s)} comes from` }, h("option", { value: "keyring", selected: origin === "keyring" }, "Saved on this computer"), h("option", { value: "env", selected: origin === "env" }, "An environment variable"), h("option", { value: "vault", selected: origin === "vault" }, "A key vault"));
           const slot = h("span", { class: "field-row" });
@@ -337,10 +350,10 @@ export async function openConnections(): Promise<void> {
               }
               const vault = h("select", { "aria-label": "Vault" }, ...vaults.map((v) => h("option", { value: v.name, selected: v === inVault }, v.name)));
               const entry = h("select", { "aria-label": "Entry in the vault" });
-              const newName = h("input", { type: "text", "aria-label": "The secret's name in the vault", placeholder: "Secret name", spellcheck: false });
+              const newName = h("input", { type: "text", "aria-label": "The secret's name in the vault", placeholder: "Secret name", spellcheck: false, value: pointedAt.get(s) ? (secretOf.get(s) ?? "") : "" });
               const fillEntries = (): void => {
                 const chosen = vaults.find((v) => v.name === vault.value);
-                clear(entry, ...(chosen?.entries ?? []).map((e) => h("option", { value: e.env, selected: e.env === s }, `${e.secret} (as ${e.env})`)), chosen?.read_only ? null : h("option", { value: "" }, "A new entry…"));
+                clear(entry, ...(chosen?.entries ?? []).map((e) => h("option", { value: e.env, selected: e.env === s }, `${e.secret} (as ${e.env})`)), chosen?.read_only ? null : h("option", { value: "", selected: !chosen?.entries.some((e) => e.env === s) }, chosen?.every ? "A secret by name…" : "A new entry…"));
                 newName.hidden = entry.value !== "";
               };
               vault.addEventListener("change", fillEntries);
@@ -374,6 +387,8 @@ export async function openConnections(): Promise<void> {
     };
 
     // ===== a vault's secrets: each ticked one becomes an environment variable =====
+    // Every secret (a new vault's default): each one under its own name, new ones too; a box renames one.
+    const every = h("input", { type: "checkbox", checked: editing ? Boolean(form.vault_all) : true, "aria-label": "Every secret in the vault" }) as HTMLInputElement;
     const mapRows: { secret: string; env: HTMLInputElement; use: HTMLInputElement; row: HTMLElement }[] = [];
     const mapBody = h("tbody", {});
     const mapFilter = h("input", { type: "search", placeholder: "Filter", "aria-label": "Filter the secrets", hidden: true }) as HTMLInputElement;
@@ -408,6 +423,10 @@ export async function openConnections(): Promise<void> {
       for (const r of mapRows) r.row.hidden = Boolean(words) && !`${r.secret} ${r.env.value}`.toLowerCase().includes(words);
     });
     for (const m of form.vault_mapping ?? []) if (editing) addMapping(m.secret, m.env, true);
+    const mapTable = h("table", { class: "vault-map" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", {}, "In the vault"), h("th", {}, "Environment variable"))), mapBody);
+    const showEvery = (): void => void mapTable.classList.toggle("every", every.checked);
+    every.addEventListener("change", showEvery);
+    showEvery();
     const readVault = async (): Promise<void> => {
       result.replaceChildren(h("p", { class: "hint" }, "Reading the vault…"));
       try {
@@ -428,8 +447,9 @@ export async function openConnections(): Promise<void> {
           "fieldset",
           { class: "connection-passwords vault-secrets" },
           h("legend", {}, "Secrets"),
+          h("label", { class: "vault-every" }, every, h("span", {}, "Every secret in the vault")),
           h("div", { class: "field-row" }, button("Read the vault", () => void readVault(), { icon: "import" }), mapFilter),
-          h("table", { class: "vault-map" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", {}, "In the vault"), h("th", {}, "Environment variable"))), mapBody),
+          mapTable,
         )
       : null;
 
@@ -459,7 +479,13 @@ export async function openConnections(): Promise<void> {
       variable: form.variable,
       code,
       catalog: form.catalog,
-      ...(isVault ? { vault_mapping: mapRows.filter((r) => r.use.checked).map((r) => ({ env: r.env.value.trim(), secret: r.secret })) } : {}),
+      // Every secret: only the renamed ones are kept (the rest take their own names each time).
+      ...(isVault
+        ? {
+            vault_all: every.checked,
+            vault_mapping: mapRows.filter((r) => (every.checked ? r.env.value.trim() !== envFor(r.secret) : r.use.checked)).map((r) => ({ env: r.env.value.trim(), secret: r.secret })),
+          }
+        : {}),
     });
     const failed = (e: unknown): void => {
       const message = (e as Error).message;

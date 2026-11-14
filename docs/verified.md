@@ -462,3 +462,11 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   check, the non-browser suite (1,845 passed after one test was made independent of the order), and the
   Workbench and blades page browser tests (31 passed). Not tried: a real Azure Key Vault (no Azure
   account here; the starter's names() uses azure-keyvault-secrets' list_properties_of_secrets).
+- (2026-11-14) A vault that loads every secret, each under its own name: with made-up secrets
+  (SqlPassword, Sql--Password, api-key, 3d-token) a kernel started with SqlPassword and Sql__Password set
+  to the vault's values, Test listed _3d_token, api_key and warehouse_password, a rename (api-key as
+  CRM_KEY, warehouse-password as WAREHOUSE_PASSWORD) was the only entry saved and won, a password pointed
+  at such a vault took the secret's own name without changing the vault, code with no names() was refused
+  plainly, the portable file kept `vault_all = true` with no [vault] table, and the Variables pane listed
+  the names it set. In the browser: Every secret is on for a new vault, a box renames, the PostgreSQL
+  form came back with the vault and the secret's name still shown after Use it.

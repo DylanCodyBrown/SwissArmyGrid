@@ -434,6 +434,8 @@ def _header_lines(blade: dict[str, Any]) -> list[str]:
         lines.append("tags = [" + ", ".join(_toml_string(str(t)) for t in blade["tags"]) + "]")
     if kind == "sql":
         lines.append(f"dialect = {_toml_string(str(blade.get('dialect') or 'other'))}")
+    if kind == "vault" and blade.get("vault_all"):
+        lines.append("vault_all = true  # every secret in the vault, each under its own name")
     if kind != "secret":
         lines.append(f"variable = {_toml_string(str(blade.get('variable') or ''))}")
         try:
@@ -458,7 +460,7 @@ def _header_lines(blade: dict[str, Any]) -> list[str]:
             f"language = {_toml_string(str(catalog.get('language', 'sql')))}",
             f"command = {_toml_string(str(catalog['command']), multiline=True)}",
         ]
-    if kind == "vault":
+    if kind == "vault" and blade.get("vault_mapping"):
         lines += ["", "[vault]  # environment variable = the secret's name in the vault"]
         for row in blade.get("vault_mapping", []):
             lines.append(f"{row['env']} = {_toml_string(str(row['secret']))}")
@@ -561,11 +563,12 @@ def read_blade(text: str) -> dict[str, Any]:
                 "language": str(catalog.get("language", "sql")),
                 "command": catalog["command"],
             }
-        vault = header.get("vault")
+        vault = header.get("vault", {} if header.get("vault_all") is True else None)
         if kind == "vault":
             if not isinstance(vault, dict) or not all(isinstance(v, str) for v in vault.values()):
                 raise PortableError('A vault blade\'s header has a [vault] table: VARIABLE = "secret name".')
             blade["vault_mapping"] = [{"env": env, "secret": secret} for env, secret in vault.items()]
+            blade["vault_all"] = header.get("vault_all") is True
     template = header.get("template")
     blade["template"] = template if isinstance(template, str) else None
     description = header.get("description")
@@ -1057,6 +1060,29 @@ def suggest_settings(
 # ===== the blade =====
 
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
+
+
+def env_name_for_secret(secret: str) -> str:
+    """A secret's variable, named as in the vault: SqlPassword stays SqlPassword, Sql--Password becomes
+    Sql__Password (Azure's convention for a section: `--` in the vault, `__` in the environment), any
+    other character a variable cannot hold becomes _ (warehouse-password -> warehouse_password,
+    op://Private/Warehouse/password -> Private_Warehouse_password). Case is kept."""
+    bare = re.sub(r"^[a-z][a-z0-9+.-]*://", "", secret.strip(), flags=re.IGNORECASE)
+    words = re.sub(r"[^A-Za-z0-9_]", "_", bare.replace("--", "__")).strip("_")[:128] or "SECRET"
+    return words if not words[0].isdigit() else f"_{words}"[:128]
+
+
+def every_secret(names: Iterable[str], renamed: Mapping[str, str]) -> dict[str, str]:
+    """A vault's mapping when it loads every secret: each name its own variable, but a secret the user
+    renamed (`renamed`: variable -> secret) keeps that name. Variable -> secret."""
+    by_secret = {secret: env for env, secret in renamed.items()}
+    found: dict[str, str] = {}
+    for name in names:
+        if name not in by_secret:
+            found.setdefault(env_name_for_secret(name), name)
+    return found | dict(renamed)
+
+
 _MAX_CODE_CHARS: int = 200_000
 
 
@@ -1078,6 +1104,9 @@ class Blade:
     catalog_language: str | None = None
     catalog_command: str | None = None
     vault_mapping: dict[str, str] = field(default_factory=dict)  # environment variable -> vault secret name
+    # A vault: every secret it holds (its names(), read each time), each under its own name; the mapping
+    # then only renames.
+    vault_all: bool = False
     env_names: list[str] = field(default_factory=list)  # a secret blade's variables
     template: str | None = None
     description: str = ""
@@ -1114,6 +1143,7 @@ class Blade:
                 else None
             ),
             "vault_mapping": [{"env": e, "secret": s} for e, s in self.vault_mapping.items()],
+            "vault_all": self.vault_all,
             "env_names": list(self.env_names),
             "template": self.template,
             "description": self.description,
@@ -1246,9 +1276,11 @@ def parse_blade(data: Any, previous: Blade | None = None, now: float = 0.0) -> B
 
     if kind == "vault":
         mapping = data.get("vault_mapping") or []
-        if not isinstance(mapping, list) or not mapping:
+        blade.vault_all = data.get("vault_all") is True
+        if not isinstance(mapping, list) or not (mapping or blade.vault_all):
             raise BladeError(
-                "A vault blade maps at least one secret in the vault to an environment variable."
+                "A vault blade maps at least one secret in the vault to an environment variable, "
+                "or loads every secret (vault_all)."
             )
         for row in mapping:
             if not isinstance(row, dict):

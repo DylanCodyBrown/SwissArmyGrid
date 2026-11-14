@@ -595,3 +595,16 @@ server. They are never saved, never in an answer to the page or the agent, never
 records the variables' names). A vault that fails is named in a message and the kernel starts without
 it. A restart keeps the variables (jupyter_client reuses the environment). Open: a vault that is slow to
 sign in slows every kernel's start; caching the values for the session was left out on purpose.
+
+## A vault's secrets under their own names, every one (2026-11-14, the owner's call)
+
+The point (the owner): "develop your Lambda or Azure Function apps with a vault and use the same exact
+credentials that you'll be using in the cloud on your local machine", and "why don't we just import the
+names right out of the vault". So a vault may load every secret it holds (`vault_all`, the default for a
+new one): its names() is read each time a kernel starts, so a secret added later is there next time, and
+each is a variable under its own name, case kept (SqlPassword), `--` as `__` (Azure's convention for a
+section, as .NET configuration reads it), any other character a variable cannot hold as `_`. The mapping
+then only renames. This replaced the upper-case suggestion (warehouse-password -> WAREHOUSE_PASSWORD):
+the vault's own name is what the cloud's code most often reads. A vault whose code has no names() cannot
+load every secret and says so. The Variables pane lists what the vaults set at the last kernel start
+(names only), since such a vault names its variables only when it runs.

@@ -239,8 +239,9 @@ A key vault is a connection (`connections_list` shows it with `connection: "vaul
 variable and the secret's name in the vault). Every Workbench kernel starts with its entries set as
 environment variables. `connections_vault_secrets(name=...)` lists the secrets in a saved vault, or a
 draft's (`code`, `template`, `variable`), by name only, each with a suggested variable;
-`connections_create(kind="vault", vault_mapping=[{"env", "secret"}], ...)` saves one. You never see a
-value.
+`connections_create(kind="vault", vault_all=true, ...)` saves one that loads every secret under its own
+name (SqlPassword; Sql--Password becomes Sql__Password); `vault_mapping=[{"env", "secret"}]` renames
+some, or without vault_all chooses them. You never see a value.
 
 ## Blades: making a connection for the user
 

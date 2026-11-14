@@ -104,6 +104,7 @@ class BladeStore:
             vault_mapping={
                 r["env"]: r["secret"] for r in data.get("vault_mapping", []) if isinstance(r, dict)
             },
+            vault_all=data.get("vault_all") is True,
             env_names=list(data.get("env_names", [])),
             template=data.get("template"),
             description=str(data.get("description") or ""),
@@ -450,7 +451,9 @@ class BladeStore:
         for other in self.all() if everything is None else everything:
             if other.name == blade.name:
                 continue
-            if other.kind == "vault" and any(env in missing for env in other.vault_mapping):
+            # A vault that loads every secret may hold any of them: it runs first whenever one is missing.
+            wanted = other.vault_all or any(env in missing for env in other.vault_mapping)
+            if other.kind == "vault" and missing and wanted:
                 vaults.append(other)
             if other.kind == "secret":
                 for env in other.env_names:

@@ -4296,6 +4296,18 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   min-width: 0;
 }
 
+/* Every secret: no ticks (each one is loaded); the boxes only rename. */
+.vault-map.every td:first-child input,
+.vault-map.every th:first-child {
+  visibility: hidden;
+}
+
+.vault-every {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .vault-map td code {
   overflow-wrap: anywhere;
 }

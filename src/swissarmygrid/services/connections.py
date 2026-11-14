@@ -34,8 +34,10 @@ class ConnectionService:
                     "type": labels.get(str(b.get("template") or ""), ""),
                 }
                 if kind == "vault":
-                    mapping = self._blades.get(str(b["name"])).vault_mapping
-                    more["entries"] = [{"env": env, "secret": secret} for env, secret in mapping.items()]
+                    vault = self._blades.get(str(b["name"]))
+                    entries = vault.vault_mapping.items()
+                    more["entries"] = [{"env": env, "secret": secret} for env, secret in entries]
+                    more["every"] = vault.vault_all
                 found.append(b | more)
         found.sort(key=lambda c: (order[c["connection"]], not c.get("pinned"), str(c["name"]).casefold()))
         return {"connections": found}  # each with its code_name (the blades list names them)
@@ -67,6 +69,7 @@ class ConnectionService:
             else None,
             "code": blade.code,
             "vault_mapping": [{"env": e, "secret": v} for e, v in blade.vault_mapping.items()],
+            "vault_all": blade.vault_all,
         }
         return rules.form(template, inspected) | {
             "name": blade.name,
@@ -105,6 +108,7 @@ class ConnectionService:
                     "type": labels.get(blade.template or "", ""),
                     "description": blade.description,
                     "entries": mapping,
+                    "every": blade.vault_all,
                     "read_only": blade.pack is not None,
                 }
             )
@@ -144,6 +148,9 @@ class ConnectionService:
             in_vault = body.get("vault_secret")
             if not isinstance(in_vault, str) or not in_vault.strip() or len(in_vault) > 500:
                 raise ValueError("Name the secret as it is called in the vault.")
+            if vault.vault_all:  # it loads every secret already, each under its own name
+                env = rules.env_name_for_secret(in_vault.strip())
+                return {"code": rules.rename_secret(code, secret, env), "secret": env, "vault": vault.name}
             if vault.pack:
                 raise BladeError(f"{vault.name} comes from a pack: add the entry in that pack's repository.")
             word = body.get("label") if isinstance(body.get("label"), str) else secret

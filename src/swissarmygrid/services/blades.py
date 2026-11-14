@@ -399,6 +399,7 @@ class BladeService:
             "variable": blade.variable,
             "secrets": self._blades.saved_secrets(blade),
             "vault_mapping": blade.vault_mapping,
+            "vault_all": blade.vault_all,
             "env_names": blade.env_names,
             "typed": typed,
             "vaults": [
@@ -407,6 +408,7 @@ class BladeService:
                     "code": v.code,
                     "variable": v.variable,
                     "mapping": v.vault_mapping,
+                    "every": v.vault_all,
                     "secrets": self._blades.saved_secrets(v),
                 }
                 for v in vaults

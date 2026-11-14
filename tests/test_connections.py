@@ -11,7 +11,8 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from swissarmygrid.domain.connections import connection_kind, env_name_for_secret, opens_in_code, picker
+from swissarmygrid.domain.blades import env_name_for_secret, every_secret
+from swissarmygrid.domain.connections import connection_kind, opens_in_code, picker
 from tests.conftest import AGENT, AUTH
 from tests.fake_keyring import memory_keyring
 
@@ -175,6 +176,7 @@ def test_a_password_comes_from_the_keyring_an_environment_variable_or_a_vault(cl
             "type": "",
             "description": "",
             "entries": [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-pw"}],
+            "every": False,
             "read_only": False,
         }
     ]
@@ -289,14 +291,21 @@ def get(name):
 @pytest.mark.parametrize(
     ("secret", "env"),
     [
-        ("warehouse-password", "WAREHOUSE_PASSWORD"),
-        ("op://Private/Warehouse/password", "PRIVATE_WAREHOUSE_PASSWORD"),
-        ("3d-token", "_3D_TOKEN"),
+        ("SqlPassword", "SqlPassword"),  # the vault's own name, case kept
+        ("Sql--Password", "Sql__Password"),  # Azure's section convention: -- in the vault, __ here
+        ("warehouse-password", "warehouse_password"),
+        ("op://Private/Warehouse/password", "Private_Warehouse_password"),
+        ("3d-token", "_3d_token"),
         ("---", "SECRET"),
     ],
 )
-def test_a_secret_in_a_vault_gets_a_variable_name(secret: str, env: str) -> None:
+def test_a_secret_in_a_vault_is_a_variable_under_its_own_name(secret: str, env: str) -> None:
     assert env_name_for_secret(secret) == env
+
+
+def test_every_secret_takes_its_own_name_but_a_rename_wins() -> None:
+    found = every_secret(["SqlPassword", "api-key", "Sql--Password"], {"CRM_KEY": "api-key"})
+    assert found == {"SqlPassword": "SqlPassword", "Sql__Password": "Sql--Password", "CRM_KEY": "api-key"}
 
 
 @pytest.mark.parametrize("headers", [AUTH, AGENT], ids=["user", "agent"])
@@ -309,9 +318,9 @@ def test_a_vault_is_added_its_secrets_listed_by_name_and_mapped(
     assert listed.status_code == 200, listed.text
     assert listed.json() == {
         "names": [
-            {"secret": "3d-token", "env": "_3D_TOKEN"},
-            {"secret": "api-key", "env": "API_KEY"},
-            {"secret": "warehouse-password", "env": "WAREHOUSE_PASSWORD"},
+            {"secret": "3d-token", "env": "_3d_token"},
+            {"secret": "api-key", "env": "api_key"},
+            {"secret": "warehouse-password", "env": "warehouse_password"},
         ]
     }
     assert "made-up" not in listed.text  # names only: never a value
@@ -341,3 +350,31 @@ def test_a_vault_is_added_its_secrets_listed_by_name_and_mapped(
     # A vault with nothing mapped is refused, plainly.
     empty = client.post("/connections", json=draft | {"name": "Empty", "vault_mapping": []}, headers=headers)
     assert empty.status_code == 400 and "at least one secret" in empty.text
+
+
+def test_a_vault_may_load_every_secret_under_its_own_name(client: TestClient) -> None:
+    vault: dict[str, Any] = {"name": "Team vault", "kind": "vault", "template": "azure_key_vault"}
+    vault |= {"variable": "get"}
+    vault |= {"code": MADE_UP_VAULT, "vault_all": True, "vault_mapping": []}  # nothing to tick
+    saved = client.post("/connections", json=vault, headers=AGENT)  # the agent may (the golden rule)
+    assert saved.status_code == 200, saved.text
+    [listed] = client.get("/connections", headers=AUTH).json()["connections"]
+    assert listed["every"] is True and listed["entries"] == []
+    tested = client.post("/blades/Team%20vault/test", json={}, headers=AUTH).json()
+    assert tested["variables"] == ["_3d_token", "api_key", "warehouse_password"]
+    # A rename is the only entry kept; the rest take their own names each time.
+    renamed = vault | {"vault_mapping": [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-password"}]}
+    assert client.put("/connections/Team%20vault", json=renamed, headers=AUTH).status_code == 200
+    tested = client.post("/blades/Team%20vault/test", json={}, headers=AUTH).json()
+    assert tested["variables"] == ["WAREHOUSE_PASSWORD", "_3d_token", "api_key"]
+    # A password pointed at it uses the secret's own name, and the vault is left as it was.
+    code = 'import psycopg\nconn = psycopg.connect(host="h", password=secret("password"))'
+    body = {"code": code, "secret": "password", "from": "vault", "vault": "Team vault"}
+    pointed = client.post("/connections/source", json=body | {"vault_secret": "api-key"}, headers=AUTH)
+    assert 'secret("api_key")' in pointed.json()["code"]
+    assert client.get("/connections/Team%20vault", headers=AUTH).json()["vault_all"] is True
+    # Code with no names() cannot load every secret: Test says so plainly.
+    plain = vault | {"name": "Plain", "code": "def get(name):\n    return 'made-up'\n"}
+    assert client.post("/connections", json=plain, headers=AUTH).status_code == 200
+    failed = client.post("/blades/Plain/test", json={}, headers=AUTH)
+    assert failed.status_code == 422 and "no names()" in failed.text

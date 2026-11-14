@@ -116,17 +116,38 @@ def run_code(
 
 
 def run_vault(
-    code: str, variable: str, mapping: dict[str, str], secrets: dict[str, str], label: str = "the vault"
+    code: str,
+    variable: str,
+    mapping: dict[str, str],
+    secrets: dict[str, str],
+    label: str = "the vault",
+    every: bool = False,
 ) -> dict[str, str]:
     """Run a vault blade and set its environment variables. The blade's variable is a function from a
-    secret's name in the vault to its value; `mapping` is environment variable -> secret name. Returns
-    the variables set, with their values (for this Python only: the server never keeps them)."""
-    getter, _ = run_code(code, variable, secrets, label)
+    secret's name in the vault to its value; `mapping` is environment variable -> secret name. `every`:
+    every secret its names() lists, each under its own name (domain/blades.py every_secret), the mapping
+    only renaming. Returns the variables set, with their values (for this Python only: the server never
+    keeps them)."""
+    getter, made = run_code(code, variable, secrets, label)
     if not callable(getter):
         raise BladeRunError(
             f"{label}'s variable {variable!r} must be a function that takes a secret's name and returns its "
             f"value; it is a {type(getter).__name__}."
         )
+    if every:
+        lister = made.get("names")
+        if not callable(lister):
+            raise BladeRunError(
+                f"{label} loads every secret, but its code has no names() to list them: add one, or "
+                "choose the secrets it loads."
+            )
+        try:
+            found = [str(n) for n in lister()]
+        except BaseException as error:
+            if isinstance(error, KeyboardInterrupt | SystemExit):
+                raise
+            raise _failure(error, secrets, f"{label}, listing its secrets") from None
+        mapping = blades.every_secret(found, mapping)
     values: dict[str, str] = {}
     for env, name in mapping.items():
         try:
