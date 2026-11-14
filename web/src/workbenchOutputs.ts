@@ -188,10 +188,10 @@ function withSandbox(drawn: HTMLElement, data: Record<string, unknown>): HTMLEle
   if (!card) return drawn;
   const send = button("Send to Sandbox", () => {
     void api("/cards", "POST", { ...card, title: `From ${currentDocument()}` }).then(
-      () => toast("Sent to the Sandbox (the grid page's Sandbox tab)."),
+      () => toast("Sent to the Sandbox"),
       (e: Error) => toast(e.message, "error"),
     );
-  }, { icon: "export", class: "ghost wb-to-sandbox", title: "Put this on the Sandbox, the grid page's dashboard" });
+  }, { icon: "export", class: "ghost wb-to-sandbox" });
   return h("figure", { class: "wb-figure" }, drawn, send);
 }
 
@@ -351,7 +351,7 @@ export function outputArea(dark: () => boolean, grew: () => void = () => undefin
       if (b.hidden) {
         b.note ??= h("div", { class: "hint wb-cut" });
         if (!b.note.isConnected) b.pre.before(b.note);
-        b.note.textContent = `${b.hidden.toLocaleString()} earlier lines are not shown (the newest ${MAX_LINES.toLocaleString()} are).`;
+        b.note.textContent = `${b.hidden.toLocaleString()} earlier lines hidden`;
       }
     }
     b.current = rest;
@@ -387,7 +387,7 @@ export function outputArea(dark: () => boolean, grew: () => void = () => undefin
       if (rich >= MAX_RICH) {
         notDrawn++;
         notDrawnNote ??= h("div", { class: "hint wb-cut" });
-        notDrawnNote.textContent = `${notDrawn.toLocaleString()} more outputs are not drawn (at most ${MAX_RICH} in one place).`;
+        notDrawnNote.textContent = `${notDrawn.toLocaleString()} more outputs hidden`;
         element.append(notDrawnNote);
         return;
       }
@@ -469,8 +469,8 @@ export function outputArea(dark: () => boolean, grew: () => void = () => undefin
     ask: (prompt, password, send) => {
       flush();
       block = null;
-      const field = h("input", { type: password ? "password" : "text", class: "mono wb-input-box", "aria-label": prompt.trim() || "The code asks for a line", autocomplete: "off", spellcheck: false }) as HTMLInputElement;
-      const row = h("div", { class: "wb-input-row" }, h("span", { class: "wb-input-prompt mono" }, prompt), field, h("span", { class: "hint" }, "Enter sends it"));
+      const field = h("input", { type: password ? "password" : "text", class: "mono wb-input-box", "aria-label": prompt.trim() || "Input", autocomplete: "off", spellcheck: false }) as HTMLInputElement;
+      const row = h("div", { class: "wb-input-row" }, h("span", { class: "wb-input-prompt mono" }, prompt), field);
       element.append(row);
       grew();
       setTimeout(() => field.focus(), 0);
@@ -491,7 +491,7 @@ export function outputArea(dark: () => boolean, grew: () => void = () => undefin
     finish: () => {
       flush();
       if (asking) {
-        asking.row.append(h("span", { class: "hint" }, " (not answered: the run ended)"));
+        asking.row.append(h("span", { class: "hint" }, " (not answered)"));
         asking.done();
       }
     },

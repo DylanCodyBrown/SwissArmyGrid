@@ -37,7 +37,7 @@ export async function newEnvironment(start: { folder: string; document: string |
     let made: MadeEnvironment | null = null;
     dialog.addEventListener("close", () => resolve(made));
 
-    const where = h("input", { type: "text", class: "mono", value: join(start.folder, ".venv"), "aria-label": "Where it goes", spellcheck: false });
+    const where = h("input", { type: "text", class: "mono", value: join(start.folder, ".venv"), "aria-label": "Folder", spellcheck: false });
     const python = h("select", { "aria-label": "Python version" }, h("option", { value: "" }, `This app's own (${start.appVersion})`), ...offer.versions.map((v) => h("option", { value: v }, `Python ${v}`)));
     const boxes = new Map<string, HTMLInputElement>();
     const groups = [...new Set(offer.libraries.map((l) => l.group))];
@@ -69,10 +69,10 @@ export async function newEnvironment(start: { folder: string; document: string |
         ),
       ),
     );
-    const others = h("input", { type: "text", "aria-label": "Other packages", placeholder: "other packages, spaces between: great-tables pandera", spellcheck: false });
+    const others = h("input", { type: "text", "aria-label": "Other packages", placeholder: "Package names", spellcheck: false });
     const addImports = h("input", { type: "checkbox", checked: true }) as HTMLInputElement;
     const log = h("pre", { class: "env-log", hidden: true, "aria-live": "polite" });
-    const status = h("p", { class: "hint", role: "status" }, `Always installed: ${offer.always.join(", ")} (runs the Workbench's code). Made with uv when this computer has it, else Python's venv and pip.`);
+    const status = h("p", { class: "hint", role: "status" }, `Always installed: ${offer.always.join(", ")}`);
 
     const make = async (): Promise<void> => {
       const packages = [...[...boxes.values()].filter((b) => b.checked).map((b) => b.value), ...others.value.split(/[\s,]+/).filter(Boolean)];
@@ -80,7 +80,7 @@ export async function newEnvironment(start: { folder: string; document: string |
       create.disabled = true;
       log.hidden = false;
       clear(log);
-      status.textContent = "Making the environment…";
+      status.textContent = "Making…";
       try {
         const response = await fetch("/workbench/environments", {
           method: "POST",
@@ -104,7 +104,7 @@ export async function newEnvironment(start: { folder: string; document: string |
             }
             if (event.done?.ok && event.done.python) {
               made = { python: event.done.python, imports: addImports.checked ? imports : [] };
-              status.textContent = `Ready: ${event.done.python}. The next Run uses it, and this document remembers it.`;
+              status.textContent = `Ready: ${event.done.python}`;
               clear(foot, button("Use it", close, { icon: "check", class: "primary" }));
               return;
             }
@@ -121,15 +121,14 @@ export async function newEnvironment(start: { folder: string; document: string |
 
     const create = button("Make it", () => void make(), { icon: "play", class: "primary" });
     body.append(
-      h("p", { class: "hint" }, "A Python of this document's own: its libraries never touch any other project's."),
-      h("label", { class: "field" }, h("span", {}, "Where it goes (a new folder)"), h("span", { class: "field-row" }, where, button("Browse…", async () => {
-        const folder = await chooseFile({ title: "Choose the folder it goes in", mode: "folder", start: start.folder });
+      h("label", { class: "field" }, h("span", {}, "Folder"), h("span", { class: "field-row" }, where, button("Browse…", async () => {
+        const folder = await chooseFile({ title: "Choose folder", mode: "folder", start: start.folder });
         if (folder) where.value = join(folder, ".venv");
       }, { icon: "folder" }))),
       h("label", { class: "field" }, h("span", {}, "Python"), python),
       h("div", { class: "field" }, h("span", {}, "Libraries"), presets, lists),
       h("label", { class: "field" }, h("span", {}, "Other packages"), others),
-      h("label", { class: "check" }, addImports, "Add their imports to the notebook (a first cell)"),
+      h("label", { class: "check" }, addImports, "Add imports to the notebook"),
       status,
       log,
     );

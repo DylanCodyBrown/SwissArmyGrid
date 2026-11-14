@@ -39,7 +39,7 @@ export const loadEditors = (): Promise<typeof import("./lazy/codeEditor")> =>
 export function consoleView(
   kernel: Kernel,
   theme: () => string,
-  options: { complete: Completer; help: Helper; f5?: () => void; hint?: string; errors?: (origin?: RunOrigin) => ErrorHooks },
+  options: { complete: Completer; help: Helper; f5?: () => void; errors?: (origin?: RunOrigin) => ErrorHooks },
 ): ConsoleView {
   const log = h("div", { class: "wb-console-log", role: "log", "aria-label": "Console output" });
   const promptHost = h("div", { class: "wb-console-editor" });
@@ -121,7 +121,7 @@ export function consoleView(
       value: "",
       theme: theme(),
       grow: true,
-      placeholder: "Python here: Enter runs it, Shift+Enter adds a line, Up goes back",
+      placeholder: "Python",
       keys: {
         enter: () => void enter(),
         shiftEnter: () => prompt?.insertNewline(),
@@ -148,9 +148,8 @@ export function consoleView(
       "div",
       { class: "wb-console-head" },
       h("strong", {}, "Console"),
-      h("span", { class: "hint" }, options.hint ?? ""),
       h("span", { class: "spacer" }),
-      button("Clear", clear, { icon: "trash", class: "ghost", title: "Empty the console (the variables stay)" }),
+      button("Clear", clear, { icon: "trash", class: "ghost" }),
     ),
     log,
     h("div", { class: "wb-console-prompt" }, h("span", { class: "wb-console-chevron mono", "aria-hidden": "true" }, ">>>"), promptHost),

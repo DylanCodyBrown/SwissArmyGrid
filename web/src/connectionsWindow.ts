@@ -80,14 +80,14 @@ const stem = (path: string): string => (path.split(/[\\/]/).filter(Boolean).pop(
 
 /** The Application row's button. */
 export function connectionsButton(): HTMLButtonElement {
-  return button("Connections", () => void openConnections(), { icon: "link", class: "ribbon-btn", title: "Your databases and files: add one with a form, test it, use it from Python and SQL cells" });
+  return button("Connections", () => void openConnections(), { icon: "link", class: "ribbon-btn" });
 }
 
 export async function openConnections(): Promise<void> {
   const { body, foot, close } = openDialog("Connections", true);
   const showList = async (): Promise<void> => {
     clear(foot);
-    clear(body, h("p", { class: "hint" }, "Reading your connections…"));
+    clear(body, h("p", { class: "hint" }, "Loading…"));
     let found: Connection[];
     try {
       found = (await api<{ connections: Connection[] }>("/connections")).connections;
@@ -114,8 +114,8 @@ export async function openConnections(): Promise<void> {
           { class: "connection-actions" },
           readOnly ? null : button("Edit", () => void showForm({ edit: c.name }), { icon: "edit" }),
           button("Test", () => void testSaved(c.name), { icon: "play" }),
-          c.has_catalog ? button("Refresh catalog", () => void refresh(c.name), { icon: "import", title: "Read the source's tables and columns into the catalog (for search, completion and Script as)" }) : null,
-          button("Copy for Python", () => void navigator.clipboard.writeText(`conn = sag.connection("${c.name}")`).then(() => toast("Copied: paste it into your notebook or script.")), { icon: "copy", iconOnly: true }),
+          c.has_catalog ? button("Refresh catalog", () => void refresh(c.name), { icon: "import" }) : null,
+          button("Copy for Python", () => void navigator.clipboard.writeText(`conn = sag.connection("${c.name}")`).then(() => toast("Copied")), { icon: "copy", iconOnly: true }),
           readOnly
             ? null
             : button("Remove", () => {
@@ -129,7 +129,6 @@ export async function openConnections(): Promise<void> {
     const files = found.filter((c) => c.connection === "file");
     clear(
       body,
-      h("p", { class: "hint" }, "Databases and files you reach from your notebooks and scripts (sag.connection, or a %%sql cell), the Workbench and the catalog. Passwords stay in your system keyring."),
       found.length
         ? h(
             "div",
@@ -139,7 +138,7 @@ export async function openConnections(): Promise<void> {
             files.length ? h("h3", {}, "Files") : null,
             files.length ? h("ul", { class: "connection-list" }, ...files.map(row)) : null,
           )
-        : h("p", { class: "empty-note" }, "No connections yet: add your first one."),
+        : h("p", { class: "empty-note" }, "No connections"),
     );
     foot.append(button("Add connection", () => void showTypes(), { icon: "plus", class: "primary" }), button("Close", close));
   };
@@ -155,10 +154,10 @@ export async function openConnections(): Promise<void> {
   };
 
   const refresh = async (name: string): Promise<void> => {
-    toast(`Reading ${name}'s tables…`);
+    toast(`Refreshing ${name}…`);
     try {
       const r = await api<{ catalog: { tables: number; columns: number } }>(`/blades/${encodeURIComponent(name)}/refresh`, "POST");
-      toast(`${name}: ${r.catalog.tables} tables, ${r.catalog.columns} columns in the catalog.`);
+      toast(`${name}: ${r.catalog.tables} tables, ${r.catalog.columns} columns`);
       void showList();
     } catch (e) {
       toast((e as Error).message, "error");
@@ -168,7 +167,7 @@ export async function openConnections(): Promise<void> {
   // ===== ADD: the types =====
   const showTypes = async (): Promise<void> => {
     clear(foot);
-    clear(body, h("p", { class: "hint" }, "Reading the types…"));
+    clear(body, h("p", { class: "hint" }, "Loading…"));
     let types: Form[];
     try {
       types = (await api<{ types: Form[] }>("/connections/types")).types;
@@ -176,7 +175,7 @@ export async function openConnections(): Promise<void> {
       clear(body, h("p", { class: "status-error" }, (e as Error).message));
       return;
     }
-    const tile = (t: Form): HTMLElement => button(plain(t.label), () => void showForm({ type: t }), { class: "connection-type", icon: t.connection === "database" ? "sql" : "folder", title: t.note || plain(t.label) });
+    const tile = (t: Form): HTMLElement => button(plain(t.label), () => void showForm({ type: t }), { class: "connection-type", icon: t.connection === "database" ? "sql" : "folder" });
     clear(
       body,
       h("h3", {}, "Databases"),
@@ -203,10 +202,10 @@ export async function openConnections(): Promise<void> {
     let code = form.code;
     let fields = form.fields;
     // A database is named after its type until renamed; a file connection after the file chosen.
-    const name = h("input", { type: "text", value: form.name ?? (form.connection === "database" ? plain(form.label) : ""), "aria-label": "Name", maxlength: 64, placeholder: form.connection === "file" ? "Named after the file you choose" : "" });
+    const name = h("input", { type: "text", value: form.name ?? (form.connection === "database" ? plain(form.label) : ""), "aria-label": "Name", maxlength: 64 });
     let named = Boolean(form.name);
     name.addEventListener("input", () => (named = true));
-    const description = h("input", { type: "text", value: form.description ?? "", "aria-label": "Description", placeholder: "What it is for (optional)" });
+    const description = h("input", { type: "text", value: form.description ?? "", "aria-label": "Description", placeholder: "Optional" });
     const fieldsHost = h("div", { class: "connection-fields" });
     const passwords = new Map<string, HTMLInputElement>();
     const codeBox = h("textarea", { class: "mono connection-code", rows: 8, spellcheck: false, "aria-label": "The Python this connection runs" }, code) as HTMLTextAreaElement;
@@ -233,7 +232,7 @@ export async function openConnections(): Promise<void> {
         input.addEventListener("change", () => void fill(fields[i]!, input.value));
         const browse = field.picker
           ? button("Browse…", () => {
-              void chooseFile({ title: field.picker === "folder" ? "Choose the folder" : "Choose the file", mode: field.picker!, suffixes: FILE_KINDS[form.id], start: field.placeholder ? undefined : String(field.value) }).then((path) => {
+              void chooseFile({ title: field.picker === "folder" ? "Choose folder" : "Choose file", mode: field.picker!, suffixes: FILE_KINDS[form.id], start: field.placeholder ? undefined : String(field.value) }).then((path) => {
                 if (!path) return;
                 input.value = path;
                 if (!named) name.value = stem(path);
@@ -267,7 +266,7 @@ export async function openConnections(): Promise<void> {
         labels.set(answer.secret, labels.get(secret) ?? secret);
         if (body.from === "vault") vaults = (await api<{ vaults: typeof vaults }>("/connections/vaults")).vaults;
         passwordsSlot.replaceChildren(drawPasswords() ?? "");
-        result.replaceChildren(h("p", { class: "hint" }, `${label(answer.secret)} comes from ${answer.secret}${body.vault ? ` in ${String(body.vault)}` : ", an environment variable"}.`));
+        result.replaceChildren(h("p", { class: "hint" }, `${label(answer.secret)}: ${answer.secret}${body.vault ? ` in ${String(body.vault)}` : ""}`));
       } catch (e) {
         result.replaceChildren(h("p", { class: "status-error" }, (e as Error).message));
       }
@@ -287,7 +286,7 @@ export async function openConnections(): Promise<void> {
           const slot = h("span", { class: "field-row" });
           const draw = (): void => {
             if (from.value === "keyring") {
-              const input = h("input", { type: "password", autocomplete: "new-password", "aria-label": label(s), placeholder: saved[s] ? "saved: leave blank to keep it" : "typed once, kept in the keyring" });
+              const input = h("input", { type: "password", autocomplete: "new-password", "aria-label": label(s), placeholder: saved[s] ? "Saved" : "" });
               passwords.set(s, input);
               slot.replaceChildren(input);
             } else if (from.value === "env") {
@@ -297,12 +296,12 @@ export async function openConnections(): Promise<void> {
             } else {
               passwords.delete(s);
               if (!vaults.length) {
-                slot.replaceChildren(h("span", { class: "hint" }, "No vault blades yet: add one on the blades page (Azure Key Vault, AWS, HashiCorp, 1Password, a .env file...)."));
+                slot.replaceChildren(h("span", { class: "hint" }, "No vaults"));
                 return;
               }
               const vault = h("select", { "aria-label": "Vault" }, ...vaults.map((v) => h("option", { value: v.name, selected: v === inVault }, v.name)));
               const entry = h("select", { "aria-label": "Entry in the vault" });
-              const newName = h("input", { type: "text", "aria-label": "The secret's name in the vault", placeholder: "the secret's name in the vault", spellcheck: false });
+              const newName = h("input", { type: "text", "aria-label": "The secret's name in the vault", placeholder: "Secret name", spellcheck: false });
               const fillEntries = (): void => {
                 const chosen = vaults.find((v) => v.name === vault.value);
                 clear(entry, ...(chosen?.entries ?? []).map((e) => h("option", { value: e.env, selected: e.env === s }, `${e.secret} (as ${e.env})`)), chosen?.read_only ? null : h("option", { value: "" }, "A new entry…"));
@@ -318,7 +317,6 @@ export async function openConnections(): Promise<void> {
           draw();
           return h("div", { class: "field connection-password" }, h("span", {}, label(s)), h("span", { class: "field-row" }, from, slot));
         }),
-        h("p", { class: "hint" }, "Saved on this computer: your system keyring (Windows Credential Manager, the macOS Keychain), never the connection's file. A variable or a vault is read when the connection runs (Test and Refresh run in this app's Python, so set the variable where the app runs too)."),
       );
     };
     void vaultsRead.then(() => passwordsSlot.replaceChildren(drawPasswords() ?? ""));
@@ -377,15 +375,15 @@ export async function openConnections(): Promise<void> {
     const passwordsSlot = h("div", {}, drawPasswords() ?? "");
     clear(
       body,
-      h("h3", {}, editing ? `Change ${editing}` : `New ${plain(form.label)} connection`),
+      h("h3", {}, editing ? `Edit ${editing}` : `New ${plain(form.label)} connection`),
       form.note ? h("p", { class: "hint" }, form.note) : null,
       h("label", { class: "field" }, h("span", {}, "Name"), name),
       h("label", { class: "field" }, h("span", {}, "Description"), description),
       fieldsHost,
       passwordsSlot,
-      form.install_here ? h("p", { class: "hint" }, "Its driver is not installed where Test runs: ", h("code", {}, form.install_here)) : null,
+      form.install_here ? h("p", { class: "hint" }, "Driver not installed: ", h("code", {}, form.install_here)) : null,
       result,
-      h("details", { class: "connection-code-box" }, h("summary", {}, "The Python this makes (edit it for the unusual case)"), codeBox),
+      h("details", { class: "connection-code-box" }, h("summary", {}, "Python code"), codeBox),
     );
     foot.append(
       button("Back", () => void (editing ? showList() : showTypes()), { icon: "back" }),

@@ -118,7 +118,7 @@ export function errorPanel(detail: ErrorDetail, traceback: HTMLElement | null, a
   );
   const send = (withQuestion: boolean): void =>
     sendToAgent({ kind: "error", title: `An error in ${currentDocument()}${detail.where ? ` (${detail.where})` : ""}`, text: errorText(detail, traceback?.textContent ?? "") }, withQuestion);
-  head.append(button("Send to the agent", () => send(false), { icon: "agent", class: "ghost wb-err-send", title: "Send this error to your agent (right-click for more)" }));
+  head.append(button("Send to the agent", () => send(false), { icon: "agent", class: "ghost wb-err-send" }));
   const parts: (HTMLElement | null)[] = [head];
   if (entry.hint) parts.push(h("div", { class: "wb-err-hint" }, entry.hint));
   if (detail.where) {
@@ -152,20 +152,20 @@ export function errorPanel(detail: ErrorDetail, traceback: HTMLElement | null, a
         "details",
         { class: "wb-err-section" },
         h("summary", {}, earlier.length === 1 ? "The error that led to it" : `The ${earlier.length} errors that led to it`),
-        ...earlier.map((e) => h("div", { class: "wb-err-chained" }, h("strong", {}, `${e.type}: `), e.message, h("div", { class: "hint" }, e.relation === "cause" ? "…was the direct cause of the next one" : "…and while handling it, the next one happened"), e.explanation ? h("p", {}, e.explanation) : null)),
+        ...earlier.map((e) => h("div", { class: "wb-err-chained" }, h("strong", {}, `${e.type}: `), e.message, h("div", { class: "hint" }, e.relation === "cause" ? "Caused the next one" : "The next one happened while handling it"), e.explanation ? h("p", {}, e.explanation) : null)),
       ),
     );
   }
   if (traceback) {
     const copy = button("Copy the traceback", () => void navigator.clipboard?.writeText(traceback.textContent ?? "").catch(() => undefined), { icon: "copy", iconOnly: true, class: "ghost" });
-    parts.push(h("details", { class: "wb-err-section" }, h("summary", {}, "Python's traceback ", copy), traceback));
+    parts.push(h("details", { class: "wb-err-section" }, h("summary", {}, "Traceback ", copy), traceback));
   }
-  const panel = h("div", { class: "wb-err", role: "group", "aria-label": `${entry.type}: the error and what to do` }, ...parts);
+  const panel = h("div", { class: "wb-err", role: "group", "aria-label": entry.type }, ...parts);
   panel.addEventListener("contextmenu", (e) =>
     contextMenu(e, [
       { label: "Send this error to the agent", run: () => send(false) },
       { label: "Send it with a question…", run: () => send(true) },
-      { label: "Copy the error", run: () => void navigator.clipboard?.writeText(errorText(detail, traceback?.textContent ?? "")).then(() => toast("Copied."), () => undefined) },
+      { label: "Copy the error", run: () => void navigator.clipboard?.writeText(errorText(detail, traceback?.textContent ?? "")).then(() => toast("Copied"), () => undefined) },
     ]),
   );
   return panel;
@@ -190,7 +190,7 @@ function callStack(frames: Frame[], current: Frame | null, actions: ErrorActions
     list.append(h("li", {}, go, f.code ? h("div", { class: "mono wb-err-code" }, f.code.trim()) : null));
     i++;
   }
-  return h("details", { class: "wb-err-section", open: frames.length <= 6 }, h("summary", {}, "Call stack (most recent last)"), list);
+  return h("details", { class: "wb-err-section", open: frames.length <= 6 }, h("summary", {}, "Call stack"), list);
 }
 
 /** Squiggles for an editor: the failing place (an error) and the call sites that led to it (notes).
@@ -227,7 +227,7 @@ export function problemsFor(detail: ErrorDetail, place: (frame: Frame) => { line
       endLine,
       endCol: f.end_col ? f.end_col + at.colShift : null,
       message: isError ? message : `Called here, on the way to ${message}`,
-      hover: isError ? hover : `Called here: the error happened further in (${frameLabel(yours ?? f)}).`,
+      hover: isError ? hover : `Called here; the error is in ${frameLabel(yours ?? f)}`,
       severity: isError ? "error" : "info",
       fixes: isError ? fixes : [],
     });

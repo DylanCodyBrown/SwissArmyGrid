@@ -92,7 +92,7 @@ export function scriptView(
 
   const runFile = async (): Promise<void> => {
     const code = editor ? editor.value() : text;
-    if (!code.trim()) return console.note("The script is empty: nothing to run.");
+    if (!code.trim()) return console.note("Empty script");
     if (!(await file.saveFirst())) return;
     const path = file.path();
     const name = path ? (path.split(/[\\/]/).pop() ?? path) : null;
@@ -135,7 +135,7 @@ export function scriptView(
     const found = await statementAt(line);
     const last = editor.lineCount();
     const code = to ? editor.lines(1, found.end ?? line) : editor.lines(found.start ?? line, last);
-    if (!code.trim()) return console.note(to ? "Nothing above the cursor to run." : "Nothing from the cursor on to run.");
+    if (!code.trim()) return console.note("Nothing to run");
     await console.run({ code }, to ? `# lines 1 to ${found.end ?? line}` : `# lines ${found.start ?? line} to ${last}`, { kind: "lines", start: to ? 1 : (found.start ?? line), indent: 0 });
   };
 
@@ -187,7 +187,7 @@ export function scriptView(
           else editor.focus(); // back in the code, ready to run it again
           return;
         }
-        if (!hooks.fix?.(fix)) console.note(fix.kind === "define" ? `Nothing in this window makes ${fix.name}: write it above, or check the name.` : "That fix is not available here.");
+        if (!hooks.fix?.(fix)) console.note(fix.kind === "define" ? `Nothing defines ${fix.name}` : "Fix not available here");
       },
       goTo: (frame) => {
         const at = shown ? placeIn(origin, shown)(frame) : null;

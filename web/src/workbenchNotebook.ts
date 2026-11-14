@@ -256,17 +256,17 @@ export function notebookView(
           first.editor?.applyFix(fix, 1);
           select(first);
           first.editor?.focus();
-          toast(`Added to the top of cell ${indexOf(first) + 1}: run it again.`);
+          toast(`Added to cell ${indexOf(first) + 1}`);
           return;
         }
         if (fix.kind === "define" && fix.name) {
           const maker = definingCell(fix.name, running);
           if (maker) {
-            void run(maker).then((ok) => ok && toast(`Ran cell ${indexOf(maker) + 1}, which makes ${fix.name}. Run this cell again.`));
-          } else toast(`No cell above makes ${fix.name}: write it, or check the name.`, "error");
+            void run(maker).then((ok) => ok && toast(`Ran cell ${indexOf(maker) + 1}`));
+          } else toast(`No cell above defines ${fix.name}`, "error");
           return;
         }
-        if (!hooks.fix?.(fix)) toast("That fix is not available here.", "error");
+        if (!hooks.fix?.(fix)) toast("Fix not available here", "error");
       },
       goTo: (frame) => {
         const target = shown ? cellOf(frame, shown, running) : null;
@@ -311,19 +311,19 @@ export function notebookView(
     const view = h("div", { class: "wb-markdown-view" });
     const count = h("span", { class: "wb-count" }, data.execution_count ? `[${data.execution_count}]` : "[ ]");
     const kindPicker = h("select", { "aria-label": "Cell kind" }, ...(["code", "sql", "markdown"] as CellKind[]).map((k) => h("option", { value: k, selected: k === data.kind }, KIND_NAMES[k]))) as HTMLSelectElement;
-    const connectionPicker = h("select", { "aria-label": "Connection", class: "wb-connection", title: "The connection this SQL runs on" }) as HTMLSelectElement;
+    const connectionPicker = h("select", { "aria-label": "Connection", class: "wb-connection", title: "Connection" }) as HTMLSelectElement;
     const fillConnections = (): void => {
       const names = connections();
       const current = cell.connection;
       clear(
         connectionPicker,
-        h("option", { value: "" }, "(the %sql_connect one)"),
+        h("option", { value: "" }, "(%sql_connect)"),
         ...names.map((n) => h("option", { value: n, selected: n === current }, n)),
-        ...(current && !names.includes(current) ? [h("option", { value: current, selected: true }, `${current} (not saved here)`)] : []),
+        ...(current && !names.includes(current) ? [h("option", { value: current, selected: true }, `${current} (not found)`)] : []),
       );
     };
-    const more = button("More actions", () => cellMenu(cell, more), { icon: "more", iconOnly: true, class: "ghost", title: "Run above or below, insert, duplicate, clear or hide the output" });
-    const hiddenNote = h("button", { type: "button", class: "link wb-output-hidden", onclick: () => toggleOutput(cell) }, "Output hidden: show it");
+    const more = button("More actions", () => cellMenu(cell, more), { icon: "more", iconOnly: true, class: "ghost" });
+    const hiddenNote = h("button", { type: "button", class: "link wb-output-hidden", onclick: () => toggleOutput(cell) }, "Show output");
     const element = h(
       "section",
       { class: `wb-cell kind-${data.kind}`, tabindex: -1, role: "listitem" },
@@ -334,7 +334,7 @@ export function notebookView(
         kindPicker,
         connectionPicker,
         h("span", { class: "spacer" }),
-        button("Run cell", () => void run(cell), { icon: "play", iconOnly: true, class: "ghost", title: "Run (Ctrl+Enter; Shift+Enter runs and moves on)" }),
+        button("Run cell", () => void run(cell), { icon: "play", iconOnly: true, class: "ghost", title: "Run cell (Ctrl+Enter)" }),
         button("Move up", () => moveCell(cell, -1), { icon: "up", iconOnly: true, class: "ghost" }),
         button("Move down", () => moveCell(cell, 1), { icon: "down", iconOnly: true, class: "ghost" }),
         more,
@@ -366,7 +366,7 @@ export function notebookView(
         value: cell.source,
         theme: theme(),
         grow: true,
-        placeholder: cell.kind === "sql" ? "SELECT ... (on the connection chosen above)" : undefined,
+        placeholder: cell.kind === "sql" ? "SQL" : undefined,
         // By the cell's kind as it is now: Python from the kernel, SQL from the connection's catalog.
         complete: (text, offset) => (cell.kind === "sql" ? sql(text, offset) : cell.kind === "code" ? python(text, offset) : Promise.resolve([])),
         help: (text, offset) => (cell.kind === "code" ? kernel.help(text, offset) : Promise.resolve("")),

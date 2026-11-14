@@ -36,7 +36,7 @@ export function currentDocument(): string {
 async function post(item: AgentItem, note: string): Promise<void> {
   try {
     await api("/agent/inbox", "POST", { ...item, note });
-    toast("Sent to your agent: it sees it with your next message (or with its agent_inbox tool).");
+    toast("Sent to the agent");
   } catch (e) {
     toast((e as Error).message, "error");
   }
@@ -46,7 +46,7 @@ async function post(item: AgentItem, note: string): Promise<void> {
 export function sendToAgent(item: AgentItem, withQuestion = false): void {
   if (!withQuestion) return void post(item, "");
   const { body, foot, close } = openDialog("Send to the agent");
-  const note = h("textarea", { rows: 4, class: "wb-agent-note", placeholder: "What should it do? (Why does this fail? Make it faster…)", "aria-label": "Your question" }) as HTMLTextAreaElement;
+  const note = h("textarea", { rows: 4, class: "wb-agent-note", placeholder: "Question", "aria-label": "Your question" }) as HTMLTextAreaElement;
   body.append(h("p", { class: "hint" }, item.title), h("pre", { class: "wb-agent-preview mono" }, item.text.slice(0, 1200) + (item.text.length > 1200 ? "\n…" : "")), note);
   foot.append(
     button("Cancel", close, { class: "ghost" }),

@@ -87,7 +87,7 @@ export class Kernel {
       });
       if (response.status === 404) {
         this.id = null; // the server restarted or the kernel was stopped: start a new one next time
-        throw new ApiError(404, "The kernel was gone; run again to start a new one.");
+        throw new ApiError(404, "The kernel was gone: run again.");
       }
       if (!response.ok || !response.body) throw new ApiError(response.status, await response.text());
       const reader = response.body.getReader();
@@ -192,9 +192,9 @@ export async function runInto(kernel: Kernel, body: RunBody, area: OutputArea): 
       else area.add(item);
     });
     area.finish();
-    if (done.dead) area.notice("The kernel stopped: it may have run out of memory, or the code ended its own process (os._exit). Every variable is gone; the next Run starts a new kernel.", "error");
-    else if (done.restarted) area.notice("Restart ended this run: every variable is gone.");
-    else if (done.cancelled) area.notice("Not run: Interrupt cancelled it while it waited its turn.");
+    if (done.dead) area.notice("The kernel stopped: every variable is gone.", "error");
+    else if (done.restarted) area.notice("Ended by Restart");
+    else if (done.cancelled) area.notice("Cancelled");
     return done;
   } catch (e) {
     area.finish();

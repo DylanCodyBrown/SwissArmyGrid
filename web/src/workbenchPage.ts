@@ -140,11 +140,10 @@ function makeDoc(kind: Doc["kind"], title: string, path: string | null, modified
       // A script's runs mark its lines; a line typed in the console has only the panel's own fixes.
       errors: (origin) =>
         doc.script?.errorHooks(origin) ?? {
-          fix: (fix) => void (pageFix(doc)(fix) || doc.console?.note("Type the line again with the change.")),
+          fix: (fix) => void (pageFix(doc)(fix) || doc.console?.note("Not applied here.")),
           goTo: () => false,
           openGrid: (name) => void openGrid(doc, name),
         },
-      hint: kind === "script" ? "F5 runs the file; Ctrl+Enter the statement at the cursor" : "A scratch prompt on this notebook's kernel",
     });
   }
   docs.push(doc);
@@ -155,7 +154,7 @@ function makeDoc(kind: Doc["kind"], title: string, path: string | null, modified
 const pageFix = (doc: Doc) => (fix: Fix): boolean => {
   if (fix.kind === "install" && fix.package && doc.console) {
     if (!/^[A-Za-z0-9._\-[\],=<>!~ ]+$/.test(fix.package)) return false;
-    void doc.console.run({ code: `%pip install ${fix.package}` }, `%pip install ${fix.package}`).then(() => doc.console?.note(`When it says it is installed, run the code again (a restart is needed only if ${fix.package} was imported before).`));
+    void doc.console.run({ code: `%pip install ${fix.package}` }, `%pip install ${fix.package}`).then(() => doc.console?.note(`Restart if ${fix.package} was already imported.`));
     return true;
   }
   return false;
@@ -196,7 +195,7 @@ function focusConsole(): void {
 
 async function showHelp(): Promise<void> {
   const text = (await (current?.script?.helpAtCursor() ?? current?.notebook?.helpAtCursor())) ?? "";
-  layout.help("Help on the name at the cursor", text);
+  layout.help("Help", text);
 }
 
 const markChanged = (doc: Doc) => (): void => {
@@ -233,7 +232,7 @@ function show(doc: Doc): void {
   current = doc;
   variables.show(doc.kernel);
   docHost.replaceChildren(doc.element);
-  layout.console.replaceChildren(doc.console?.element ?? h("p", { class: "hint wb-pane-empty" }, "A notebook or script has its console here."));
+  layout.console.replaceChildren(doc.console?.element ?? h("p", { class: "hint wb-pane-empty" }, "No console"));
   cursor = { line: 1, column: 1 };
   drawTabs();
   drawToolbar();
@@ -272,7 +271,7 @@ function drawTabs(): void {
 // ===== files =====
 
 async function open(path?: string): Promise<void> {
-  const chosen = path ?? (await chooseFile({ title: "Open a notebook or script", mode: "file", suffixes: [".ipynb", ".py"], start: current?.path ?? homeFolder }));
+  const chosen = path ?? (await chooseFile({ title: "Open", mode: "file", suffixes: [".ipynb", ".py"], start: current?.path ?? homeFolder }));
   if (!chosen) return;
   const already = docs.find((d) => d.path === chosen);
   if (already) return show(already);
@@ -298,7 +297,7 @@ async function save(doc: Doc | null, as = false): Promise<boolean> {
   let path = doc.path;
   if (!path || as) {
     const suggested = doc.path ? baseName(doc.path) : doc.kind === "notebook" ? "analysis.ipynb" : "script.py";
-    path = await chooseFile({ title: doc.kind === "notebook" ? "Save the notebook" : "Save the script", mode: "save", start: doc.path ?? homeFolder, name: suggested });
+    path = await chooseFile({ title: doc.kind === "notebook" ? "Save notebook" : "Save script", mode: "save", start: doc.path ?? homeFolder, name: suggested });
     if (!path) return false;
     const ending = doc.kind === "notebook" ? ".ipynb" : ".py";
     if (!path.toLowerCase().endsWith(ending)) path += ending;
@@ -313,7 +312,7 @@ async function save(doc: Doc | null, as = false): Promise<boolean> {
     doc.title = baseName(saved.path);
     doc.dirty = false;
     drawTabs();
-    toast(`Saved ${saved.path}.`);
+    toast("Saved");
     remember();
     void refreshHome();
   };
@@ -350,8 +349,8 @@ function recentMenu(anchor: HTMLElement): void {
     "div",
     { class: "menu", role: "menu", "aria-label": "Recent files" },
     ...(recent.length
-      ? recent.map((r) => h("button", { type: "button", role: "menuitem", disabled: !r.exists, title: r.exists ? r.path : `${r.path} (not there any more)`, onclick: () => { menu.remove(); void open(r.path); } }, baseName(r.path), h("span", { class: "hint" }, `  ${r.path}`)))
-      : [h("div", { class: "menu-label" }, "Nothing opened yet.")]),
+      ? recent.map((r) => h("button", { type: "button", role: "menuitem", disabled: !r.exists, title: r.exists ? r.path : `${r.path} (missing)`, onclick: () => { menu.remove(); void open(r.path); } }, baseName(r.path), h("span", { class: "hint" }, `  ${r.path}`)))
+      : [h("div", { class: "menu-label" }, "No recent files")]),
   );
   document.body.append(menu);
   menu.style.top = `${box.bottom + 4}px`;
@@ -363,7 +362,7 @@ function recentMenu(anchor: HTMLElement): void {
 
 // ===== toolbar =====
 
-const STATE_WORDS: Record<string, string> = { off: "not started (starts on the first Run)", starting: "starting…", idle: "ready", busy: "running…" };
+const STATE_WORDS: Record<string, string> = { off: "not started", starting: "starting…", idle: "ready", busy: "running…" };
 
 function folderOf(path: string | null): string {
   if (!path) return homeFolder;
@@ -377,14 +376,14 @@ function useEnvironment(doc: Doc, python: string): void {
   if (!pythons.some((p) => p.python === python)) pythons.push({ python, version: "", ipykernel: true, swissarmygrid: true });
   if (doc.kernel?.id) {
     doc.kernel.stop();
-    toast("The kernel stopped: the next Run starts in the chosen Python.");
+    toast("Kernel stopped");
   }
   if (doc.path) void api("/workbench/environment", "POST", { path: doc.path, python }).catch((e: Error) => toast(e.message, "error"));
   drawToolbar();
 }
 
 function pythonPicker(doc: Doc): HTMLElement {
-  const select = h("select", { "aria-label": "Environment", title: "The Python this document's code runs in (remembered for it)" }) as HTMLSelectElement;
+  const select = h("select", { "aria-label": "Environment", title: "Environment" }) as HTMLSelectElement;
   const own = pythons[0];
   const label = (p: PythonChoice): string => {
     // An environment by its last two folders (project/.venv), the whole path in the option's title.
@@ -405,7 +404,7 @@ function pythonPicker(doc: Doc): HTMLElement {
       return;
     }
     if (select.value === "__other") {
-      const path = await chooseFile({ title: "Choose a Python (python.exe in a project's .venv\\Scripts, or bin/python)", mode: "file", start: folderOf(doc.path) });
+      const path = await chooseFile({ title: "Choose a Python", mode: "file", start: folderOf(doc.path) });
       if (path) useEnvironment(doc, path);
       drawToolbar();
       return;
@@ -421,18 +420,18 @@ function drawToolbar(): void {
     button("Side bar", () => {
       layout.toggle("rail");
       drawToolbar();
-    }, { icon: "panel", iconOnly: true, pressed: layout.state().rail, title: "Show or hide the side bar: connections, blades, the data explorer (Ctrl+B)" }),
+    }, { icon: "panel", iconOnly: true, pressed: layout.state().rail, title: "Side bar (Ctrl+B)" }),
     button("New notebook", () => openNotebook(null, [], null), { icon: "plus" }),
     button("New script", () => openScript(null, "", null), { icon: "code" }),
-    button("Open…", () => void open(), { icon: "folder", title: "Open a notebook or script (Ctrl+O)" }),
+    button("Open…", () => void open(), { icon: "folder", title: "Open (Ctrl+O)" }),
     button("Recent", (e) => recentMenu(e.currentTarget as HTMLElement), { icon: "more" }),
-    button("Save", () => void save(current), { icon: "save", title: "Save (Ctrl+S; Save as is Ctrl+Shift+S)" }),
+    button("Save", () => void save(current), { icon: "save", title: "Save (Ctrl+S)" }),
   ];
-  const palette = button("Commands", () => openPalette(), { icon: "steps", title: "Every command, with its keys (Ctrl+Shift+P)" });
+  const palette = button("Commands", () => openPalette(), { icon: "steps", title: "Commands (Ctrl+Shift+P)" });
   const right = button("Variables", () => {
     if (layout.toggle("right")) void variables.refresh();
     drawToolbar();
-  }, { icon: "columns", pressed: layout.state().right, title: "The Variables pane on the right" });
+  }, { icon: "columns", pressed: layout.state().right });
   if (!doc || (doc.kind !== "notebook" && doc.kind !== "script")) {
     clear(toolbar, h("div", { class: "ribbon-tools" }, ...file), h("div", { class: "ribbon-tools" }, right, palette));
     return;
@@ -441,14 +440,14 @@ function drawToolbar(): void {
   const run =
     doc.kind === "notebook"
       ? [
-          button("Python", () => doc.notebook!.add("code"), { icon: "plus", title: "Add a Python cell (B in command mode)" }),
-          button("SQL", () => doc.notebook!.add("sql"), { icon: "sql", title: "Add a SQL cell, on a connection" }),
-          button("Markdown", () => doc.notebook!.add("markdown"), { icon: "edit", title: "Add a Markdown cell" }),
-          button("Run all", () => void doc.notebook!.runAll(), { icon: "play", class: "primary", title: "Run every cell, stopping at an error (F5)" }),
+          button("Python", () => doc.notebook!.add("code"), { icon: "plus", title: "Add Python cell (B)" }),
+          button("SQL", () => doc.notebook!.add("sql"), { icon: "sql", title: "Add SQL cell" }),
+          button("Markdown", () => doc.notebook!.add("markdown"), { icon: "edit", title: "Add Markdown cell" }),
+          button("Run all", () => void doc.notebook!.runAll(), { icon: "play", class: "primary", title: "Run all (F5)" }),
         ]
       : [
-          button("Run file", () => void doc.script!.runFile(), { icon: "play", class: "primary", title: "Run the file as Python would (F5)" }),
-          button("Run statement", () => void doc.script!.runSelection(), { icon: "play", title: "The whole statement at the cursor, then the next (Ctrl+Enter); or the selection" }),
+          button("Run file", () => void doc.script!.runFile(), { icon: "play", class: "primary", title: "Run file (F5)" }),
+          button("Run statement", () => void doc.script!.runSelection(), { icon: "play", title: "Run statement (Ctrl+Enter)" }),
         ];
   clear(
     toolbar,
@@ -457,8 +456,8 @@ function drawToolbar(): void {
       "div",
       { class: "ribbon-tools" },
       ...run,
-      button("Interrupt", () => void kernel.interrupt(), { icon: "stop", title: "Stop the running code, and the runs waiting behind it" }),
-      button("Restart", () => void restartKernel(kernel), { icon: "back", title: "A fresh Python: every variable is gone" }),
+      button("Interrupt", () => void kernel.interrupt(), { icon: "stop" }),
+      button("Restart", () => void restartKernel(kernel), { icon: "back" }),
       pythonPicker(doc),
       right,
       palette,
@@ -468,7 +467,7 @@ function drawToolbar(): void {
 
 async function restartKernel(kernel: Kernel): Promise<boolean> {
   const did = await kernel.restart();
-  toast(did ? "Restarted: every variable is gone." : "Nothing to restart: the kernel starts on the first Run.");
+  toast(did ? "Restarted" : "Nothing to restart");
   return did;
 }
 
@@ -481,13 +480,11 @@ function drawStatus(): void {
   clear(
     layout.status,
     kernel
-      ? h("span", { class: `wb-state ${kernel.state}` }, h("span", { class: "wb-dot", "aria-hidden": "true" }), `Kernel: ${STATE_WORDS[kernel.state]}`, kernel.running > 1 ? ` (${kernel.running - 1} more waiting)` : "")
-      : h("span", { class: "hint" }, doc ? "No kernel: nothing here runs code" : "Nothing open"),
+      ? h("span", { class: `wb-state ${kernel.state}` }, h("span", { class: "wb-dot", "aria-hidden": "true" }), `Kernel: ${STATE_WORDS[kernel.state]}`, kernel.running > 1 ? ` (${kernel.running - 1} waiting)` : "")
+      : h("span", { class: "hint" }, doc ? "No kernel" : "Nothing open"),
     kernel ? h("span", { title: python }, env) : null,
     doc?.kind === "script" || doc?.kind === "notebook" ? h("span", {}, `Line ${cursor.line}, column ${cursor.column}`) : null,
     doc ? h("span", {}, doc.kind === "notebook" ? "Notebook" : doc.kind === "script" ? "Python script" : doc.kind === "blade" ? "Blade" : "Explorer") : null,
-    h("span", { class: "spacer" }),
-    h("span", { class: "hint" }, "Ctrl+Shift+P: every command"),
   );
 }
 
@@ -523,7 +520,7 @@ const rail = mountRail({
     let doc = docs.find((d) => d.kind === "table");
     if (!doc) doc = makeDoc("table", "Explorer", null, null);
     doc.title = label;
-    clear(doc.element, h("h2", {}, label), h("p", { class: "hint" }, `A schema in ${catalog}. Open it to see its tables and views.`));
+    clear(doc.element, h("h2", {}, label), h("p", { class: "hint" }, `Schema in ${catalog}`));
     show(doc);
   },
 });
@@ -612,7 +609,7 @@ async function restore(): Promise<boolean> {
 function showWelcome(): void {
   current = null;
   variables.show(null);
-  layout.console.replaceChildren(h("p", { class: "hint wb-pane-empty" }, "A notebook or script has its console here."));
+  layout.console.replaceChildren(h("p", { class: "hint wb-pane-empty" }, "No console"));
   drawTabs();
   drawToolbar();
   drawStatus();
@@ -623,11 +620,9 @@ function showWelcome(): void {
       "div",
       { class: "wb-welcome" },
       h("h1", {}, "Workbench"),
-      h("p", {}, "Notebooks and Python scripts, run in a Python on this computer. Drag a connection, a blade or a table from the left into a cell or the script."),
       h("div", { class: "row-actions" }, button("New notebook", () => openNotebook(null, [], null), { icon: "plus", class: "primary" }), button("New script", () => openScript(null, "", null), { icon: "code" }), button("Open…", () => void open(), { icon: "folder" })),
       recent.length ? h("h3", {}, "Recent") : null,
       recent.length ? h("ul", { class: "wb-recent" }, ...recent.map((r) => h("li", {}, h("button", { type: "button", class: "link", disabled: !r.exists, onclick: () => void open(r.path) }, baseName(r.path)), h("span", { class: "hint" }, ` ${r.path}`)))) : null,
-      h("p", { class: "hint" }, "A SQL cell runs on a connection: its own SQL for a database, DuckDB over a file's tables. The same works in Jupyter: %%sql <connection>."),
     ),
   );
 }
@@ -723,7 +718,7 @@ const COMMANDS: Command[] = [
   { id: "run.cell", group: "Run", title: "Run the selected cell", keys: "Ctrl+Enter", args: "index: a cell, from 0 (default: the selected one)", when: isNotebook, whyNot: "the document in front is not a notebook", run: (a) => notebook().runCell(num(a, "index")) },
   { id: "run.above", group: "Run", title: "Run the cells above", when: isNotebook, whyNot: "the document in front is not a notebook", run: () => notebook().runAbove() },
   { id: "run.below", group: "Run", title: "Run this cell and the ones below", when: isNotebook, whyNot: "the document in front is not a notebook", run: () => notebook().runBelow() },
-  { id: "run.interrupt", group: "Run", title: "Interrupt (and cancel the runs waiting)", when: isCode, whyNot: "no notebook or script is in front", run: () => kernelOf().interrupt() },
+  { id: "run.interrupt", group: "Run", title: "Interrupt", when: isCode, whyNot: "no notebook or script is in front", run: () => kernelOf().interrupt() },
   { id: "run.restart", group: "Run", title: "Restart the kernel", when: isCode, whyNot: "no notebook or script is in front", run: () => restartKernel(kernelOf()) },
   // Cells
   { id: "cell.insertAbove", group: "Cell", title: "Insert a cell above", keys: "A", args: "kind: code, sql or markdown; source", when: isNotebook, whyNot: "the document in front is not a notebook", run: (a) => notebook().insert("above", kindArg(a), text(a, "source") ?? "") },
@@ -758,9 +753,9 @@ const COMMANDS: Command[] = [
   { id: "view.toggleSidebar", group: "View", title: "Show or hide the side bar", keys: "Ctrl+B", run: () => { layout.toggle("rail"); drawToolbar(); } },
   { id: "view.toggleRight", group: "View", title: "Show or hide Variables", run: () => { if (layout.toggle("right")) void variables.refresh(); drawToolbar(); } },
   { id: "view.toggleConsole", group: "View", title: "Show or hide the console", run: () => layout.toggle("console") },
-  { id: "view.standard", group: "View", title: "Layout: standard (four panes)", run: () => { layout.setLayout("standard"); drawToolbar(); } },
-  { id: "view.focus", group: "View", title: "Layout: the source alone", keys: "Ctrl+Shift+1", run: () => { layout.setLayout("focus"); drawToolbar(); } },
-  { id: "view.wide", group: "View", title: "Layout: wide data (the right column wider)", run: () => { layout.setLayout("wide"); drawToolbar(); } },
+  { id: "view.standard", group: "View", title: "Layout: standard", run: () => { layout.setLayout("standard"); drawToolbar(); } },
+  { id: "view.focus", group: "View", title: "Layout: source only", keys: "Ctrl+Shift+1", run: () => { layout.setLayout("focus"); drawToolbar(); } },
+  { id: "view.wide", group: "View", title: "Layout: wide data", run: () => { layout.setLayout("wide"); drawToolbar(); } },
   { id: "view.variablesRefresh", group: "View", title: "Read the variables again", when: isCode, whyNot: "no notebook or script is in front", run: () => variables.refresh().then(() => variables.snapshot()) },
   // Help
   { id: "help.atCursor", group: "Help", title: "Help on the name at the cursor", keys: "F1", when: isCode, whyNot: "no notebook or script is in front", run: () => showHelp() },

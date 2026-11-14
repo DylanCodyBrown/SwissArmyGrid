@@ -78,7 +78,7 @@ export function mountLayout(body: HTMLElement, rail: HTMLElement, main: HTMLElem
   const helpCard = h(
     "section",
     { class: "wb-help-card", role: "dialog", "aria-label": "Help", hidden: true },
-    h("div", { class: "wb-help-head" }, helpTitle, button("Close the help", () => (helpCard.hidden = true), { icon: "close", iconOnly: true, class: "ghost" })),
+    h("div", { class: "wb-help-head" }, helpTitle, button("Close help", () => (helpCard.hidden = true), { icon: "close", iconOnly: true, class: "ghost" })),
     helpBody,
   );
   // Escape puts the card away wherever the focus is (it covers part of the source).
@@ -133,9 +133,9 @@ export function mountLayout(body: HTMLElement, rail: HTMLElement, main: HTMLElem
   const left = h("div", { class: "wb-col wb-col-left" });
   const right = h("div", { class: "wb-col wb-col-right" });
   const panes = h("div", { class: "wb-panes" });
-  left.append(source, splitter("horizontal", "Source and console: drag, or the Up and Down keys", () => sizes.leftTop, (v) => (sizes.leftTop = v), () => left), consoleHost);
+  left.append(source, splitter("horizontal", "Resize source and console", () => sizes.leftTop, (v) => (sizes.leftTop = v), () => left), consoleHost);
   right.append(variables);
-  panes.append(left, splitter("vertical", "Source and the right column: drag, or the Left and Right keys", () => sizes.left, (v) => (sizes.left = v), () => panes), right);
+  panes.append(left, splitter("vertical", "Resize source and Variables", () => sizes.left, (v) => (sizes.left = v), () => panes), right);
   body.replaceChildren(panes, helpCard);
 
   const status = h("footer", { class: "wb-status", role: "status", "aria-label": "Status" });
@@ -191,7 +191,7 @@ export function mountLayout(body: HTMLElement, rail: HTMLElement, main: HTMLElem
     status,
     help: (title, text) => {
       helpTitle.textContent = title;
-      helpBody.textContent = text || "No help for the name at the cursor.";
+      helpBody.textContent = text || "No help";
       helpCard.hidden = false;
     },
     focus,

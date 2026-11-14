@@ -215,7 +215,7 @@ def test_outputs_keep_up_with_many_prints_colours_and_progress_bars(
     # The stress test froze the page for over 100 seconds at 5,000 prints; drawn as they come it keeps up.
     expect(log).to_contain_text("100%", timeout=30000)
     expect(log).to_contain_text("line 5999")
-    expect(log.locator(".wb-cut")).to_contain_text("earlier lines are not shown")
+    expect(log.locator(".wb-cut")).to_contain_text("earlier lines hidden")
     expect(log.locator(".ansi-fg-1")).to_have_text("red")
     expect(log).not_to_contain_text("50%")  # each \\r wrote over its line
 
@@ -458,7 +458,7 @@ def test_pictures_go_to_the_sandbox_f1_helps_and_code_goes_to_the_agent(
         400
     )  # Monaco's menu ignores a click right as it opens (the right button's release)
     item.click()
-    expect(workbench.locator(".toast", has_text="Sent to your agent")).to_be_visible()
+    expect(workbench.locator(".toast", has_text="Sent to the agent")).to_be_visible()
     waiting = call(server, "GET", "/agent/inbox?take=1", agent=True)["items"]
     assert waiting[-1]["kind"] == "code" and "print(len('made up'))" in waiting[-1]["text"]
     assert waiting[-1]["title"] == "Code from shapes.py, line 3"

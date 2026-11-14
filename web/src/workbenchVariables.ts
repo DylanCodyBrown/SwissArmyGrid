@@ -38,7 +38,7 @@ const sizeOf = (size: string): number => Number(/[\d,]+/.exec(size)?.[0]?.replac
 
 export function variablesPanel(onClose: () => void = () => undefined): VariablesPanel {
   const body = h("div", { class: "wb-vars-body" });
-  const filter = h("input", { type: "search", class: "cat-search", placeholder: "Filter by name or type", "aria-label": "Filter variables" });
+  const filter = h("input", { type: "search", class: "cat-search", placeholder: "Filter", "aria-label": "Filter variables" });
   const element = h(
     "section",
     { class: "wb-vars", "aria-label": "Variables" },
@@ -46,8 +46,8 @@ export function variablesPanel(onClose: () => void = () => undefined): Variables
       "div",
       { class: "wb-vars-head" },
       h("h2", {}, "Variables"),
-      button("Refresh", () => void refresh(), { icon: "back", iconOnly: true, class: "ghost", title: "Read the variables again" }),
-      button("Hide the right column", onClose, { icon: "close", iconOnly: true, class: "ghost", title: "Hide Variables, Plots and Help (the toolbar's Variables shows them again)" }),
+      button("Refresh", () => void refresh(), { icon: "back", iconOnly: true, class: "ghost" }),
+      button("Hide Variables", onClose, { icon: "close", iconOnly: true, class: "ghost" }),
     ),
     filter,
     body,
@@ -69,7 +69,7 @@ export function variablesPanel(onClose: () => void = () => undefined): Variables
 
   const draw = (): void => {
     if (!kernel || !kernel.id) {
-      clear(body, h("p", { class: "hint" }, kernel ? "Nothing yet: the kernel starts on the first Run." : "Open a notebook or script."));
+      clear(body, h("p", { class: "hint" }, kernel ? "Not started" : "Nothing open"));
       return;
     }
     if (!last) {
@@ -77,7 +77,7 @@ export function variablesPanel(onClose: () => void = () => undefined): Variables
       return;
     }
     if (last.busy) {
-      clear(body, h("p", { class: "hint" }, "Code is running: the variables show when it is done."));
+      clear(body, h("p", { class: "hint" }, "Running…"));
       return;
     }
     const wanted = filter.value.trim().toLowerCase();
@@ -120,7 +120,7 @@ export function variablesPanel(onClose: () => void = () => undefined): Variables
               ),
             ),
           )
-        : h("p", { class: "hint" }, "No connections yet (Connections, in the grid page's Application row)."),
+        : h("p", { class: "hint" }, "No connections"),
       h("h3", {}, "Your variables"),
       variables.length
         ? table(
@@ -137,11 +137,11 @@ export function variablesPanel(onClose: () => void = () => undefined): Variables
             ),
             true,
           )
-        : h("p", { class: "hint" }, wanted ? "None matches." : "None yet."),
+        : h("p", { class: "hint" }, wanted ? "No matches" : "No variables"),
       h("h3", {}, "Environment"),
       environment.length
-        ? table(["Variable", "In this kernel"], environment.map((e) => h("tr", {}, h("td", {}, h("code", {}, e.name)), h("td", {}, e.set ? "set (value hidden)" : h("span", { class: "hint" }, "not set")))))
-        : h("p", { class: "hint" }, "No vault, secret blade or password names one."),
+        ? table(["Variable", "In this kernel"], environment.map((e) => h("tr", {}, h("td", {}, h("code", {}, e.name)), h("td", {}, e.set ? "set" : h("span", { class: "hint" }, "not set")))))
+        : h("p", { class: "hint" }, "None"),
     );
   };
 

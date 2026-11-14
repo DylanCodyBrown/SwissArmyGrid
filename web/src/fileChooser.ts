@@ -64,7 +64,7 @@ export function chooseFile(options: ChooseOptions): Promise<string | null> {
       else if (options.mode === "save") {
         const name = saveName.value.trim();
         if (!name || /[\\/]/.test(name)) {
-          status.textContent = "Type a file name (no slashes): it is saved in the folder shown.";
+          status.textContent = "Type a file name (no slashes)";
           return;
         }
         const sep = shown.path.includes("\\") && !shown.path.includes("/") ? "\\" : "/";
@@ -79,7 +79,7 @@ export function chooseFile(options: ChooseOptions): Promise<string | null> {
       const query = new URLSearchParams();
       if (path) query.set("path", path);
       if (options.suffixes?.length) query.set("suffixes", options.suffixes.join(","));
-      status.textContent = "Reading the folder…";
+      status.textContent = "Loading…";
       const mine = ++asked;
       let found: Listing;
       try {
@@ -94,7 +94,7 @@ export function chooseFile(options: ChooseOptions): Promise<string | null> {
       where.value = at.path;
       clear(roots, ...at.roots.map((r) => h("option", { value: r, selected: r === at.path }, r === at.home ? `Home (${r})` : r)));
       const rows = [
-        ...(at.parent ? [h("li", { class: "file-row folder", role: "option", tabindex: 0, onclick: () => void go(at.parent) }, h("span", { class: "file-name" }, ".. (up)"))] : []),
+        ...(at.parent ? [h("li", { class: "file-row folder", role: "option", tabindex: 0, onclick: () => void go(at.parent) }, h("span", { class: "file-name" }, ".."))] : []),
         ...at.folders.map((f) => h("li", { class: "file-row folder", role: "option", tabindex: 0, title: f.path, onclick: () => void go(f.path) }, h("span", { class: "file-name" }, `${f.name}/`))),
         ...at.files.map((f) =>
           h(
@@ -128,7 +128,7 @@ export function chooseFile(options: ChooseOptions): Promise<string | null> {
       ...(options.mode === "save" ? [h("label", { class: "field file-save" }, h("span", {}, "File name"), saveName)] : []),
       status,
     );
-    foot.append(options.mode === "file" ? h("span", { class: "hint" }, "Click a file to choose it.") : choose, button("Cancel", () => finish(null)));
+    foot.append(...(options.mode === "file" ? [] : [choose]), button("Cancel", () => finish(null)));
     void go(options.start ?? null);
   });
 }

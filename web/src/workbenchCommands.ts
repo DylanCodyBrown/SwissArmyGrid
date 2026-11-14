@@ -73,7 +73,7 @@ export function openPalette(): void {
     return;
   }
   const back = document.activeElement as HTMLElement | null;
-  const input = h("input", { type: "search", class: "wb-palette-input", placeholder: "Type a command (Run, Cell, Console, View…)", "aria-label": "Command", "aria-controls": "wb-palette-list", "aria-autocomplete": "list", role: "combobox", "aria-expanded": "true" }) as HTMLInputElement;
+  const input = h("input", { type: "search", class: "wb-palette-input", placeholder: "Command", "aria-label": "Command", "aria-controls": "wb-palette-list", "aria-autocomplete": "list", role: "combobox", "aria-expanded": "true" }) as HTMLInputElement;
   const list = h("ul", { class: "wb-palette-list", id: "wb-palette-list", role: "listbox", "aria-label": "Commands" });
   const box = h("div", { class: "wb-palette", role: "dialog", "aria-modal": "true", "aria-label": "Command palette" }, input, list);
   const shade = h("div", { class: "wb-palette-shade" }, box);
@@ -113,7 +113,7 @@ export function openPalette(): void {
         return row;
       }),
     );
-    if (!shown.length) list.append(h("li", { class: "hint" }, "No command matches."));
+    if (!shown.length) list.append(h("li", { class: "hint" }, "No matches"));
     input.setAttribute("aria-activedescendant", shown.length ? `wb-cmd-${at}` : "");
     list.querySelector(".active")?.scrollIntoView({ block: "nearest" });
   };
