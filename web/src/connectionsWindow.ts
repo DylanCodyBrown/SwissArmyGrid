@@ -249,6 +249,29 @@ export async function openConnections(): Promise<void> {
     };
     drawFields(fields);
 
+    // Each password's source: saved on this computer (the keyring), an environment variable, or a key
+    // vault (a vault blade's entry, or a new one added to it). Variables and vault entries are named in
+    // the code: secret("WAREHOUSE_PASSWORD"), read from the environment the vault sets.
+    let vaults: { name: string; entries: { env: string; secret: string }[]; read_only: boolean }[] = [];
+    const vaultsRead = api<{ vaults: typeof vaults }>("/connections/vaults").then((r) => (vaults = r.vaults), () => undefined);
+    const looksLikeVariable = (s: string): boolean => /^[A-Z][A-Z0-9_]*$/.test(s) && s.includes("_");
+    // Each password keeps the word the starter gave it ("Password") while its source renames it in the code.
+    const labels = new Map<string, string>(form.secrets.map((s) => [s, s]));
+    const label = (s: string): string => words(labels.get(s) ?? s);
+    const pointAt = async (secret: string, body: Record<string, unknown>): Promise<void> => {
+      try {
+        const answer = await api<{ code: string; secret: string }>("/connections/source", "POST", { code, secret, label: labels.get(secret) ?? secret, connection: name.value.trim(), ...body });
+        code = answer.code;
+        codeBox.value = code;
+        form.secrets = form.secrets.map((s) => (s === secret ? answer.secret : s));
+        labels.set(answer.secret, labels.get(secret) ?? secret);
+        if (body.from === "vault") vaults = (await api<{ vaults: typeof vaults }>("/connections/vaults")).vaults;
+        passwordsSlot.replaceChildren(drawPasswords() ?? "");
+        result.replaceChildren(h("p", { class: "hint" }, `${label(answer.secret)} comes from ${answer.secret}${body.vault ? ` in ${String(body.vault)}` : ", an environment variable"}.`));
+      } catch (e) {
+        result.replaceChildren(h("p", { class: "status-error" }, (e as Error).message));
+      }
+    };
     const drawPasswords = (): HTMLElement | null => {
       passwords.clear();
       if (!form.secrets.length) return null;
@@ -258,13 +281,47 @@ export async function openConnections(): Promise<void> {
         { class: "connection-passwords" },
         h("legend", {}, "Passwords"),
         ...form.secrets.map((s) => {
-          const input = h("input", { type: "password", autocomplete: "new-password", "aria-label": words(s), placeholder: saved[s] ? "saved: leave blank to keep it" : "" });
-          passwords.set(s, input);
-          return h("label", { class: "field" }, h("span", {}, words(s)), input);
+          const inVault = vaults.find((v) => v.entries.some((e) => e.env === s));
+          const origin = inVault ? "vault" : looksLikeVariable(s) && !saved[s] ? "env" : "keyring";
+          const from = h("select", { "aria-label": `Where ${label(s)} comes from` }, h("option", { value: "keyring", selected: origin === "keyring" }, "Saved on this computer"), h("option", { value: "env", selected: origin === "env" }, "An environment variable"), h("option", { value: "vault", selected: origin === "vault" }, "A key vault"));
+          const slot = h("span", { class: "field-row" });
+          const draw = (): void => {
+            if (from.value === "keyring") {
+              const input = h("input", { type: "password", autocomplete: "new-password", "aria-label": label(s), placeholder: saved[s] ? "saved: leave blank to keep it" : "typed once, kept in the keyring" });
+              passwords.set(s, input);
+              slot.replaceChildren(input);
+            } else if (from.value === "env") {
+              passwords.delete(s);
+              const variable = h("input", { type: "text", class: "mono", "aria-label": `${label(s)}: the variable's name`, value: looksLikeVariable(s) ? s : "", placeholder: "WAREHOUSE_PASSWORD", spellcheck: false });
+              slot.replaceChildren(variable, button("Use it", () => void pointAt(s, { from: "env", env: variable.value.trim() }), { icon: "check" }));
+            } else {
+              passwords.delete(s);
+              if (!vaults.length) {
+                slot.replaceChildren(h("span", { class: "hint" }, "No vault blades yet: add one on the blades page (Azure Key Vault, AWS, HashiCorp, 1Password, a .env file...)."));
+                return;
+              }
+              const vault = h("select", { "aria-label": "Vault" }, ...vaults.map((v) => h("option", { value: v.name, selected: v === inVault }, v.name)));
+              const entry = h("select", { "aria-label": "Entry in the vault" });
+              const newName = h("input", { type: "text", "aria-label": "The secret's name in the vault", placeholder: "the secret's name in the vault", spellcheck: false });
+              const fillEntries = (): void => {
+                const chosen = vaults.find((v) => v.name === vault.value);
+                clear(entry, ...(chosen?.entries ?? []).map((e) => h("option", { value: e.env, selected: e.env === s }, `${e.secret} (as ${e.env})`)), chosen?.read_only ? null : h("option", { value: "" }, "A new entry…"));
+                newName.hidden = entry.value !== "";
+              };
+              vault.addEventListener("change", fillEntries);
+              entry.addEventListener("change", () => (newName.hidden = entry.value !== ""));
+              fillEntries();
+              slot.replaceChildren(vault, entry, newName, button("Use it", () => void pointAt(s, entry.value ? { from: "vault", vault: vault.value, env: entry.value } : { from: "vault", vault: vault.value, vault_secret: newName.value.trim() }), { icon: "check" }));
+            }
+          };
+          from.addEventListener("change", draw);
+          draw();
+          return h("div", { class: "field connection-password" }, h("span", {}, label(s)), h("span", { class: "field-row" }, from, slot));
         }),
-        h("p", { class: "hint" }, "Kept in your system keyring (Windows Credential Manager, the macOS Keychain), never in the connection's file."),
+        h("p", { class: "hint" }, "Saved on this computer: your system keyring (Windows Credential Manager, the macOS Keychain), never the connection's file. A variable or a vault is read when the connection runs (Test and Refresh run in this app's Python, so set the variable where the app runs too)."),
       );
     };
+    void vaultsRead.then(() => passwordsSlot.replaceChildren(drawPasswords() ?? ""));
 
     // The code edited by hand: read its fields and passwords again.
     codeBox.addEventListener("change", () => {

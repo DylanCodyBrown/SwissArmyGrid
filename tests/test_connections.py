@@ -132,3 +132,83 @@ def test_the_file_chooser_lists_folders_then_chosen_kinds_of_file(client: TestCl
     assert client.get("/folders", params={"path": str(shared / "gone")}, headers=AUTH).status_code == 404
     assert client.get("/folders", params={"suffixes": "csv"}, headers=AUTH).status_code == 400
     assert client.get("/folders", headers=AGENT).status_code == 403
+
+
+def test_a_password_comes_from_the_keyring_an_environment_variable_or_a_vault(client: TestClient) -> None:
+    from swissarmygrid.domain.connections import env_name_for, rename_secret
+
+    code = 'import psycopg\nconn = psycopg.connect(host="h", password=secret("password"))'
+    assert rename_secret(code, "password", "SHOP_PW").endswith('password=secret("SHOP_PW"))')
+    assert env_name_for("Sales DB", "password") == "SALES_DB_PASSWORD"
+    # An environment variable: the code asks for it by name.
+    env = client.post(
+        "/connections/source",
+        json={"code": code, "secret": "password", "from": "env", "env": "SHOP_PW"},
+        headers=AUTH,
+    )
+    assert env.status_code == 200, env.text
+    assert 'secret("SHOP_PW")' in env.json()["code"]
+    bad = client.post(
+        "/connections/source",
+        json={"code": code, "secret": "password", "from": "env", "env": "9 bad"},
+        headers=AUTH,
+    )
+    assert bad.status_code == 400
+    # A vault: one of its entries, or a new one added to the vault blade.
+    vault = {
+        "name": "Team vault",
+        "kind": "vault",
+        "code": "def get(name):\n    return 'made-up'",
+        "variable": "get",
+        "vault_mapping": [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-pw"}],
+    }
+    assert client.post("/blades", json=vault, headers=AUTH).status_code == 200
+    listed = client.get("/connections/vaults", headers=AUTH).json()["vaults"]
+    assert listed == [
+        {
+            "name": "Team vault",
+            "entries": [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-pw"}],
+            "read_only": False,
+        }
+    ]
+    picked = client.post(
+        "/connections/source",
+        json={
+            "code": code,
+            "secret": "password",
+            "from": "vault",
+            "vault": "Team vault",
+            "env": "WAREHOUSE_PASSWORD",
+        },
+        headers=AUTH,
+    ).json()
+    assert 'secret("WAREHOUSE_PASSWORD")' in picked["code"]
+    added = client.post(
+        "/connections/source",
+        json={
+            "code": code,
+            "secret": "password",
+            "from": "vault",
+            "vault": "Team vault",
+            "vault_secret": "shop-pw",
+            "connection": "Shop",
+        },
+        headers=AUTH,
+    ).json()
+    assert 'secret("SHOP_PASSWORD")' in added["code"]
+    entries = client.get("/connections/vaults", headers=AUTH).json()["vaults"][0]["entries"]
+    assert {"env": "SHOP_PASSWORD", "secret": "shop-pw"} in entries
+    # A saved connection that asks for the vault's variable runs the vault first (no password saved).
+    saved = {
+        "name": "Shop",
+        "kind": "sql",
+        "dialect": "postgres",
+        "template": "postgres",
+        "code": added["code"],
+    }
+    assert client.post("/connections", json=saved, headers=AUTH).status_code == 200
+    shop = next(
+        c for c in client.get("/connections", headers=AUTH).json()["connections"] if c["name"] == "Shop"
+    )
+    assert shop["vaults"] == ["Team vault"]
+    assert client.post("/connections/source", json={}, headers=AGENT).status_code == 403

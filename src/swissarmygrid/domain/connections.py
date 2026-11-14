@@ -9,6 +9,7 @@ connections, what kind each is, and how a starter becomes the Add connection for
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # The file starters (server/blade_templates.py FILES): a blade made from one is a file connection.
@@ -70,3 +71,33 @@ def form(template: dict[str, Any], inspected: dict[str, Any]) -> dict[str, Any]:
         "packages": inspected.get("packages", []),
         "install_here": inspected.get("install_here"),
     }
+
+
+# ===== where a password comes from =====
+
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+def check_env_name(name: Any) -> str:
+    """An environment variable's name, as a password's source (WAREHOUSE_PASSWORD)."""
+    if not isinstance(name, str) or not _ENV_NAME.match(name.strip()):
+        raise ValueError(
+            "An environment variable's name is letters, digits and _, not starting with a digit."
+        )
+    return name.strip()
+
+
+def env_name_for(connection: str, secret: str) -> str:
+    """A variable's name for a connection's password: Sales DB, password -> SALES_DB_PASSWORD."""
+    words = re.sub(r"[^A-Za-z0-9]+", "_", f"{connection}_{secret}").strip("_").upper()
+    return words if words and not words[0].isdigit() else f"_{words}"
+
+
+def rename_secret(code: str, old: str, new: str) -> str:
+    """The code with every secret("old") asking for secret("new") instead: the value then comes from the
+    keyring saved under that name, or else the environment variable of that name (a vault sets it)."""
+    pattern = re.compile(r"""(\bsecret\(\s*)(["'])""" + re.escape(old) + r"""\2(\s*\))""")
+    changed, count = pattern.subn(lambda m: f"{m.group(1)}{m.group(2)}{new}{m.group(2)}{m.group(3)}", code)
+    if not count:
+        raise ValueError(f'The code does not ask for secret("{old}").')
+    return changed

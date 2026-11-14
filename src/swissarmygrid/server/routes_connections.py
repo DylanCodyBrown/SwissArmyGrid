@@ -7,6 +7,8 @@ their code names servers and accounts, and runs):
   GET    /connections/{name}          a saved one as the form shows it to change
   POST   /connections                 save a new one        PUT /connections/{name}   change or rename it
   POST   /connections/test            run the form's code (not saved) with the passwords typed into it
+  GET    /connections/vaults          the vault blades a password can come from, with their entries
+  POST   /connections/source          point a password at the keyring, an environment variable or a vault
 
 Removing, secrets, Refresh, favourites and export are the blade routes' (routes_blades.py).
 The use cases are services/connections.py.
@@ -69,6 +71,22 @@ def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRou
         except Exception as error:
             return error_response(error)
 
+    async def vaults(request: Request) -> Response:
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            return json_response(connections.vaults())
+        except Exception as error:
+            return error_response(error)
+
+    async def source(request: Request) -> Response:
+        if actor(request) == "agent":
+            return _agent_refused()
+        try:
+            return json_response(await connections.source(await read_json(request)))
+        except Exception as error:
+            return error_response(error)
+
     async def test(request: Request) -> Response:
         if actor(request) == "agent":
             return _agent_refused()
@@ -86,6 +104,8 @@ def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRou
         Route("/connections", save, methods=["POST"]),
         Route("/connections/types", types),
         Route("/connections/test", test, methods=["POST"]),
+        Route("/connections/vaults", vaults),
+        Route("/connections/source", source, methods=["POST"]),
         Route("/connections/{name}", details),
         Route("/connections/{name}", save, methods=["PUT"]),
     ]

@@ -79,6 +79,57 @@ class ConnectionService:
         self._check(body)
         return await self._blades.save(body, previous)
 
+    # ===== where a password comes from: the keyring, an environment variable, or a key vault =====
+
+    def vaults(self) -> dict[str, Any]:
+        """The vault blades a password can come from, each with its entries (environment variable ->
+        the secret's name in the vault). Names only: no value is read."""
+        found = [b for b in self._blades.listing()["blades"] if b["kind"] == "vault"]
+        out = []
+        for b in found:
+            blade = self._blades.get(str(b["name"]))
+            mapping = [{"env": env, "secret": secret} for env, secret in blade.vault_mapping.items()]
+            out.append({"name": blade.name, "entries": mapping, "read_only": blade.pack is not None})
+        return {"vaults": out}
+
+    async def source(self, body: Any) -> dict[str, Any]:
+        """Point a password at its source: `{"code", "secret", "from": "keyring" | "env" | "vault", "env",
+        "vault", "vault_secret", "connection"}`. An environment variable or a vault's entry is named in the
+        code (secret("WAREHOUSE_PASSWORD")); a new entry is added to the vault blade. Returns the code."""
+        if not isinstance(body, dict) or not isinstance(body.get("code"), str):
+            raise ValueError('Send {"code": "...", "secret": "password", "from": "env", "env": "NAME"}.')
+        code, secret, origin = body["code"], body.get("secret"), body.get("from")
+        if not isinstance(secret, str) or not secret:
+            raise ValueError("Name the password: the secret(...) the code asks for.")
+        if origin == "keyring":
+            return {"code": code, "secret": secret}
+        if origin == "env":
+            env = rules.check_env_name(body.get("env"))
+            return {"code": rules.rename_secret(code, secret, env), "secret": env}
+        if origin != "vault":
+            raise ValueError(
+                'A password comes "from" the keyring, an environment variable ("env") or a vault.'
+            )
+        vault = self._blades.get(str(body.get("vault") or ""))
+        if vault.kind != "vault":
+            raise BladeError(f"{vault.name} is not a vault blade.")
+        if body.get("env"):  # one of the vault's entries
+            env = rules.check_env_name(body["env"])
+            if env not in vault.vault_mapping:
+                raise BladeError(f"{vault.name} has no entry {env}.")
+        else:  # a new entry: the secret's name in the vault, under a variable named after the connection
+            in_vault = body.get("vault_secret")
+            if not isinstance(in_vault, str) or not in_vault.strip() or len(in_vault) > 500:
+                raise ValueError("Name the secret as it is called in the vault.")
+            if vault.pack:
+                raise BladeError(f"{vault.name} comes from a pack: add the entry in that pack's repository.")
+            word = body.get("label") if isinstance(body.get("label"), str) else secret
+            env = rules.env_name_for(str(body.get("connection") or "connection"), str(word))
+            data = vault.to_json()
+            data["vault_mapping"] = [*data["vault_mapping"], {"env": env, "secret": in_vault.strip()}]
+            await self._blades.save(data, vault.name)
+        return {"code": rules.rename_secret(code, secret, env), "secret": env, "vault": vault.name}
+
     async def test(self, body: Any) -> dict[str, Any]:
         """Run the form's code (not saved) with the passwords typed into it."""
         self._check(body)

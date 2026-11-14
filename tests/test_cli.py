@@ -181,6 +181,8 @@ NOT_COMMANDS = {
     "/connections/types": "as /connections: the Add connection window's forms",
     "/connections/test": "as /connections: running the form's code is the user's click",
     "/connections/{}": "as /connections",
+    "/connections/vaults": "as /connections: the form's list of vault blades",
+    "/connections/source": "as /connections: where a password comes from, the user's choice in the form",
     "/folders": "the page's file chooser: the user's own folders, refused to the agent",
     "/workbench/home": "the Workbench (notebooks, scripts, kernels) is the user's own: refused to the agent",
     "/workbench": "the Workbench page itself, opened from the grid page's tab",
