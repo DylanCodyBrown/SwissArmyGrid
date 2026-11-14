@@ -227,6 +227,7 @@ def bootstrap(
             os.environ,
             now=time.time,
             folder_of=lambda path: str(Path(path).expanduser().parent),
+            secret_names=blades.environment_names,
         ),
         handoff=Handoff(ws, verifier),
         models=models,

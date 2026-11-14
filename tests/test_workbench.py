@@ -261,3 +261,77 @@ def test_a_new_environment_is_checked_and_a_documents_python_remembered(
         == chosen.json()["python"]
     )
     assert client.post("/workbench/environments", json={}, headers=AGENT).status_code == 403
+
+
+def test_the_variables_overlay_shows_values_but_never_a_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    import os as os_module
+
+    import pandas as pd
+
+    from swissarmygrid.client import kernel_connections, kernel_variables
+
+    monkeypatch.setattr(
+        kernel_connections, "code_names", lambda: {"sales_db": "Sales DB", "orders_file": "Orders file"}
+    )
+    monkeypatch.setenv("SHOP_PASSWORD", "made-up-secret")
+    namespace: dict[str, Any] = {
+        "rainfall": pd.DataFrame({"city": ["Springfield", "Riverton"], "rain_mm": [3.5, 0.0]}),
+        "cities": ["Springfield", "Riverton", "Ogdenville"],
+        "note": "x" * 500,
+        "sales_db": 41,  # a connection already opened
+        "os": os_module,  # modules, functions and private names are left out
+        "helper": lambda: None,
+        "_hidden": 1,
+    }
+    found = json.loads(kernel_variables.snapshot(["SHOP_PASSWORD", "WAREHOUSE_PASSWORD"], namespace))
+    assert [v["name"] for v in found["variables"]] == ["cities", "note", "rainfall"]
+    rainfall = next(v for v in found["variables"] if v["name"] == "rainfall")
+    assert rainfall["size"] == "2 rows by 2 columns" and rainfall["value"] == "columns: city, rain_mm"
+    assert rainfall["table"] is True and rainfall["type"] == "pandas.DataFrame"
+    assert len(next(v for v in found["variables"] if v["name"] == "note")["value"]) <= 200
+    assert found["connections"] == [
+        {
+            "name": "orders_file",
+            "connection": "Orders file",
+            "open": False,
+            "type": "",
+            "value": "opened when a cell first uses it",
+            "table": False,
+        },
+        {
+            "name": "sales_db",
+            "connection": "Sales DB",
+            "open": True,
+            "type": "int",
+            "value": "41",
+            "table": False,
+        },
+    ]
+    assert found["environment"] == [
+        {"name": "SHOP_PASSWORD", "set": True},
+        {"name": "WAREHOUSE_PASSWORD", "set": False},
+    ]
+    assert "made-up-secret" not in json.dumps(found)
+
+
+def test_the_variables_overlay_through_a_kernel(client: TestClient, tmp_path: Path) -> None:
+    secret_blade = {"name": "Warehouse login", "kind": "secret", "env_names": ["WAREHOUSE_PASSWORD"]}
+    assert client.post("/blades", json=secret_blade, headers=AUTH).status_code == 200
+    kernel = client.post("/workbench/kernels", json={}, headers=AUTH).json()["kernel"]
+    try:
+        run(client, kernel, "import pandas as pd\nrainfall = pd.DataFrame({'rain_mm': [3.5, 0.0, 1.2]})")
+        found = client.get(f"/workbench/kernels/{kernel}/variables", headers=AUTH)
+        assert found.status_code == 200, found.text
+        body = found.json()
+        assert body["busy"] is False
+        assert [(v["name"], v["size"]) for v in body["variables"]] == [("rainfall", "3 rows by 1 column")]
+        assert {"name": "WAREHOUSE_PASSWORD", "set": False} in body["environment"]
+        assert (
+            client.post(
+                f"/workbench/kernels/{kernel}/grid", json={"name": "not a name"}, headers=AUTH
+            ).status_code
+            == 400
+        )
+        assert client.get(f"/workbench/kernels/{kernel}/variables", headers=AGENT).status_code == 403
+    finally:
+        client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)

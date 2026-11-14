@@ -195,6 +195,8 @@ NOT_COMMANDS = {
     "/workbench/kernels/{}/execute": "as /workbench/kernels",
     "/workbench/kernels/{}/complete": "as /workbench/kernels",
     "/workbench/kernels/{}/inspect": "as /workbench/kernels",
+    "/workbench/kernels/{}/variables": "as /workbench/kernels",
+    "/workbench/kernels/{}/grid": "as /workbench/kernels",
     "/workbench/kernels/{}/interrupt": "as /workbench/kernels",
     "/workbench/kernels/{}/restart": "as /workbench/kernels",
     "/workbench/kernels/{}": "as /workbench/kernels",

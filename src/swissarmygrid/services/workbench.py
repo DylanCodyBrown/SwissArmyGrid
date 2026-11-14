@@ -42,6 +42,10 @@ class Kernel(Protocol):
 
     async def inspect(self, code: str, offset: int) -> str: ...
 
+    async def variables(self, env_names: list[str]) -> dict[str, Any] | None: ...
+
+    async def grid(self, name: str) -> str | None: ...
+
     async def interrupt(self) -> None: ...
 
     async def restart(self) -> None: ...
@@ -72,6 +76,7 @@ class Workbench:
         environ: Mapping[str, str],
         now: Callable[[], float],
         folder_of: Callable[[str], str],
+        secret_names: Callable[[], list[str]] = list,
     ) -> None:
         self.ws = ws
         self._documents = documents
@@ -79,6 +84,8 @@ class Workbench:
         self._environ = environ
         self._now = now
         self._folder_of = folder_of  # a file's folder (pathlib lives in the adapters)
+        # The environment variables vaults, secret blades and connection passwords use (names only).
+        self._secret_names = secret_names
         self._running: dict[str, Kernel] = {}
 
     # ===== files =====
@@ -234,6 +241,23 @@ class Workbench:
         """The signature and help of the name at a place in the code."""
         code, offset = self._code_at(body)
         return {"help": await self._kernel(kernel_id).inspect(code, offset)}
+
+    async def variables(self, kernel_id: str) -> dict[str, Any]:
+        """The Variables overlay: every variable, the connections and blades, the environment's names
+        (values hidden). `busy`: the kernel is running code; ask again when it is done."""
+        found = await self._kernel(kernel_id).variables(self._secret_names())
+        return {"busy": True} if found is None else found | {"busy": False}
+
+    async def grid(self, kernel_id: str, body: Any) -> dict[str, Any]:
+        """Open a table variable as a grid."""
+        name = body.get("name") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not name.isidentifier():
+            raise ValueError('Send {"name": "a variable\'s name"}.')
+        url = await self._kernel(kernel_id).grid(name)
+        if url is None:
+            raise Conflict("The kernel is running code: open it as a grid when the run is done.")
+        self.ws.audit.write("user", "variable_to_grid", name)
+        return {"url": url}
 
     async def interrupt(self, kernel_id: str) -> None:
         await self._kernel(kernel_id).interrupt()

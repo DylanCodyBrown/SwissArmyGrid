@@ -23,6 +23,7 @@ import { chooseFile } from "./fileChooser";
 import { effectiveTheme } from "./theme";
 import { forgetCatalogs } from "./workbenchCompletion";
 import { newEnvironment } from "./workbenchEnvironment";
+import { variablesPanel } from "./workbenchVariables";
 import { Kernel } from "./workbenchKernel";
 import { type CellData, notebookView, type NotebookView } from "./workbenchNotebook";
 import { scriptView, type ScriptView } from "./workbenchScript";
@@ -53,6 +54,9 @@ interface PythonChoice {
 const tabs = document.getElementById("wb-tabs") as HTMLElement;
 const docHost = document.getElementById("wb-doc") as HTMLElement;
 const toolbar = document.getElementById("wb-toolbar") as HTMLElement;
+// The Variables overlay, beside the document (the toolbar's Variables shows or hides it).
+const variables = variablesPanel();
+(document.getElementById("wb-body") as HTMLElement).append(variables.element);
 const docs: Doc[] = [];
 let current: Doc | null = null;
 let counter = 0;
@@ -113,6 +117,7 @@ function openScript(path: string | null, text: string, modified: number | null):
 
 function show(doc: Doc): void {
   current = doc;
+  variables.show(doc.kernel);
   docHost.replaceChildren(doc.element);
   drawTabs();
   drawToolbar();
@@ -316,6 +321,10 @@ function drawToolbar(): void {
       { class: "ribbon-tools" },
       ...run,
       button("Interrupt", () => void kernel.interrupt(), { icon: "stop", title: "Stop the running code (as Ctrl+C would)" }),
+      button("Variables", (e) => {
+        const open = variables.toggle();
+        (e.currentTarget as HTMLElement).setAttribute("aria-pressed", String(open));
+      }, { icon: "columns", pressed: !variables.element.hidden, title: "What the kernel holds now: your variables, the connections, the environment" }),
       button("Restart", () => void kernel.restart().then(() => toast("Restarted: every variable is gone.")), { icon: "back", title: "A fresh Python: every variable is gone" }),
       pythonPicker(doc),
       h("span", { class: `wb-state ${kernel.state}`, role: "status" }, STATE_WORDS[kernel.state]),
@@ -364,6 +373,7 @@ const rail = mountRail({
 
 function showWelcome(): void {
   current = null;
+  variables.show(null);
   drawTabs();
   drawToolbar();
   document.title = "Workbench";

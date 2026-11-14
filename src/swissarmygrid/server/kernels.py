@@ -9,7 +9,9 @@ waits for the first (as Jupyter queues cells).
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -187,6 +189,36 @@ class Kernel:
         if not content or not content.get("found"):
             return ""
         return str(content.get("data", {}).get("text/plain", ""))[:_MAX_HELP]
+
+    async def evaluate(self, expression: str) -> Any:
+        """A Python expression's value, worked out in the kernel without printing or entering the history
+        (a user expression on an empty run). Its repr, read back as a literal. None when the kernel is
+        busy; KernelError when the expression fails."""
+        content = await self._ask(
+            lambda: self.client.execute(
+                "", silent=True, store_history=False, user_expressions={"v": expression}, allow_stdin=False
+            )
+        )
+        if content is None:
+            return None
+        answer = content.get("user_expressions", {}).get("v", {})
+        if answer.get("status") != "ok":
+            raise KernelError(f"{answer.get('ename', 'Error')}: {answer.get('evalue', '')}")
+        return ast.literal_eval(answer.get("data", {}).get("text/plain", "None"))
+
+    async def variables(self, env_names: list[str]) -> dict[str, Any] | None:
+        """The Variables overlay: the user's variables, the connections, the environment's names
+        (client/kernel_variables.py). None while the kernel is busy running code."""
+        text = await self.evaluate(
+            "__import__('swissarmygrid.client.kernel_variables', fromlist=['snapshot'])"
+            f".snapshot({sorted(env_names)!r})"
+        )
+        return None if text is None else dict(json.loads(text))
+
+    async def grid(self, name: str) -> str | None:
+        """Open a table variable as a grid (sag.push, from the kernel); its address."""
+        url = await self.evaluate(f"__import__('swissarmygrid').push({name}, name={name!r})")
+        return None if url is None else str(url)
 
     async def interrupt(self) -> None:
         await self.manager.interrupt_kernel()

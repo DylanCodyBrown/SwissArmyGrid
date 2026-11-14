@@ -43,6 +43,7 @@ CLIENT_MODULES = (
     "swissarmygrid.client.completion",
     "swissarmygrid.client.sql_cell",
     "swissarmygrid.client.kernel_connections",
+    "swissarmygrid.client.kernel_variables",
     "swissarmygrid.client.watcher",
     "swissarmygrid.client.context_hook",
     "swissarmygrid.cli",

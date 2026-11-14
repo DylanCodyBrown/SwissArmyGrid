@@ -208,3 +208,44 @@ def test_completion_comes_from_the_catalog_and_the_kernel(
         expect(suggest.filter(has_text="Orders").first).to_be_visible(timeout=10000)
     finally:
         call(server, "DELETE", "/catalogs/Orders")
+
+
+def test_the_variables_overlay_shows_what_the_kernel_holds(
+    browser: Browser, orders_url: str, server: dict[str, Any], orders_csv: Path
+) -> None:
+    call(
+        server,
+        "POST",
+        "/connections",
+        {
+            "name": "Orders",
+            "kind": "other",
+            "template": "csv",
+            "code": f'from pathlib import Path\npath = Path(r"{orders_csv}")',
+        },
+    )
+    workbench = open_workbench(open_grid(browser, orders_url))
+    workbench.get_by_role("button", name="New notebook").first.click()
+    cell = workbench.locator(".wb-cell").first
+    expect(cell.locator(".monaco-editor")).to_be_visible(timeout=20000)
+    cell.locator(".monaco-editor").click()
+    frame = "{'city': ['Springfield', 'Riverton'], 'rain_mm': [3.5, 0.0]}"
+    workbench.keyboard.type(f"import pandas as pd\nrainfall = pd.DataFrame({frame})")
+    workbench.keyboard.press("Control+Enter")
+    expect(cell.locator(".wb-count")).to_have_text("[1]", timeout=60000)
+    workbench.get_by_role("button", name="Variables").click()
+    overlay = workbench.get_by_role("complementary", name="Variables")
+    row = overlay.locator("tr", has_text="rainfall")
+    expect(row).to_contain_text("2 rows by 2 columns", timeout=15000)
+    expect(row).to_contain_text("columns: city, rain_mm")
+    expect(overlay.locator("tr", has_text="Orders")).to_contain_text("opened when a cell first uses it")
+    # A cell that uses the connection opens it; the overlay reads again when the run ends.
+    cell.locator(".monaco-editor").click()
+    workbench.keyboard.press("Control+End")
+    workbench.keyboard.type("\nlen(pd.read_csv(orders))")
+    workbench.keyboard.press("Control+Enter")
+    expect(overlay.locator("tr", has_text="Orders")).to_contain_text("orders.csv", timeout=30000)
+    # A table opens as a grid in the grid page.
+    row.get_by_role("button", name="Open rainfall as a grid").click()
+    expect(workbench.locator(".toast")).to_contain_text("rainfall is open as a grid", timeout=30000)
+    assert any(d["name"] == "rainfall" for d in call(server, "GET", "/datasets")["datasets"])

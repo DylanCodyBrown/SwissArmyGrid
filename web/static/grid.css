@@ -4403,8 +4403,15 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   border-bottom: 1px solid var(--border);
 }
 
+.wb-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
 .wb-doc {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
 }
@@ -4642,3 +4649,80 @@ dialog .field > .field-row > select {
   flex: 1;
   min-width: 0;
 }
+
+/* The Variables overlay (workbenchVariables.ts) */
+.wb-vars {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  width: min(460px, 40vw);
+  padding: 8px 12px;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.wb-vars[hidden] {
+  display: none;
+}
+
+.wb-vars-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wb-vars-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 1em;
+}
+
+.wb-vars h3 {
+  margin: 10px 0 4px;
+  color: var(--muted);
+  font-size: 0.8em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Fixed columns: a long value wraps inside its cell, so the row's buttons stay in the panel. */
+.wb-vars-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.wb-vars-table td {
+  overflow-wrap: anywhere;
+}
+
+.wb-vars-table th,
+.wb-vars-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.wb-vars-table td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.wb-vars-table tr.not-open td {
+  color: var(--muted);
+}
+
+.wb-vars-type {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+.wb-vars-value {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+

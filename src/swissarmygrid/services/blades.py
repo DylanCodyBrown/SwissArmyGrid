@@ -207,6 +207,16 @@ class BladeService:
         named = code_names(sorted((str(b["name"]) for b in found if b["connection"]), key=str.casefold))
         return {"blades": [b | {"code_name": named.get(str(b["name"]))} for b in found]}
 
+    def environment_names(self) -> list[str]:
+        """The environment variables blades read or set: vaults' entries, secret blades' variables, and the
+        names connections and blades ask secret() for. Names only (the Variables overlay says set or not)."""
+        names: set[str] = set()
+        for blade in self._blades.all():
+            names.update(blade.vault_mapping)
+            names.update(blade.env_names)
+            names.update(blade.secrets)
+        return sorted(names)
+
     def templates(self) -> dict[str, Any]:
         return {"templates": [t.to_json() for t in self._templates]}
 
