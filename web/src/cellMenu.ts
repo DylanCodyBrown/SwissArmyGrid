@@ -12,7 +12,8 @@ import { api, grid } from "./api";
 import { showMenu, toast, type MenuItem as Item } from "./dom";
 import { cellValue, copySelection, onCellMenu, onHeaderMenu, selection, viewCell, viewColumns, type CellClick } from "./gridView";
 import { openColumnProfile, profileToSandbox } from "./profileView";
-import { filterByCells } from "./ribbon";
+import { filterByCells, keepColumns, sortColumns } from "./ribbon";
+import { editStep } from "./stepForms";
 import { state } from "./state";
 
 const dataset = (): string => state.info?.dataset ?? "";
@@ -47,7 +48,19 @@ export function mountContextMenus(): void {
   });
   onHeaderMenu((column, event) => {
     const chosen = selection.targetColumns();
+    // The column's own tools first, beside it (they lived only in the ribbon, rows above); then the
+    // analyses. On several selected columns, the tools act on all of them.
+    const cols = chosen.includes(column) ? chosen : [column];
+    const others = viewColumns().map((c) => c.name).filter((n) => !cols.includes(n));
     showMenu(event.clientX, event.clientY, column, [
+      ["sortup", "Sort A→Z", () => void sortColumns(cols, "asc")],
+      ["sortdown", "Sort Z→A", () => void sortColumns(cols, "desc")],
+      ["filter", "Filter…", () => editStep("filter", undefined, { column })],
+      ["rename", "Rename…", () => editStep("rename", undefined, { only: cols })],
+      ["trash", "Remove", () => void keepColumns(others)],
+      ["columns", "Keep only", () => void keepColumns(cols)],
+      ["group", "Group by…", () => editStep("group_by", undefined, { keys: cols })],
+      "-",
       ["image", "Profile to Sandbox", () => void profileToSandbox(column)],
       ["tag", "Distinct values to Sandbox", () => void distinctToSandbox(column)],
       ["profile", "Profile…", () => openColumnProfile(column)],

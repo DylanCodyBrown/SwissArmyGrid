@@ -182,7 +182,7 @@ function render(): void {
       tool("Sort A→Z", "sortup", () => void sortColumns(cols, "asc"), { disabled: noColumn }),
       tool("Sort Z→A", "sortdown", () => void sortColumns(cols, "desc"), { disabled: noColumn }),
       tool("Filter…", "filter", () => editStep("filter", undefined, { column: one }), { disabled: needOne }),
-      tool("Rename…", "rename", () => editStep("rename"), { disabled: noColumn }),
+      tool("Rename…", "rename", () => editStep("rename", undefined, { only: cols }), { disabled: noColumn }),
       tool("Auto width", "columns", () => autoSizeColumns(cols), { disabled: noColumn }),
       tool("Remove", "trash", () => void keepColumns(columns.map((c) => c.name).filter((n) => !cols.includes(n))), { disabled: noColumn, title: "Remove selected columns" }),
       tool("Keep only", "columns", () => void keepColumns(cols), { disabled: noColumn }),
@@ -291,11 +291,11 @@ function openDiffOptions(cmp: CompareInfo): void {
   );
 }
 
-async function sortColumns(cols: string[], direction: "asc" | "desc"): Promise<void> {
+export async function sortColumns(cols: string[], direction: "asc" | "desc"): Promise<void> {
   await state.addStep({ kind: "sort", params: { keys: cols.map((c) => [c, direction]) } }).catch((e: Error) => toast(e.message, "error"));
 }
 
-async function keepColumns(keep: string[]): Promise<void> {
+export async function keepColumns(keep: string[]): Promise<void> {
   if (!keep.length) {
     toast("That would remove every column.", "error");
     return;

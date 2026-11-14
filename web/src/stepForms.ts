@@ -191,7 +191,10 @@ function columnsForm(columns: ColumnInfo[], p: Params): Form {
 
 function renameForm(columns: ColumnInfo[], p: Params): Form {
   const mapping = (p.mapping as Record<string, string> | undefined) ?? {};
-  const inputs = columns.map((c) => ({ name: c.name, input: h("input", { type: "text", value: mapping[c.name] ?? "", placeholder: c.name, "aria-label": `New name for ${c.name}` }) }));
+  // The columns picked (the Column row's Rename…, the header's): only theirs, the first ready to type.
+  const only = Array.isArray(p.only) && p.only.length ? new Set(p.only as string[]) : null;
+  const shown = only ? columns.filter((c) => only.has(c.name) || mapping[c.name]) : columns;
+  const inputs = shown.map((c) => ({ name: c.name, input: h("input", { type: "text", value: mapping[c.name] ?? "", placeholder: c.name, "aria-label": `New name for ${c.name}` }) }));
   return {
     element: h("div", { class: "form-grid" }, ...inputs.map((i) => field(i.name, i.input))),
     read: () => {

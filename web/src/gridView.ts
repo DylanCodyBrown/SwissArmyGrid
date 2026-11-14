@@ -166,6 +166,11 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
           onmouseenter: () => {
             if (dragging === "columns") selection.selectColumns(name, "extend");
           },
+          // Double-click the name: rename it there (Enter keeps, Escape leaves it; a click away keeps).
+          ondblclick: (event: MouseEvent) => {
+            if ((event.target as HTMLElement).closest("button")) return;
+            this.renameInPlace();
+          },
           // Right-click: the column's menu (cellMenu.ts), the column selected first unless it already is.
           oncontextmenu: (event: MouseEvent) => {
             if (!headerMenu) return;
@@ -196,6 +201,32 @@ export function createGridView(host: HTMLElement, state: PageState): GridView {
       this.updateSort();
       headerMarks.add(this.markSelected);
       setTimeout(this.markSelected, 0);
+    }
+
+    /** The name becomes a box; the new name is a rename step (one action shorter than any form). */
+    private renameInPlace(): void {
+      const name = this.params.column.getColId();
+      const label = this.gui.querySelector<HTMLElement>(".sag-header-name");
+      if (!label || label.querySelector("input")) return;
+      const box = h("input", { type: "text", class: "sag-header-rename", value: name, "aria-label": `New name for ${name}`, spellcheck: false }) as HTMLInputElement;
+      let done = false;
+      const finish = (keep: boolean): void => {
+        if (done) return;
+        done = true;
+        const next = box.value.trim();
+        label.replaceChildren(this.params.displayName);
+        if (keep && next && next !== name) void state.addStep({ kind: "rename", params: { mapping: { [name]: next } } }).catch((e: Error) => toast(e.message, "error"));
+      };
+      box.addEventListener("keydown", (e) => {
+        e.stopPropagation(); // the grid's own keys (copy, select all) stay out of the box
+        if (e.key === "Enter") finish(true);
+        else if (e.key === "Escape") finish(false);
+      });
+      box.addEventListener("blur", () => finish(true));
+      box.addEventListener("mousedown", (e) => e.stopPropagation());
+      label.replaceChildren(box);
+      box.focus();
+      box.select();
     }
 
     private updateSort = (): void => {

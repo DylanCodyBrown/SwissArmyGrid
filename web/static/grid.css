@@ -5488,3 +5488,11 @@ body.dropping-file::after {
   align-items: center;
   gap: 8px;
 }
+
+/* A column renamed in place (double-click its name). */
+.sag-header-rename {
+  width: 100%;
+  min-width: 60px;
+  font: inherit;
+  padding: 0 4px;
+}
