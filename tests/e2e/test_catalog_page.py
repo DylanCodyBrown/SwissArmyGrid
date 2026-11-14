@@ -220,7 +220,7 @@ def test_the_grid_page_opens_the_blades_page_in_its_own_tab(browser: Browser, or
     blades = opened.value
     blades.wait_for_load_state()
     assert blades.url.split("#")[0].endswith("/catalog")
-    expect(blades.get_by_role("heading", name="Blades", exact=True)).to_be_visible()
+    expect(blades.get_by_role("heading", name="Connections and blades", exact=True)).to_be_visible()
     blades.close()
 
 
