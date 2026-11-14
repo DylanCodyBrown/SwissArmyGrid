@@ -1,467 +1,509 @@
 # Design principles
 
-These are the rules the owner has set while building SwissArmyGrid, written down so that every new
-screen and feature follows them. They are for a designer, a coding agent, or a reviewer. Each rule is
-short; under it are why, an example from the app, and the owner's own words where the rule came from
-them (with the date the owner said it). Quotes are exact, typing slips included; a word in square
-brackets is a clarification.
+A reusable set of rules for building a local data app like SwissArmyGrid, so the next app starts from
+these decisions instead of finding them again. Each rule is written for any new app; under it are why,
+an example from SwissArmyGrid, and the owner's words where the rule came from them (with the date).
+Quotes are exact, typing slips included; a word in square brackets is a clarification.
 
-Where a rule here and an older document disagree, this document and `docs/ideas.md` win; the last
-section lists what changed and what is still open.
+It is for a designer, a coding agent and a reviewer. Section 14 says the order to set a new app up;
+section 15 is the checklist to run against every new screen.
 
-## 1. What the app is for
+## 1. Purpose first
 
-**1.1 One screen's worth of work instead of three.** Every feature should cut the panning between the
-code, the SQL and the data.
-- Why: this is the reason the app exists.
-- For example: the grid, the Workbench and the Sandbox each sit on their own screen and stay in step
-  through the server, so nobody has to switch between three tools.
+**1.1 One job, one screen's worth of work.** Every feature should cut the switching between tools the
+user would otherwise pan across.
+- Example: the grid, the code (the Workbench) and the dashboard (the Sandbox) each sit on their own
+  screen and stay in step through the server.
 - The owner (2026-11-12): "I created SAG to make python to duckdb work easier instead of having to pan
   3 screens to work"
 
-**1.2 Python analyses; DuckDB SQL transforms.** A transformation is always DuckDB SQL over the user's
-own table, never a pandas translation of it.
-- Why: the code the user copies must be the transformation itself and must run unchanged.
-- For example: Copy as SQL gives one query; Copy as Python gives `duckdb.sql("""...""").df()` over the
-  table by its own name, checked against the grid before it is copied.
+**1.2 Let each engine do what it is best at, and say which.** Decide once which part does which job,
+and keep to it.
+- Example: Python analyses; DuckDB SQL transforms. A transformation is always SQL over the user's own
+  table, never a pandas translation of it.
 - The owner (2026-11-12): "let SAG have the features that make python powerful like analysis and speed
   of data, and let duck db and sql do the transforming"
 
-**1.3 Code that leaves the app must work where it lands.** Copied code is verified exactly as pasted,
-on the user's variable, with nothing extra to define.
-- The owner (2026-11-12), on the old copies: "never was the actual transformation script that would
-  work to transform the source tbale for the grid back in the ENV"
+**1.3 What leaves the app must work where it lands.** Code, files and exports are checked exactly as
+the user will use them.
+- Example: Copy as Python gives one runnable line over the user's own variable, run and compared with
+  the grid before it is copied.
 
 ## 2. Clicks and actions
 
 **2.1 Three actions or fewer.** A task that takes more than three clicks or actions, and could take
 fewer, is a defect.
-- Why: the app is used all day by an analyst; every extra step is paid many times.
-- For example: the Key Finder runs as soon as its window opens instead of waiting for a click; the empty
-  Diagram tab's Find relationships opens the finder already running; a picture in the Workbench goes to
-  the Sandbox with one click.
+- Example: the Key Finder runs as soon as its window opens; an empty diagram offers Find relationships,
+  which opens the finder already running.
 - The owner (2026-11-14): "if it takes more than 3 clicks or actions and can be reduced then it should
   considered as an improvement"
 
-**2.2 One button for the common case.** When the app can work out what the user means, it does the
-work and lets the user change it after.
-- For example: the tie-out report lines two tables up and suggests the totals; blade settings are read
-  from the code and offered as one-click suggestions; a vault lists its secret names by itself.
+**2.2 Do the obvious work, let the user change it after.** When the app can work out what the user
+means, it fills it in.
+- Example: a blade's settings are read from its code and offered as one-click suggestions; a key vault
+  lists its secret names by itself; the tie-out report suggests the totals.
 - The owner (2026-11-13): "diff columns over top of each other simply by pulling two tables side by
   side and pushing a button"
 
-**2.3 Drag, right-click and keys are shortcuts, not the only way.** Offer the direct gesture where the
-thing is (drag a connection into a cell, right-click a cell to send it), and keep a button or palette
-command for the same action.
-- For example: Script as is on the catalog's right-click menu; every Workbench action is also in the
-  command palette (Ctrl+Shift+P).
+**2.3 Direct gestures where the thing is, a named command as well.** Drag, right-click and keys are
+shortcuts; every action also has a button or a palette entry.
+- Example: drag a connection into a cell; right-click a cell to send it to the Sandbox; Script as on
+  the catalog's right-click menu, also a command.
 - The owner (2026-11-13): "you can even right click an individual cell and send that value to the
   sandbox"
 
-**2.4 Make the hard part easy, not just possible.** Where a setup is painful (an environment, a
-missing import, a password), give it a form with choices, not a page of instructions.
-- For example: a notebook's own environment is made from library presets in a dialog and remembered;
-  the error panel's fix adds the missing import or installs the package.
-- The owner (2026-11-13): "Our workbench should remember the virtual environment and make it super easy
-  to create them. Like a set of combo boxes to import common libraries."
+**2.4 Make the hard part easy, not just possible.** A painful setup gets a form with choices, never a
+page of instructions.
+- Example: a notebook's own environment is made from library presets in a dialog and remembered; the
+  error panel's fix adds the missing import or installs the package.
+- The owner (2026-11-13): "make it super easy to create them. Like a set of combo boxes to import common
+  libraries."
 
 ## 3. Placement
 
-**3.1 A control sits beside the thing it controls.** If a feature takes extra steps because of where
-it lives, it is in the wrong place.
-- For example: the ribbon's Column row acts on the selected columns and its caption names them; the
-  steps strip sits under the grid's title; a card's actions sit on the card.
-- The owner (2026-11-14): "relative location to features is a thing. If it takes extra steps or a
-  feature isn't conveniently located beside the thing that it's controlling or to features work better
-  side by side on the screen then it should be considered as well"
+**3.1 A control sits beside the thing it controls.** If a feature takes extra steps because of where it
+lives, it is in the wrong place.
+- Example: the steps strip sits under the table's title; a card's actions sit on the card; a file
+  field's Browse… sits beside the field.
+- The owner (2026-11-14): "If it takes extra steps or a feature isn't conveniently located beside the
+  thing that it's controlling or to features work better side by side on the screen then it should be
+  considered as well"
 
-**3.2 Features used together sit side by side.** A new mode of an existing tool goes next to that
-tool, not in a new place.
-- For example: compare's diff mode sits beside cross compare; Tie-out is in the Compare row; Fit test
-  and Outliers are in the Column row and in the Analyze menu.
+**3.2 Features used together sit side by side.** A new mode of a tool goes next to that tool.
+- Example: compare's diff mode beside cross compare; Tie-out in the Compare row.
 - The owner (2026-11-13): "We could simply add another mode right beside cross compared"
 
-**3.3 Rows are named for what they act on.** The ribbon has an Application row (app-wide), then
-Table, Column and Cell, and Compare only while two grids are side by side.
-- Why: it is always clear what a button will change.
-- For example: Settings, Connections, Blades and catalog, Tour and Zoom are in the Application row
-  above Table, on every tab; the Analyze menu is in the Table row.
+**3.3 Group actions by what they act on, and name the group.** Application-wide, then the whole table,
+then the selected column, then the selected cell; a row that only makes sense sometimes appears only
+then.
+- Example: the ribbon's Application, Table, Column and Cell rows; Compare only while two grids are side
+  by side.
 - The owner (2026-11-13): "Just put all those app level commands in another row above tables call
-  Application"; "I'm thinking these analysis can live in a drop-down combo box that lives in the same
-  bar as the table row of tools"
+  Application"
 
-**3.4 Each kind of thing has one home.** Pictures and charts gather in the Sandbox; code lives in the
-Workbench; connections in the Connections window; a second place for the same thing is removed.
-- For example: the Workbench lost its bottom-right picture pane; its pictures have Send to Sandbox.
+**3.4 Each kind of thing has one home.** Pictures and charts gather in one place, code in another;
+a second place for the same thing is removed.
 - The owner (2026-11-14): "The bottom right pane isn't needed it goes to the sandbox."
 
-**3.5 Panes stay in the same places.** In the Workbench: the source, its console under it, Variables
-on the right, the side bar (connections, blades, the data explorer) on the left.
-- The owner (2026-11-14): "RStudios ide might be closer to what we are after though so a good blend of
-  the two. The three panel design with variables in r studio is nice"
+**3.5 Panes stay where people expect them.** Copy the layout of the tools users already know.
+- Example: the Workbench is RStudio's: source, console under it, Variables on the right, the side bar
+  on the left.
+- The owner (2026-11-14): "Vscode is the gold standard for a good idea here. RStudios ide might be
+  closer to what we are after though so a good blend of the two. The three panel design with variables
+  in r studio is nice"
 
-**3.6 One line per row.** A toolbar row, the status bar and a step form's fields never wrap into a
-stack; when space runs out, the last buttons fold to icons.
-- Why: a row that wraps moves everything under it.
-- For example: the browser tests check that the status bar keeps its height when a cell is selected
-  and that a step form's fields share a row.
-- The owner (2026-11-12): "Why is the table header on the same line as other stuff"
+**3.6 One line per row.** A toolbar row, the status bar and a form row never wrap into a stack: a row
+that wraps moves everything under it.
+- Example: when the ribbon runs out of room, the words of its last buttons fold to icons.
 
-## 4. Windows: what lives where
+## 4. Windows
 
-**4.1 Code always opens in its own browser window, never in the grid page.** The Workbench tab opens
-or focuses that window.
-- Why: so the code can sit on another screen beside the grids.
+**4.1 Code always opens in its own browser window, never in the data page.** So it can sit on another
+screen.
 - The owner (2026-11-12): "Here is a rule. The terminal should be in its own browser tab always it is
-  not in the same page as the grids / So it can be on a separate screen"; asked again (2026-11-13):
-  "Its own window, always"
+  not in the same page as the grids / So it can be on a separate screen"
 
-**4.2 The grid page is for the grid and its analysis.** No SQL box and no steps panel on it; the grid
-has the whole page. The steps open in their own window (Edit steps).
+**4.2 The data page is for the data.** The table gets the whole page; editors and long panels open in
+their own window.
+- Example: the steps list opens in its own window from Edit steps; there is no SQL box on the grid page.
 
-**4.3 What lives where.**
+**4.3 Decide where each kind of work lives, once.**
 
 | Place | Holds |
 |---|---|
-| Grid page | the tab bar (Sandbox, Diagram, Workbench, one tab per grid, the + query tab), the Application row, the ribbon, the steps strip, the grid, the status bar |
-| Workbench window | notebooks, scripts, their consoles, Variables, the side bar; the error panel |
-| Sandbox tab | the dashboard of resizable cards: charts, notes, tables, diagrams, pictures, analysis results |
-| Blades page | blades, catalogs and packs, with the save screen |
-| Dialogs and windows | a form per task: a step, an analysis, export, compare, the Key Finder, relationships, Connections, Settings |
+| The data page | the tab strip, the Application row, the ribbon, the strip under the title, the table, the status bar |
+| The code window | notebooks and scripts, their consoles, Variables, the side bar, the error panel |
+| The dashboard tab | resizable cards: charts, notes, tables, diagrams, pictures, results |
+| The library page | saved code, catalogs and shared packs, with their save screen |
+| Dialogs | one task each: a step, an analysis, an export, a connection, the settings |
 
-**4.4 A dialog is one task.** Each analysis has its own form; each connection type has its own form
-with its code underneath.
+**4.4 A dialog is one task.** One form per kind of thing, not one form with every field.
 - The owner (2026-11-13): "Of course each analysis will need its own form to choose columns and input
   data from the grid"
 
-## 5. Let the design speak for itself
+## 5. Layout patterns
 
-**5.1 No help paragraphs, how-to hints or explanations on the screen.** Labels, headings, counts and
-the layout carry the meaning.
-- For example: empty states are a few words ("No connections", "Nothing open"); placeholders are one or
-  two words; the ribbon shows what is selected and no longer tells the user to select something.
-- The owner (2026-11-14): "You need to thoroughly rid the app of over explanatory text and instructions
-  that are in the gui. Let the design speak for itself"
+**5.1 The ribbon.** Rows stacked top to bottom, each starting with a caption cell: the row's name in
+bold and, under it, what it is acting on ("Column: amount, 2 selected"). Buttons are an icon and a
+word. A button with nothing to act on is disabled, its tooltip giving the reason. Rows: Application
+(settings, connections, the library, the tour, zoom: on every tab), Table, Column, Cell, and a
+contextual row (Compare) only when it applies. On a tab without a table the ribbon hides and the
+Application row stays.
 
-**5.2 Tooltips are short and add something.** A tooltip may hold a keyboard shortcut ("Run file (F5)")
-or the reason a button is disabled; one that repeats the button's name goes.
+**5.2 The tab strip.** Fixed app tabs first (Sandbox, Diagram, Workbench), then one tab per open
+document, then "+" to make a new one. The open tab is bold with a 2px accent line on its top edge.
+Tabs are 32px high, 90 to 240px wide, long names cut with an ellipsis. Drag to reorder; drag one tab
+onto another to show the two side by side.
 
-**5.3 What stays, and why.** Text stays when the user must act on it or asked for it:
-- errors and warnings, shortened but never removed;
-- questions about losing work, and the agent's approval questions;
-- **the tour**: the owner asked for it, behind the question mark, one card per word, then a game;
-- **Show the math**: a step-by-step proof of any analysis value, on a button, sent to the Sandbox;
-- **the Data shape sheets**: a small made-up table in the shape an analysis needs, one that does not
-  work and why, and a check of the grid in front;
-- **the error panel**: what went wrong in plain words, and its fixes.
-- The owner (2026-11-13), on the tour: "a fun interactive simple with this little words as possible
-  tutorial on what all the terminology means and how to use the app"; on Show the math: "So any
-  analysis values that are shown can be proven"; on the Data shape: "a small mock-up instruction guide
-  that simply shows a table and shows the format that data needs to be in"
+**5.3 Side bars.** A side bar holds what you bring into the main area (connections, saved code, the
+data explorer), on the left, opened and closed by one key (Ctrl+B). A results panel sits on the right
+and starts collapsed in a window narrower than 1,100px.
 
-**5.4 Explanations live in the guide, not on the screen.** The README, the user guide and the agent
-guide explain; the screens do not.
+**5.4 Panes with splitters.** Splitters can be dragged, focused and moved with the arrow keys, reset by
+a double-click; the sizes are remembered.
 
-**5.5 The product's name is not on its screens.** Page titles name the table in front ("orders",
-"Key Finder · orders").
-- The owner (2026-11-13): "The words Swiss army grid should appear nowhere in the app."
+**5.5 Dialogs.** A head (the title, a close button), a body that scrolls, and a footer with its buttons
+on the right: Back first, then secondary actions (Test), then the one primary action last (Save). Width
+720px by default, 1,200px for wide ones, never wider than the window less 32px. Closing a dialog that
+asks a question answers no.
 
-## 6. Words
+**5.6 Lists of rows.** Each row: the name, then its kind and a status word, then its actions on the
+right as small icon buttons. An empty list says so in a few words ("No connections").
 
-**6.1 Plain words, full words.** No abbreviations or acronyms a newcomer would have to look up.
-- For example: the "ERD" tab became "Diagram" and its heading "Relationship diagram"; "Fit test"
-  rather than a statistics term on the button.
-- Well-known format and product names stay as people say them: SQL, CSV, PDF, Excel, Python.
-- Source: the build plan's working agreement 9 ("user-facing text and docs avoids unexplained
-  acronyms").
+**5.7 Forms.** Labels above fields, in the muted colour. Fields flow in a grid (each at least 180px,
+gap 10px); short fields share a row and a wide field (a path, a connection string) takes its own row
+under them. Browse… sits beside its field. An on/off setting is a checkbox, never a yes/no text box. A
+password field offers where the value comes from (the keyring, an environment variable, a vault).
+Generated code sits underneath, folded, for the unusual case.
 
-**6.2 Buttons are verbs, in sentence case.** "Add connection", "Send to Sandbox", "Show these rows",
-"Run again", "Copy as SQL". A button that opens a form ends with "…" ("Filter…", "Browse…").
+**5.8 Cards.** A dashboard of cards on a 12-column grid with 40px rows. Each card: a header with its
+title on the left and icon actions on the right, resized from its corner (or the arrow keys), what it
+draws refitted to its size.
 
-**6.3 Messages say what happened, in a word or two.** "Saved", "Sent to the agent", "Restarted". No
-advice in a toast.
+**5.9 The status bar.** One line, 30px high, numbers in tabular figures: the row count, the selection's
+count, sum and average, the memory meter. On a tab without a table it names the tab.
 
-**6.4 Messages are the user's words, never the machine's.** One plain message, said once.
-- For example: when the server stops answering, the page shows "server is not answering" once, never
-  "Failed to fetch", and never stacked.
+**5.10 The command palette.** Ctrl+Shift+P opens a filtered list of every command, each showing its
+keys; Enter runs it. It reads the same list as the keys and the agent (see 8.3).
 
-**6.5 New ideas get short, memorable names, chosen with the owner.** The names come from the knife:
-blades (saved code that reaches outside Python), tangs (a saved set of relationships), packs, the
-Sandbox, the Workbench. Every name is in the tour.
-- The owner (2026-11-12): "basically anytime you reach outside of python to load something, Boom thats
-  a blade"
+**5.11 Right-click menus.** What can be done at that spot, under a small muted label naming it. Every
+entry is also somewhere else (a button or the palette).
 
-**6.6 Numbers read well.** Grid numbers have no thousands separators (an identifier must not look
-like an amount); chart ticks do; results are rounded to four significant figures; plurals are right
-("1 blade").
+## 6. The visual system
 
-## 7. The look
+**6.1 One stylesheet of tokens.** Every colour is a named token defined once per theme; nothing is
+hard-coded anywhere, charts and diagrams included. Tokens are named for their role, never their hue.
 
-**7.1 Steel and Swiss Army knife red.** Brushed-steel greys for the structure, one red for the brand
-and the main action (the title, the open tab's edge, primary buttons, the first chart series). Errors
-keep their own deeper red, always with words or an icon. No cross, flag or other mark: colours only.
+| Token | Role | Light | Dark |
+|---|---|---|---|
+| `--bg` | the page and inputs | `#ffffff` | `#121518` |
+| `--surface` | bars and panels | `#eef1f4` | `#191d22` |
+| `--surface-2` | captions, hover | `#e1e6eb` | `#21272d` |
+| `--raised` | dialogs, cards, buttons | `#ffffff` | `#21272d` |
+| `--fg` | text | `#1c2228` | `#e8ecef` |
+| `--muted` | labels, secondary text | `#525c66` | `#a2acb6` |
+| `--border` | lines between things | `#c8d0d8` | `#343c45` |
+| `--border-strong` | inputs, hover, dialogs | `#7d8893` | `#707b86` |
+| `--accent` | the brand and the main action | `#c8102e` | `#ff6b73` |
+| `--accent-fg` | text on the accent | `#ffffff` | `#1c0a0c` |
+| `--accent-soft` | a pressed or chosen fill | `#fbe6e9` | `#3d1c21` |
+| `--focus` | the focus ring | `#38434e` | `#c4ccd4` |
+| `--ok` | success, "go" | `#17722f` | `#3fb950` |
+| `--warn` / `--warn-soft` | warnings | `#855800` / `#fff4d6` | `#d29922` / `#3a2e10` |
+| `--error` / `--error-soft` | errors | `#a3141f` / `#fde8e7` | `#ff8a80` / `#3d1a19` |
+| `--agent` / `--agent-soft` | what the agent did | `#6639ba` / `#efe9fb` | `#b392f0` / `#2c2244` |
+| `--highlight`, `--changed`, `--selected`, `--row-hover` | data marks | `#fff1b8`, `#dcf4e3`, `#dbe3ec`, `#f2f4f7` | `#4a3f10`, `#133d24`, `#253342`, `#1d2228` |
+| `--cat-1` to `--cat-8` | chart series | red, blue, green, magenta, olive, teal, violet, grey | lighter versions of the same |
+
+**6.2 Four themes, following the system.** Light, dark, high contrast light, high contrast dark;
+"system" is the default and follows the dark mode and "more contrast" settings; the user's choice is
+remembered. Windows forced-colours mode maps the tokens to system colours. High contrast themes are
+flat (no gradients), use 3px focus rings, black or white borders, and their own accent.
+
+**6.3 One brand colour, used for the main action.** The accent marks the brand and the main action
+only (the title, the open tab's edge, the primary button, the first chart series). Structure is
+neutral. Errors get their own deeper red, so the brand never reads as an error.
+- Example: brushed steel greys with Swiss Army knife red.
 - The owner (2026-11-13): "Why don't we design the default theme  in the app to be steel and Swiss army
   knife red"
 
-**7.2 Every colour is a token.** Colours are defined once per theme in `web/static/grid.css`; nothing
-is hard-coded, generated charts included. Light, dark, high contrast light and high contrast dark
-follow the system by default; Windows forced-colours mode works.
+**6.4 Readable by construction.** Text at least 4.5 to 1 against its background, interface parts 3 to 1,
+high contrast themes 7 to 1. A test checks every token pair. No meaning by colour alone: blank,
+changed, error and agent marks carry an icon or a word too.
 
-**7.3 Readable by construction.** Text at least 4.5 to 1 against its background, interface parts 3 to
-1, high contrast themes 7 to 1 with thick focus outlines. Blank, changed, error and agent-versus-user
-marks carry an icon or text as well as colour.
+**6.5 A dashboard may wear its own theme.** Offer a set of themes (twenty, colour-blind-safe and high
+contrast first) and an import, applied to the dashboard and its exports without changing the app.
+- The owner (2026-11-13): "colorblind and high contrast dark and light being the most important"
 
-**7.4 The Sandbox wears its own theme.** Twenty themes, colour-blind-safe and high contrast light and
-dark first; a theme can be imported; it applies to the Sandbox and its exports without changing the
-grid.
-- The owner (2026-11-13): "the user can select from 20 basic themes l, colorblind and high contrast
-  dark and light being the most important"
+**6.6 Type.**
+- Interface: "Segoe UI", system-ui, -apple-system, sans-serif, 13px, line height 1.45, all scaled by
+  one zoom setting.
+- Code and values: "Cascadia Code", Consolas, "Courier New", monospace, at 0.95em.
+- Smaller text (captions, badges, counts) never under 11.5px. Labels 0.92em in the muted colour.
+  Dialog titles 1.08em. Weight 600 for the primary button and the open tab, 650 for row captions.
+- Numbers that line up (the status bar, counts) use tabular figures.
 
-**7.5 Charts get care around the data.** Thin axes, quiet ticks, light dotted grids, the legend across
-the top, labelled marker lines, hover boxes in the theme's colours, a calm summary box above.
-- The owner (2026-11-13): "I saw your time series the number line and canvas looked good but the crap
-  around it was ugly / That's usually true for most ai generated charts. There is no love given to
-  legends and labels"; "it should actually be very clearly readable and look decent don't skimp on that
-  part"
+**6.7 Spacing, borders and corners.**
+- Spacing steps: 2, 4, 6, 8, 10, 12px (6 and 8 most often); dialog body padding 14px, its head and foot
+  10px by 14px.
+- Controls 28px high (24px for small ones); inputs padded 3px by 8px.
+- Borders 1px in `--border`; inputs in `--border-strong`. Focus: a 2px ring in `--focus`, 2px off the
+  element, keyboard only.
+- Corners: 6px on buttons and inputs, 8px on tabs (top corners) and toasts, 10px on cards, popovers and
+  the palette, 12px on dialogs, round on badges.
+- One shadow token for anything that floats (dialogs, popovers, toasts).
 
-**7.6 Layout holds at any width.** No sideways page scroll in a narrow window; a long name is cut at its
-end with an ellipsis; a long value never pushes the other columns out.
+**6.8 Icons.** One set of line icons, drawn on a 24 grid with a 1.8 stroke in the text's colour, shown
+at 15px and scaled with the zoom.
+- Icon and word: every main command (ribbon, Application row, dialog footers).
+- Icon only: small repeated actions on a card or a row (close, copy, delete, move, refresh, more), as a
+  ghost button, always with a name for screen readers and a tooltip.
+- Words fold to icons only when a row runs out of room.
 
-## 8. Keyboard
+**6.9 Buttons, and when each.**
 
-**8.1 Everything works without a mouse.** The toolbar and grid are reachable by keyboard; cards and
-splitters resize with the arrow keys; Escape closes; the tour moves with the arrow keys.
+| Kind | Looks | Use |
+|---|---|---|
+| Plain | raised fill, 1px border | most actions |
+| Primary | accent fill, accent text, bold | the one main action of a dialog or form; at most one per place |
+| Ghost | no fill, no border until hover | icon actions on cards, rows and headers |
+| Danger | outlined in the error colour, never filled | delete, remove, discard |
+| Go | success fill | Run, where green reads as "go" |
+| Pressed toggle | accent fill with a check mark | an on/off button that is on |
+| Disabled | faded to 55% | nothing to act on; the tooltip says why |
 
-**8.2 Borrow the keys people already know.** Excel's selection and copy; Jupyter's command mode (A, B,
-D D, Z, Y, M, S); F5 and Ctrl+Enter as in RStudio and Visual Studio Code; F1 for help; Ctrl+. for a fix.
-- The owner (2026-11-14): "Vscode is the gold standard for a good idea here."
+**6.10 Badges, hints and messages.**
+- Badges: a small round-ended label with a 1px border in its own colour (agent, success, warning,
+  error, each on its soft fill). Use them for a kind or a state ("Agent", "loaded").
+- Hints: muted, 0.9em, a few words beside a field at most (the setting's key in brackets). Never a
+  sentence of instructions.
+- Error text: the error colour with a warning sign before it, next to what failed.
+- Toasts: bottom right, above the status bar, a 4px left edge in the accent (in the error colour, with a
+  warning sign, for an error); they say what happened in a word or two.
+- Success: the success colour or a success badge; no celebration.
 
-**8.3 Every window action has one name.** The palette, the keys and the agent's `workbench_window` tool
-run the same command.
+**6.11 Charts get care around the data.** Thin axis lines, quiet ticks with thousands separated, light
+dotted grids, the legend across the top, labelled marker lines, hover boxes in the theme's colours, a
+calm summary above with its first sentence as the headline. Series take the chart tokens; the alarm
+colour is kept for alarms.
+- The owner (2026-11-13): "the number line and canvas looked good but the crap around it was ugly /
+  That's usually true for most ai generated charts. There is no love given to legends and labels"
 
-## 9. Results and hand-offs
+**6.12 Hold at any width.** No sideways page scroll in a narrow window; a long name is cut at its end
+with an ellipsis; one long value never pushes the other columns out.
 
-**9.1 Every result can go three places.** Send to Sandbox (a card), Open as grid (when it is a table),
-To Python (the code, for the user's notebook). Show the math sits beside them.
+## 7. Words and on-screen text
+
+**7.1 Let the design speak for itself.** No help paragraphs, how-to hints, tips or explanations of what
+a pane is. Labels, headings, counts and the layout carry the meaning. Empty states are a few words;
+placeholders one or two; a ribbon caption shows what is selected and never tells the user to select.
+- The owner (2026-11-14): "You need to thoroughly rid the app of over explanatory text and instructions
+  that are in the gui. Let the design speak for itself"
+
+**7.2 Text that stays.** Errors and warnings (shortened, never removed); questions about losing work or
+allowing the agent; and explanations the user asks for, behind a button:
+- a tour: one card per word, lighting up the real control, then a short game, behind a question mark;
+- "Show the math": any shown result as a step-by-step proof;
+- a "Data shape" sheet: a tiny made-up table in the shape an analysis needs, one that does not work, and
+  a check of the table in front;
+- the error panel (section 9).
+- The owner (2026-11-13): "a fun interactive simple with this little words as possible tutorial on what
+  all the terminology means"; "So any analysis values that are shown can be proven"; "a small mock-up
+  instruction guide that simply shows a table and shows the format that data needs to be in"
+
+**7.3 Tooltips are short and add something:** a keyboard shortcut ("Run file (F5)") or the reason a
+button is disabled. A tooltip that repeats the label goes.
+
+**7.4 Plain words, full words.** No abbreviation or acronym a newcomer would look up ("Diagram", not
+"ERD"). Names people say as they are stay (SQL, CSV, PDF, Excel, Python).
+
+**7.5 Buttons are verbs in sentence case:** "Add connection", "Send to Sandbox", "Show these rows". A
+button that opens a form ends with "…" ("Filter…", "Browse…").
+
+**7.6 Messages say what happened, in the user's words, once.** "Saved", "Sent to the agent"; "The
+server is not answering", never "Failed to fetch", never stacked. A limit is refused in plain words
+before it does harm ("bucket it first").
+
+**7.7 Name new ideas with short, memorable words from one family,** chosen with the owner, and put every
+one in the tour.
+- Example: from the knife: blades (saved code that reaches outside Python), tangs (a saved set of
+  relationships), packs.
+- The owner (2026-11-12): "basically anytime you reach outside of python to load something, Boom thats
+  a blade"
+
+**7.8 The product's name is not on its screens.** Window titles name what is in front ("orders",
+"Key Finder · orders").
+- The owner (2026-11-13): "The words Swiss army grid should appear nowhere in the app."
+
+**7.9 Numbers read well.** Identifiers get no thousands separators; chart ticks do; results are rounded
+to four significant figures; plurals are right ("1 blade").
+
+## 8. Interaction patterns
+
+**8.1 Keyboard first.** Everything works without a mouse: the toolbar and the table are reachable by
+Tab; Escape closes; arrow keys resize cards and splitters; every window has a command palette.
+
+**8.2 Borrow keys people already know:** Excel's selection and copy, Jupyter's command mode (A, B, D D,
+Z, Y, M, S), F5 and Ctrl+Enter to run, F1 for help, Ctrl+. for a fix.
+
+**8.3 One list of commands feeds every door.** Each action is defined once, with an id, a title, its
+keys and its arguments; the buttons, the keys, the palette and the agent all read that list, so they
+never drift apart.
+
+**8.4 Live, without reloading.** A change from anywhere (a new push, the agent, another window) shows
+up at once over a socket, keeping the user's sort, scroll and layout; a dropped socket reconnects by
+itself.
+
+**8.5 Background work never makes the user wait, and says how it is going.** Slow work runs in a child
+process or thread; the screen shows a status word (loading, loaded, not loaded, with the reason on
+hover) and fills in as results land; only the newest answer is drawn.
+- The owner (2026-11-14): "We should auto load the catalog In a separate thread so it can background
+  load and feed the autocomplete"
+
+**8.6 Nothing appears or asks unasked.** No sign-in window, prompt or pop-up from work the app started
+by itself; nothing runs code until the user starts it.
+- Example: a connection that signs in through a browser window loads its catalog on first use, never at
+  start-up; a kernel starts on the first Run; copied code waits for the user to paste it.
+
+**8.7 Every result can go three places.** To the dashboard, to a new table (when it is a table), or as
+code for the user's own notebook; "Show the math" beside them. Anything that shows details (a profile, a
+value, an overlay) can go to the dashboard.
 - The owner (2026-11-13): "the results can go to the sandbox by choice or if the result is a grid then
   it can get sent to a grid but if the user wants just the python code to create the analysis they can
   also just choose to push the code to the terminal"
 
-**9.2 Tools hand off to each other.** Separate tools with hand-off buttons, not one guided path: odds
-to the fit test, find predictors to regression, regression to forecast, the model's misses to outliers.
-- The owner (2026-11-13): "four is separate with handoff buttons"
+**8.8 Tools hand off to each other.** Separate tools with hand-off buttons, not one long guided path.
+- Example: odds hands to the fit test, find predictors to regression, regression to forecast, the
+  model's misses to outliers.
 
-**9.3 Anything that shows details can go to the Sandbox.** Profiles, distinct values, a cell's value,
-any overlay.
-- The owner (2026-11-13): "Basically any overlay that we have created to see details about a table or a
-  column or a cell can be pushed to the sandbox"
-
-**9.4 The Sandbox is the user's to arrange.** Cards drag, resize and take the user's own notes; the
-whole Sandbox prints page by page (letter or landscape) and exports to markdown with charts as pictures.
-
-**9.5 A stale result says so.** When the choices change, the old result dims under a note until the
+**8.9 A stale result says so.** When the inputs change, the old result dims under a short note until the
 next run.
 
-## 10. Errors
+**8.10 The dashboard is the user's to arrange.** Cards drag, resize and take the user's own notes; it
+prints page by page and exports to markdown with charts as pictures.
 
-**10.1 An error is explained and fixed where it happened.** The Workbench's error panel follows Visual
-Studio's Exception Helper: the error and where it happened, what it means in a sentence, one-click
-fixes, the failing expression's values at that moment, the call stack with library frames folded,
-Python's own traceback behind a toggle.
+## 9. Errors
+
+**9.1 Explain and fix the error where it happened.** Follow Visual Studio's Exception Helper: the error
+and where, what it means in a sentence, one-click fixes, the failing expression's values at that moment,
+the call stack with library frames folded, the raw traceback behind a toggle.
 - The owner (2026-11-14): "Let's try to make the inline error traping a stack tracing the beat part of
   this app / I love the visual studio style hover error panel"
 
-**10.2 The error is also in the code.** The failing expression is underlined, its message sits at the
-line's end, the hover explains, Ctrl+. offers the same fixes.
+**9.2 Mark the error in the code too:** underline the failing expression, its message at the line's end,
+the explanation on hover, the fixes on Ctrl+.
 
-**10.3 An error can go to the agent.** Right-click an error or selected code, Send to the agent.
+**9.3 An error can go to the agent** with a right-click, with the user's own question if they want.
 - The owner (2026-11-14): "Let's add a right click an error or highlight code and right click to send
   to an agent."
 
-**10.4 Nothing leaves the computer to explain an error.** The words are written by the app itself; no
-web service sees the user's code or data.
+**9.4 Nothing leaves the computer to explain an error.** The app writes the words itself.
 
-**10.5 A disabled button says why.** Its tooltip gives the reason ("Number or date columns only.").
+## 10. The agent can do what the user can
 
-**10.6 A limit is refused in plain words, before it does harm.** "bucket it first" for a fit test over
-200 values; a value that would break a blade's code is refused with a plain message.
+**10.1 Every user action is an agent tool, with no prompts.** A new user action gets its command in the
+command list (8.3), and so its agent tool, in the same change. A test fails for any route that has
+neither a command nor a stated reason.
+- The owner (2026-11-14): "every single thing that user can do the AIA [the agent] should be able to
+  also do it for mcp"; asked how far: "Everything, no prompts"
 
-## 11. The golden rule: the agent can do what the user can
+**10.2 Two exceptions.** The agent cannot answer its own approval requests, and no answer it gets holds
+a password's value.
 
-**11.1 Every user action is an agent tool, with no prompts.** A new user action gets its command in
-`src/swissarmygrid/cli/commands.py` (and so a tool through the agent door, the Model Context Protocol
-server) in the same change. `tests/test_cli.py` fails for a route with no command and no stated reason.
-- The owner (2026-11-14): "And remember the Golden rule every single thing that user can do the AIA
-  [the agent] should be able to also do it for mcp"; asked how far: "Everything, no prompts"
+**10.3 The agent knows what it is looking at.** Tools say what exists, what each format takes and what
+data can be used; their names follow the screen's areas (`tabs_`, `table_`, `column_`, `cell_`,
+`steps_`...) so the list reads like the screen; the agent can take a picture of the user's screen.
+- The owner (2026-11-13): "the agents will need to understand what they are looking at what's available
+  and what data they can plot with"
 
-**11.2 The exceptions.** The agent cannot answer its own approval requests, and no answer it gets holds
-a password's value (`/blades/{name}/python` stays refused). The agent's exports still wait for the
-user's Allow (open: see section 16).
+**10.4 What the agent does is visible and recorded:** live on the user's screen, marked in the agent's
+colour, listed in the activity log (never with cell values). Data handed to the agent is marked as data,
+never instructions.
 
-**11.3 The agent knows what it is looking at.** Tools say what exists, what formats a card takes and
-what data can be plotted; the command names follow the screen's areas (`tabs_`, `table_`, `column_`,
-`cell_`, `steps_`, `sandbox_`...), so the tool list reads like the screen.
-- The owner (2026-11-13): "We also want to make sure there's no gaps in MCB tools ... the agents will
-  need to understand what they are looking at what's available and what data they can plot with"
+## 11. Privacy and safety
 
-**11.4 What the agent does shows up live and is recorded.** Its changes appear on the user's screen as
-they happen; its actions are in the agent activity list (never cell values).
+**11.1 Local only.** Listen on 127.0.0.1; a token on every data route (kept out of logs); check Host and
+Origin; no telemetry, no update checks, no outbound calls.
 
-## 12. Privacy and safety
+**11.2 Lock the engine.** The query engine cannot read or write files, reach the network or load
+extensions, and does not spill to disk; the app's own code does file work.
 
-**12.1 Local only.** The server listens on 127.0.0.1; a token on every data route (in the address's
-fragment, never logged); Host and Origin checked; no telemetry, no update checks, no outbound calls.
+**11.3 Nothing on disk without a click,** except a short, written list (exports, saved recipes and
+dashboards, saved code and shared files, connections, user-saved documents, the audit log). Everything
+else stays in memory.
 
-**12.2 DuckDB is locked.** No SQL can read or write files, reach the network or load extensions;
-spilling to disk is off. Files are read and written by the app's own Python.
+**11.4 Passwords are never shown back or sent to the agent.** Keep them in the system keyring, an
+environment variable or a key vault; code refers to them by name (`secret("WAREHOUSE_PASSWORD")`).
 
-**12.3 Nothing is written to disk without a click,** except the listed things: explicit exports, saved
-recipes, saved dashboards and themes, the audit log, blades, tangs, connections, and Workbench files
-saved by the user (with its recent list and environments). Catalogs, the Sandbox's live state and the
-To Python queue stay in memory.
-- For example: saved dashboards are saved on Save, not automatically, for this reason.
+**11.5 Pages fetch nothing.** Bundle every library; a content security policy blocks other hosts; clean
+every drawing of scripts and outside links.
 
-**12.4 Passwords are never shown back or sent to the agent.** They live in the system keyring, an
-environment variable or a key vault; code says `secret("WAREHOUSE_PASSWORD")`; a vault's values reach
-only the kernel's environment, never a page, the agent or the log (names only).
-
-**12.5 Cell contents are data, never instructions.** Values reach the agent inside `<untrusted-data>`.
-
-**12.6 Pages fetch nothing.** No runtime downloads: every library is bundled with the app; a content
-security policy blocks other hosts; figures are cleaned (no scripts, no outside links, no map tiles).
-
-**12.7 Made-up data only** in tests, examples and screenshots.
+**11.6 Made-up data only** in tests, examples and screenshots.
 - The owner (2026-11-12): "you will need to stage your own data for testing here"
 
-## 13. Defaults, sign-in and background work
+**11.7 Secure by default; the user ticks to loosen.**
+- Example: Trust server certificate is a checkbox, off by default.
 
-**13.1 Secure by default; the user ticks to loosen.** For example: Trust server certificate is a
-checkbox, off by default; a self-signed server needs the tick.
-- The owner (2026-11-14): "Yea we need a trust server cert checkbox"
+## 12. Connections, secrets and shared files
 
-**13.2 No sign-in window out of nowhere.** Work the app starts by itself never opens a browser sign-in:
-a connection that signs in with a browser window or a device code loads its catalog on first use, not
-at start-up.
-
-**13.3 Background work never makes the user wait.** Slow work runs in a child process or thread; the
-screen fills in as results land; only the newest answer is drawn.
-- For example: catalogs load two at a time in the background; the last tab clicked wins over a slow
-  first load; the Key Finder keeps only its newest search's answer.
-- The owner (2026-11-14): "We should auto load the catalog In a separate thread so it can background
-  load and feed the autocomplete"
-
-**13.4 Nothing runs Python until the user starts it.** A Workbench kernel starts on the first Run;
-To Python waits for `sag.paste()`; a blade's code runs only when it is used.
-
-**13.5 The browser draws; the server works.** The page shows the visible rows and sends intents; the
-server does the computing. Heavy page libraries load the first time they are needed.
-
-**13.6 One command installs everything.** uv installs the server once per computer; Visual Studio Code
-is optional and only adds the agent tools and an Open button.
-- The owner (2026-11-14): "The goal is to install everything with UV."
-
-## 14. Connections, vaults, catalogs, blades and tangs
-
-**14.1 Connections are databases, files and key vaults.** Each is added with a form per type, the code
-underneath, tested before saving, in the Application row's Connections window.
+**12.1 Anything that reaches outside the app is a connection,** added with a form per type, tested
+before saving, in one Connections window; key vaults are connections too.
 - The owner (2026-11-14): "Key vaults should be another connection not a blade"
 
-**14.2 Every connection is in every notebook and script by its name.** No setup lines, no checkbox.
-- The owner chose (2026-11-14): "All connections, always"
+**12.2 Connections are simply there.** Every connection is available in every notebook and script by
+its name, with no setup lines.
 
-**14.3 A password can come from anywhere the user keeps it:** the keyring, an environment variable or
-a key vault, chosen in the form. Sign-in choices sit in the form (Windows, user name and password,
-multi-factor), and switching keeps what was typed.
-- The owner (2026-11-14): "Do all of those connections allow env variables to be used instead of
-  entering?"
+**12.3 Map the hybrid way.** Show the source's own names; a box left empty keeps the name, a typed one
+maps it; by default load everything under its own name, so local code reads the same names as the cloud.
+- The owner (2026-11-14): "you can choose to map those to environment variables or you can just leave
+  them as is and they will map into the same name as the name in the vault"
 
-**14.4 Vaults map the hybrid way.** The vault's form lists its secret names; a box left empty keeps the
-vault's own name, a typed name maps it; by default every secret loads under its own name, so local code
-uses the same names as the cloud.
-- The owner (2026-11-14): "whenever you add a ball [vault] it gives you a list of the secrets names and
-  you can choose to map those to environment variables or you can just leave them as is and they will
-  map into the same name as the name in the vault"; "That means you can develop your lambda or Azure
-  function apps with a vault and use the same exact credentials that you'll be using in the cloud on
-  your local machine"
+**12.4 Sign-in choices live in the form,** and switching keeps what was typed (Windows, user name and
+password, multi-factor).
 
-**14.5 Catalogs load themselves** (names and types only, never data), feed completion as they land,
-and say loading, loaded or not loaded (with the reason on hover).
+**12.5 Read the code instead of asking the author to declare it:** settings, imports and packages are
+found in the code; secrets travel as names only.
 
-**14.6 Read the code, don't ask the author to declare it.** A blade's settings, imports and packages
-are found in its code; secrets travel as names only.
-- The owner (2026-11-12): "also we need to detect imports and pips and make it easy for the user to add
-  that to the env"
+**12.6 Shared things are files people can pass around,** in a format no other file is mistaken for, that
+the app can open and check, kept in folders or a Git repository the team already uses.
+- The owner (2026-11-13): "if I discover a relationship my coworkers have no way of knowing"
 
-**14.7 Shared things are files people can pass around.** Blades (`.blade.py`, a header the app
-recognises), tangs (`.tang`, a format no other file is mistaken for, runnable in the app to check its
-joins), packs (a Git repository as a Claude Code marketplace).
-- The owner (2026-11-13): "The problem is if I discover a relationship my coworkers have no way of
-  knowing"
+## 13. Engineering rules that shape the product
 
-## 15. Engineering rules that shape the product
+- **Typed code, strict checks:** type hints everywhere; strict type checking and a linter before each
+  commit.
+- **Tests first for behaviour;** browser tests for what the user sees, including the rules above (one
+  line rows, keyboard reach, themes, plain messages).
+- **Layers checked by a test:** domain, services and adapters, imports pointing inwards, no deeper than
+  `package/folder/file`, one file per feature per layer.
+- **Ask before adding a dependency;** prefer the standard library; cut what is heavy and little used.
+- **Verify, then record:** anything relied on from a library is checked against its real version and
+  written down (`docs/verified.md`).
+- **Ask the owner before designing a big feature,** with choices and a recommended one, and record the
+  answer (`docs/ideas.md`).
+  - The owner (2026-11-13): "You should probably talk to me first before designing anything"
+- **The browser draws; the server works.** Heavy page libraries load the first time they are needed.
+- **One command installs everything;** an editor is optional.
 
-**15.1 Typed Python, strict checks.** Type hints everywhere; `mypy` strict, `ruff`, and `npm run
-typecheck` before a commit.
+## 14. Starting a new app
 
-**15.2 Tests first for behaviour.** Golden cases before the code for anything with meaning (filters,
-steps, generated code, analyses); browser tests for what the user sees.
+Set things up in this order, so every later screen inherits the rules instead of fixing them.
 
-**15.3 The architecture is checked.** Three layers (domain, services, adapters), imports inwards, no
-deeper than `src/swissarmygrid/<folder>/<file>.py`, one file per feature per layer
-(`REFACTOR.md`, `tests/test_architecture.py`). The plain client uses the standard library only.
+1. **Tokens and themes.** The stylesheet of tokens (6.1), the four themes and forced colours (6.2), the
+   contrast test (6.4), the type, spacing, corner and icon rules (6.6 to 6.8). No screen before this.
+2. **The building blocks.** One helper each for a button (its label is also its screen-reader name), an
+   icon, a field, a dialog with head, body and footer, a toast, a menu; the button kinds of 6.9.
+3. **The shell.** Windows decided (4.3); the tab strip, the Application row, the ribbon's rows with
+   captions and folding, the status bar, side bars and splitters.
+4. **The command list.** One registry of every action (id, title, keys, arguments) that feeds the
+   buttons, the keys, the palette and the agent tools, with the test that every route has a command.
+5. **The safety posture.** Local address, token, Host and Origin checks, a locked engine, the list of
+   what may be written to disk.
+6. **Features,** each with tests first, its command in the list, its result going the three places
+   (8.7), and the checklist below run before it ships.
 
-**15.4 Ask before adding a dependency** the plan does not list; prefer the standard library (the
-statistics are the app's own).
-
-**15.5 Verify, then record.** Anything relied on from a library or DuckDB is checked against the real
-version and recorded in `docs/verified.md`.
-
-**15.6 Ask the owner before designing a big feature,** with choices and a recommended one; record the
-answer in `docs/ideas.md` as "the owner's call".
-- The owner (2026-11-13): "You should probably talk to me first before designing anything"
-
-**15.7 Cut what is heavy and little used.** For example, marimo was built in, then stripped.
-- The owner (2026-11-13): "It's heavy and not well adopted."
-
-## 16. Changed rules and open questions
-
-Older text still says otherwise in places; follow the newer rule.
-
-- **The agent runs code now.** The standalone plan's decision 4 ("the agent cannot run code in the
-  notebook") and "the agent never reads a blade's code" were replaced by the golden rule (2026-11-14).
-  The README (lines 250 and 458) and the user guide still say the agent can never run code in a kernel
-  or send code to the user's Python; `python_send` and the Workbench tools now let it.
-- **Vaults** were blades (2026-11-12, and the Workbench plan's decision 1), then connections
-  (2026-11-14). Secret blades (values typed again every session) remain as blades.
-- **Privacy levels** were removed (2026-11-12): the agent sees what the user sees.
-- **Open:** should the agent's exports drop their Allow, under "no prompts"? Should the Sandbox save
-  itself and keep a daily history, as first designed, given the no-disk rule? Should inline
-  suggestions from an AI model (the owner mentioned GitHub's code completion) be offered, given that
-  nothing leaves the computer?
-
-## Reviewer checklist
+## 15. Reviewer checklist
 
 Run this against every new screen or feature.
 
-1. Can each task on it be done in three actions or fewer? If not, can it be shorter?
-2. Does each control sit beside what it controls, and does a new mode sit beside its tool?
-3. Is it in the right row or window (Application, Table, Column, Cell; grid page, Workbench, Sandbox,
-   blades page)? Does code stay out of the grid page?
-4. Is there any help paragraph, how-to hint, long placeholder or tooltip that repeats a label? Remove
-   it, unless it is an error, a warning, a question about losing work, or the user asked for it.
-5. Are the words plain and full, with no unexplained abbreviations? Are buttons verbs in sentence case,
-   with "…" when they open a form? Do messages say what happened, once?
-6. Does the product's name appear on the screen? It should not.
+1. Can each task be done in three actions or fewer? If not, can it be shorter?
+2. Does each control sit beside what it controls, and a new mode beside its tool?
+3. Is it in the right row and window? Does code stay out of the data page?
+4. Is there any explaining text: a help paragraph, a how-to hint, a long placeholder, a tooltip that
+   repeats a label? Remove it, unless it is an error, a warning, a question, or something the user asked
+   for.
+5. Are the words plain and full? Buttons verbs in sentence case, "…" when they open a form? Messages say
+   what happened, once?
+6. Is the product's name on the screen? It should not be.
 7. Are all colours tokens? Does it read well in light, dark, both high contrast themes and forced
-   colours, with marks that carry an icon or words as well as colour?
-8. Does every row stay on one line? Does it hold at a narrow width without sideways scrolling?
-9. Does it work from the keyboard alone?
-10. Can its results go to the Sandbox, a grid and To Python, and can its numbers be shown with the math?
-11. Does an error say what happened in plain words, where, and offer the fix? Does a disabled button say
-    why?
-12. Does the agent have the same action as a command in `cli/commands.py`, in the same change?
-13. Does it write anything to disk without a click, show a password back, or send anything off the
-    computer? It must not.
-14. Is the default the safe one? Could it open a sign-in window by itself, or make the user wait?
-15. Are there tests first for its behaviour, a browser test for what the user sees, made-up data only,
-    and a note in `docs/verified.md` or `docs/ideas.md` for what was checked or decided?
+   colours, with marks that carry an icon or a word as well as colour?
+8. One primary button at most, the main action, last in the footer? Icon-only buttons only for small
+   repeated actions, each with a name?
+9. Does every row stay on one line, and the screen hold at a narrow width?
+10. Can it be used from the keyboard alone, and is every action in the palette?
+11. Can the agent do it through a command, in the same change?
+12. Do slow parts run in the background with a status word? Does anything appear or ask unasked?
+13. Do its results go to the dashboard, a table and code, and can its numbers be shown with the math?
+14. Does an error say what happened, where, and offer the fix? Does a disabled button say why?
+15. Does it write to disk without a click, show a password, or send anything off the computer? It must not.
+16. Tests first, made-up data in every test and screenshot, and what was checked or decided written down?
