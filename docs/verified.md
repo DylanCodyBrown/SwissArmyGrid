@@ -436,3 +436,11 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   Data shape sheets and the error panel's explanation stay). Then: ruff, format, mypy (227 files), the
   TypeScript check, and the full suite, 1,965 passed and none failed; the rebuilt wheel installed with
   install.sh and passed the smoke test, every page's linked files included.
+- (2026-11-14) The slim VS Code extension (the owner: "install everything with UV. The vscode
+  extension just adds the mcp tools as vscode tools and adds the button to open Swiss army grid"): its
+  19 unit tests pass and it packages to a 10 KB .vsix (the old packaging bundled a server wheel and
+  failed on the beta's version, 1.7.0b1, which broke the release workflow's build). Against the uv tool
+  install: the Open button's code found the tool's Python, started the server and the workspace page
+  answered 200, a second press reused it; the MCP command it registers (the tool's Python, -m
+  swissarmygrid.mcp.server) answered initialize and listed 177 tools. Not run: inside a real VS Code
+  (needs a VS Code download).

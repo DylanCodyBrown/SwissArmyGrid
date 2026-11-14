@@ -2,6 +2,5 @@
 **
 !dist/extension.js
 !media/swissarmygrid.svg
-!server/*.whl
 !package.json
 !LICENSE

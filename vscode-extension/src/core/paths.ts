@@ -14,9 +14,8 @@ export function infoFile(env: Env, home: string): string {
  * The Pythons that may run the server, in the order to try them:
  *   1. SWISSARMYGRID_SERVER, a python.exe with the server installed (for working on SwissArmyGrid itself: the repo's
  *      .venv). When it is set it is the only one, so a typo fails loudly instead of quietly using another install.
- *   2. The uv tool install that the installers and this extension make: <uv tool dir>/swissarmygrid/Scripts/python.exe. It is
- *      the one install the extension keeps current, which is why nothing else may start a server. UV_TOOL_DIR, when set,
- *      is uv's tool folder and the only one: uv installs there and nowhere else, so the default folders don't apply.
+ *   2. The uv tool install the installers make: <uv tool dir>/swissarmygrid/Scripts/python.exe (bin/python elsewhere).
+ *      UV_TOOL_DIR, when set, is uv's tool folder and the only one: uv installs there and nowhere else.
  */
 export function serverPythons(env: Env, home: string, platform: string): string[] {
   if (env.SWISSARMYGRID_SERVER) return [env.SWISSARMYGRID_SERVER];
@@ -52,15 +51,4 @@ export function samePath(a: string, b: string, platform: string): boolean {
   const normalize = platform === "win32" ? path.win32.normalize : path.posix.normalize;
   const norm = (p: string): string => normalize(p).replace(/[\\/]+$/, "");
   return platform === "win32" ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
-}
-
-/**
- * The same install? samePath, except that on Windows pythonw.exe and python.exe in one folder are one interpreter. The
- * extension starts the server with pythonw.exe (see windowlessPython), so the server reports pythonw.exe as the program
- * running it, while the install is found as python.exe: without this every server the extension started itself would
- * look like another copy.
- */
-export function sameInstall(a: string, b: string, platform: string): boolean {
-  const plain = (p: string): string => (platform === "win32" ? p.replace(/pythonw\.exe$/i, "python.exe") : p);
-  return samePath(plain(a), plain(b), platform);
 }

@@ -156,9 +156,10 @@ import swissarmygrid as sag
 sag.push(orders)  # a grid named "orders" opens; push again to refresh it in place
 ```
 
-Visual Studio Code is optional: the extension in `vscode-extension/` starts the server when VS
-Code opens and shows the grids in a VS Code tab, but `swissarmygrid start` runs the same server
-without it. Where this is going (workspaces, `sag.create_workspace()`, an in-app Python terminal,
+Visual Studio Code is optional. Everything installs with uv; the extension in `vscode-extension/`
+only points VS Code at what uv installed: SwissArmyGrid's MCP tools become VS Code's own tools (agent
+mode), and an Open SwissArmyGrid button (the editor and notebook toolbars, the status bar) starts the
+server when it is not running and opens it in its own window. It needs VS Code 1.101 or later. Where this is going (workspaces, `sag.create_workspace()`, an in-app Python terminal,
 saved workspaces, a relationships view): [Plans/standalone-workspaces.plan.md](Plans/standalone-workspaces.plan.md).
 
 Grids open as tabs in one window, the workspace (`/workspace`): the first push opens it, and

@@ -1,5 +1,13 @@
 # VS Code extension: the server's one home, and push buttons on files
 
+> **Superseded (the owner, 2026-11-14):** "The goal is to install everything with UV. The vscode extension
+> just adds the mcp tools as vscode tools and adds the button to open Swiss army grid the same the icon
+> tray does." The extension is now only that: an MCP server definition provider for the uv tool
+> install's `swissarmygrid.mcp.server`, and Open SwissArmyGrid (start the server if it is not running,
+> open the workspace in a window of its own). It no longer starts the server with VS Code, carries or
+> updates a server, pushes files or shows grids in a VS Code tab. The installers stay uv only. What
+> follows is the earlier design, kept for its reasons.
+
 Status (2026-10-23): planned, not built. Waiting on Dylan's review of the open questions at the end.
 
 ## What was asked

@@ -217,7 +217,8 @@ build.py                 build the page (release) and the one wheel; --vsix also
 installer/               install.sh and install.ps1 (uv, then the server as a uv tool); build.py stamps the version
 .github/workflows/       release.yml: a v* tag builds, tests the installers on Linux and Windows, publishes
 tools/smoke_install.py   start the installed server, push the sample store, check it all arrived (used by releases)
-vscode-extension/        the optional VS Code extension (TypeScript): starts the server, shows grids in VS Code
+vscode-extension/        the optional VS Code extension (TypeScript): the uv install's MCP tools as VS Code tools,
+                         and an Open SwissArmyGrid button (starts the server when needed, opens its window)
 ```
 
 ## Commands

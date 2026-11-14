@@ -1,8 +1,8 @@
 {
   "name": "swissarmygrid",
   "displayName": "SwissArmyGrid",
-  "description": "Runs the SwissArmyGrid server while VS Code is open and shows its grids inside VS Code. Push any data file (CSV, JSON, Parquet, Arrow, Excel) to a grid from the button at the top of the file.",
-  "version": "1.6.0",
+  "description": "SwissArmyGrid's tools for VS Code's agent mode, and a button that opens SwissArmyGrid. Install SwissArmyGrid itself with uv first.",
+  "version": "1.7.0",
   "publisher": "dylancodybrown",
   "license": "(MIT OR Apache-2.0)",
   "repository": {
@@ -11,7 +11,7 @@
     "directory": "vscode-extension"
   },
   "engines": {
-    "vscode": "^1.100.0"
+    "vscode": "^1.101.0"
   },
   "categories": [
     "Data Science",
@@ -24,84 +24,42 @@
   "contributes": {
     "commands": [
       {
-        "command": "swissarmygrid.restart",
-        "title": "Restart the server",
-        "category": "SwissArmyGrid"
-      },
-      {
-        "command": "swissarmygrid.updateServer",
-        "title": "Update the server",
-        "category": "SwissArmyGrid"
-      },
-      {
-        "command": "swissarmygrid.pushFile",
-        "title": "Push to SwissArmyGrid",
-        "category": "SwissArmyGrid",
-        "icon": "$(table)"
-      },
-      {
-        "command": "swissarmygrid.showGrids",
+        "command": "swissarmygrid.open",
         "title": "Open SwissArmyGrid",
         "category": "SwissArmyGrid",
         "icon": {
           "light": "media/swissarmygrid.svg",
           "dark": "media/swissarmygrid.svg"
         }
-      },
-      {
-        "command": "swissarmygrid.openInChrome",
-        "title": "Open SAG in Chrome",
-        "category": "SwissArmyGrid",
-        "icon": "$(link-external)"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "swissarmygrid.pushFile",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(csv|tsv|txt|json|jsonl|ndjson|parquet|arrow|feather|xlsx)$/i",
-          "group": "navigation"
-        },
-        {
-          "command": "swissarmygrid.showGrids",
+          "command": "swissarmygrid.open",
           "group": "navigation@100"
-        },
-        {
-          "command": "swissarmygrid.openInChrome",
-          "group": "navigation@101"
         }
       ],
       "notebook/toolbar": [
         {
-          "command": "swissarmygrid.showGrids",
+          "command": "swissarmygrid.open",
           "group": "navigation/execute@10"
-        },
-        {
-          "command": "swissarmygrid.openInChrome",
-          "group": "navigation/execute@11"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "swissarmygrid.pushFile",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(csv|tsv|txt|json|jsonl|ndjson|parquet|arrow|feather|xlsx)$/i",
-          "group": "navigation@90"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "swissarmygrid.pushFile",
-          "when": "resourceScheme == file && resourceExtname =~ /^\\.(csv|tsv|txt|json|jsonl|ndjson|parquet|arrow|feather|xlsx)$/i"
         }
       ]
     },
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "swissarmygrid",
+        "label": "SwissArmyGrid"
+      }
+    ],
     "configuration": {
       "title": "SwissArmyGrid",
       "properties": {
         "swissarmygrid.chromePath": {
           "type": "string",
           "default": "",
-          "description": "The full path to Google Chrome, for the Open SAG in Chrome button. Leave empty to look in the usual places."
+          "description": "Google Chrome's full path, for opening SwissArmyGrid in its own window. Empty: the usual places, then the default browser."
         }
       }
     }
@@ -111,14 +69,12 @@
     "compile-tests": "tsc -p tsconfig.test.json",
     "test": "npm run compile-tests && mocha \"out/test/*.test.js\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "package": "npm run typecheck && npm run build && node bundle-server.mjs && vsce package --no-dependencies --out ../dist/",
-    "test:integration": "npm run build && tsc -p tsconfig.integration.json && node out/test/integration/runTest.js"
+    "package": "npm run typecheck && npm run build && vsce package --no-dependencies --out ../dist/"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.10.0",
-    "@types/vscode": "^1.100.0",
-    "@vscode/test-electron": "^2.5.2",
+    "@types/vscode": "^1.101.0",
     "@vscode/vsce": "^3.2.0",
     "esbuild": "^0.24.0",
     "mocha": "^10.8.2",
