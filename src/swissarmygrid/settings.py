@@ -92,6 +92,8 @@ class Settings:
     max_catalog_rows: int = 2_000_000
     # How long a blade's Refresh or Test may run in its child process before it is stopped.
     blade_timeout_seconds: float = 300.0
+    # How long reading the vaults may hold up a Workbench kernel's start (it then starts without them).
+    vault_timeout_seconds: float = 60.0
     # Size of a push request body. JSON is several times larger than the same data in
     # memory, so this cap is separate from max_dataset_bytes; otherwise a dataset well under
     # the dataset cap would be refused just for arriving as JSON.

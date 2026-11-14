@@ -1,7 +1,7 @@
 /**
  * workbenchKernel.ts: a document's IPython kernel, and how a run's outputs are drawn. [WIRE + FUNCTION]
  *
- * ROUTING: [START] POST /workbench/kernels {python, path}
+ * ROUTING: [START] POST /workbench/kernels {python, path}: it starts with every vault's variables set
  *          [RUN]   POST /workbench/kernels/{id}/execute: read as it streams, one JSON output a line
  *          [STOP]  /interrupt, /restart, DELETE (on closing the document or the window)
  *
@@ -11,6 +11,7 @@
  * first Run until the last queued run ends (two runs sent at once run one after the other).
  */
 import { api, ApiError, token } from "./api";
+import { toast } from "./dom";
 import type { Output, OutputArea } from "./workbenchOutputs";
 
 export type { Output } from "./workbenchOutputs";
@@ -63,7 +64,9 @@ export class Kernel {
     if (this.id) return this.id;
     this.set("starting");
     try {
-      const started = await api<{ kernel: string; python: string }>("/workbench/kernels", "POST", { python: this.chosenPython(), path: this.path() });
+      const started = await api<{ kernel: string; python: string; vaults?: { set: string[]; problems: string[] } }>("/workbench/kernels", "POST", { python: this.chosenPython(), path: this.path() });
+      // A vault that could not be read: the kernel started without its variables.
+      for (const problem of started.vaults?.problems ?? []) toast(problem, "error");
       this.id = started.kernel;
       this.python = started.python;
       this.set("idle");

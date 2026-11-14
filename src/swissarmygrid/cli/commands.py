@@ -1951,7 +1951,11 @@ def connections_get(a: dict[str, Any]) -> Any:
 
 
 _CONNECTION_ARGS = (
-    req("kind", "sql for a database, other for a file (with template csv, excel, parquet, json or folder)."),
+    req(
+        "kind",
+        "sql for a database, other for a file (with template csv, excel, parquet, json or folder), vault "
+        "for a key vault (with vault_mapping).",
+    ),
     req("code", "The connection's Python (a type's code from connections_types, filled in)."),
     opt("template", "The type it came from (connections_types id)."),
     opt("dialect", "For a database: its SQL dialect."),
@@ -1959,6 +1963,12 @@ _CONNECTION_ARGS = (
     opt("description", "What it is for."),
     opt("catalog", '{"language", "command"}: lists the source\'s columns (the type gives one).', "json"),
     opt("secrets", '{"password": "value"}: saved in the system keyring, never shown back.', "json"),
+    opt(
+        "vault_mapping",
+        'A vault\'s entries: [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-password"}] (each secret '
+        "in the vault becomes that environment variable in every Workbench kernel).",
+        "json",
+    ),
 )
 _CONNECTION_KEYS = (
     "name",
@@ -1970,6 +1980,7 @@ _CONNECTION_KEYS = (
     "description",
     "catalog",
     "secrets",
+    "vault_mapping",
 )
 
 
@@ -2011,6 +2022,23 @@ def connections_test(a: dict[str, Any]) -> Any:
 @command("connections_vaults", "The vault blades a password can come from, with their entries (names only)")
 def connections_vaults(a: dict[str, Any]) -> Any:
     return api.call("GET", "/connections/vaults")
+
+
+@command(
+    "connections_vault_secrets",
+    "The secrets' names in a key vault, each with a variable name to map it to (names only, no value)",
+    opt("name", "A saved vault's name."),
+    opt("code", "Or a vault not saved yet: its code (a vault type's from connections_types, filled in)."),
+    opt("template", "With code: its type."),
+    opt("variable", "With code: the function that reads a secret (the type's: get)."),
+    opt(
+        "secrets", '{"name": "value"}: passwords the vault\'s own code asks for, for this read only.', "json"
+    ),
+)
+def connections_vault_secrets(a: dict[str, Any]) -> Any:
+    keys = ("name", "code", "template", "variable", "secrets")
+    body = {k: a[k] for k in keys if a.get(k) is not None}
+    return api.call("POST", "/connections/vaults/secrets", body)
 
 
 @command(

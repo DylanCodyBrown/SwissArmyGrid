@@ -101,7 +101,7 @@ const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 async function loadConnections(): Promise<void> {
   try {
     const every = (await api<{ blades: { name: string; connection?: string | null; code_name?: string | null }[] }>("/blades")).blades;
-    connectionNames = every.filter((b) => b.connection).map((b) => b.name);
+    connectionNames = every.filter((b) => b.connection && b.connection !== "vault").map((b) => b.name); // a SQL cell's sources
     bladeNames = every.filter((b) => !b.connection).map((b) => b.name);
     codeNames = every.filter((b) => b.code_name).map((b) => ({ name: b.code_name!, connection: b.name, kind: b.connection ?? "" }));
   } catch {

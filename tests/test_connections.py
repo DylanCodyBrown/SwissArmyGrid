@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from swissarmygrid.domain.connections import connection_kind, picker
+from swissarmygrid.domain.connections import connection_kind, env_name_for_secret, opens_in_code, picker
 from tests.conftest import AGENT, AUTH
 from tests.fake_keyring import memory_keyring
 
@@ -36,7 +36,9 @@ def test_databases_and_file_starters_are_connections_everything_else_is_a_blade(
     assert connection_kind("sql", None) == "database"  # hand-written database code is a connection too
     assert connection_kind("other", "excel") == "file"
     assert connection_kind("other", "blank") is None
-    assert connection_kind("vault", None) is None and connection_kind("analysis", "summary") is None
+    assert connection_kind("vault", "azure_key_vault") == "vault"  # a key vault is a connection too
+    assert connection_kind("analysis", "summary") is None and connection_kind("secret", None) is None
+    assert opens_in_code("file") and not opens_in_code("vault")  # no variable, no SQL cell: env vars
     assert picker({"name": "path", "key": "path"}, "csv") == "file"
     assert picker({"name": "folder", "key": "folder"}, "folder") == "folder"
     assert picker({"name": "server", "key": "host"}, "postgres") is None
@@ -45,7 +47,10 @@ def test_databases_and_file_starters_are_connections_everything_else_is_a_blade(
 def test_the_types_are_forms_fields_passwords_and_the_code_underneath(client: TestClient) -> None:
     types = {t["id"]: t for t in client.get("/connections/types", headers=AUTH).json()["types"]}
     assert {"postgres", "sqlserver", "sqlite", "csv", "excel", "folder"} <= set(types)
-    assert not {"blank", "summary", "azure"} & set(types)  # other code, analyses, vaults: still blades
+    assert not {"blank", "summary"} & set(types)  # other code and analyses: still blades
+    azure = types["azure_key_vault"]  # a key vault is made here too: the passwords' source
+    assert azure["connection"] == "vault" and azure["group"] == "Vaults" and azure["variable"] == "get"
+    assert [f["name"] for f in azure["fields"]] == ["vault address"]
     postgres = types["postgres"]
     assert postgres["connection"] == "database" and postgres["group"] == "Databases"
     assert "password" in postgres["secrets"]
@@ -167,6 +172,8 @@ def test_a_password_comes_from_the_keyring_an_environment_variable_or_a_vault(cl
     assert listed == [
         {
             "name": "Team vault",
+            "type": "",
+            "description": "",
             "entries": [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-pw"}],
             "read_only": False,
         }
@@ -264,3 +271,73 @@ def test_a_cell_that_names_a_connection_opens_it_first(monkeypatch: pytest.Monke
     finally:
         shell.ast_transformers.clear()
         InteractiveShell.clear_instance()
+
+
+# A made-up vault in plain Python: the same shape as the Azure starter (get, names), no package needed.
+MADE_UP_VAULT = """values = {"warehouse-password": "made-up-not-real", "api-key": "made-up", "3d-token": "x"}
+
+
+def names():
+    return list(values)
+
+
+def get(name):
+    return values[name]
+"""
+
+
+@pytest.mark.parametrize(
+    ("secret", "env"),
+    [
+        ("warehouse-password", "WAREHOUSE_PASSWORD"),
+        ("op://Private/Warehouse/password", "PRIVATE_WAREHOUSE_PASSWORD"),
+        ("3d-token", "_3D_TOKEN"),
+        ("---", "SECRET"),
+    ],
+)
+def test_a_secret_in_a_vault_gets_a_variable_name(secret: str, env: str) -> None:
+    assert env_name_for_secret(secret) == env
+
+
+@pytest.mark.parametrize("headers", [AUTH, AGENT], ids=["user", "agent"])
+def test_a_vault_is_added_its_secrets_listed_by_name_and_mapped(
+    client: TestClient, headers: dict[str, str]
+) -> None:
+    draft = {"name": "Team vault", "kind": "vault", "template": "azure_key_vault", "code": MADE_UP_VAULT}
+    draft |= {"variable": "get"}
+    listed = client.post("/connections/vaults/secrets", json=draft, headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json() == {
+        "names": [
+            {"secret": "3d-token", "env": "_3D_TOKEN"},
+            {"secret": "api-key", "env": "API_KEY"},
+            {"secret": "warehouse-password", "env": "WAREHOUSE_PASSWORD"},
+        ]
+    }
+    assert "made-up" not in listed.text  # names only: never a value
+    # A vault whose code cannot list: the user types the names.
+    plain = draft | {"code": "def get(name):\n    return 'made-up-not-real'"}
+    assert client.post("/connections/vaults/secrets", json=plain, headers=headers).json() == {"names": None}
+    # Saved with the secrets ticked: a connection like any other, listed with its entries.
+    mapping = [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-password"}]
+    saved = client.post("/connections", json=draft | {"vault_mapping": mapping}, headers=headers)
+    assert saved.status_code == 200, saved.text
+    [listed_vault] = client.get("/connections", headers=headers).json()["connections"]
+    assert listed_vault["connection"] == "vault" and listed_vault["entries"] == mapping
+    assert listed_vault["code_name"] is None  # no variable in the Workbench: its secrets are env vars
+    blades = {b["name"]: b["connection"] for b in client.get("/blades", headers=headers).json()["blades"]}
+    assert blades == {"Team vault": "vault"}  # marked a connection on the blades list, as files are
+    [vault] = client.get("/connections/vaults", headers=headers).json()["vaults"]
+    assert vault["name"] == "Team vault" and vault["type"] == "Azure Key Vault"
+    assert vault["entries"] == mapping
+    form = client.get("/connections/Team%20vault", headers=headers).json()
+    assert form["connection"] == "vault" and form["vault_mapping"] == mapping
+    # Test reads it: the variables' names come back, never their values.
+    tested = client.post("/blades/Team%20vault/test", json={}, headers=headers)
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["variables"] == ["WAREHOUSE_PASSWORD"] and "made-up" not in tested.text
+    again = client.post("/connections/vaults/secrets", json={"name": "Team vault"}, headers=headers)
+    assert len(again.json()["names"]) == 3
+    # A vault with nothing mapped is refused, plainly.
+    empty = client.post("/connections", json=draft | {"name": "Empty", "vault_mapping": []}, headers=headers)
+    assert empty.status_code == 400 and "at least one secret" in empty.text

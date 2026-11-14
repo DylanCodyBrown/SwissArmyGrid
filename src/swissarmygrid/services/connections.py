@@ -21,20 +21,27 @@ class ConnectionService:
         self._templates = templates
 
     def listing(self) -> dict[str, Any]:
-        """Every connection: databases first, then files, each with what it is."""
+        """Every connection: databases first, then files, then key vaults (each with its entries: a
+        variable and the secret's name in the vault, never a value), each with what it is."""
         labels = {t.id: t.label for t in self._templates}
+        order = {"database": 0, "file": 1, "vault": 2}
         found = []
         for b in self._blades.listing()["blades"]:
             kind = rules.connection_kind(str(b["kind"]), b.get("template"))
             if kind:
-                found.append(b | {"connection": kind, "type": labels.get(str(b.get("template") or ""), "")})
-        found.sort(
-            key=lambda c: (c["connection"] != "database", not c.get("pinned"), str(c["name"]).casefold())
-        )
+                more: dict[str, Any] = {
+                    "connection": kind,
+                    "type": labels.get(str(b.get("template") or ""), ""),
+                }
+                if kind == "vault":
+                    mapping = self._blades.get(str(b["name"])).vault_mapping
+                    more["entries"] = [{"env": env, "secret": secret} for env, secret in mapping.items()]
+                found.append(b | more)
+        found.sort(key=lambda c: (order[c["connection"]], not c.get("pinned"), str(c["name"]).casefold()))
         return {"connections": found}  # each with its code_name (the blades list names them)
 
     def types(self) -> dict[str, Any]:
-        """The starters a connection is made from, each as the Add connection form."""
+        """The starters a connection is made from (databases, files, key vaults), each as its form."""
         out = []
         for t in self._templates:
             if rules.is_connection(t.kind, t.id):
@@ -51,7 +58,7 @@ class ConnectionService:
         template = {
             "id": blade.template or "",
             "label": next((t.label for t in self._templates if t.id == blade.template), blade.dialect),
-            "group": "Databases" if kind == "database" else "Files",
+            "group": {"database": "Databases", "file": "Files"}.get(kind, "Vaults"),
             "kind": blade.kind,
             "dialect": blade.dialect,
             "variable": blade.variable or "",
@@ -59,6 +66,7 @@ class ConnectionService:
             if blade.has_catalog
             else None,
             "code": blade.code,
+            "vault_mapping": [{"env": e, "secret": v} for e, v in blade.vault_mapping.items()],
         }
         return rules.form(template, inspected) | {
             "name": blade.name,
@@ -72,7 +80,8 @@ class ConnectionService:
             raise BladeError("Send the connection as a JSON object.")
         if not rules.is_connection(str(body.get("kind", "")), body.get("template")):
             raise BladeError(
-                "A connection is made from a database or file starter. Other code is saved as a blade."
+                "A connection is made from a database, file or key vault starter. Other code is saved "
+                "as a blade."
             )
 
     async def save(self, body: Any, previous: str | None) -> dict[str, Any]:
@@ -84,13 +93,27 @@ class ConnectionService:
     def vaults(self) -> dict[str, Any]:
         """The vault blades a password can come from, each with its entries (environment variable ->
         the secret's name in the vault). Names only: no value is read."""
+        labels = {t.id: t.label for t in self._templates}
         found = [b for b in self._blades.listing()["blades"] if b["kind"] == "vault"]
         out = []
         for b in found:
             blade = self._blades.get(str(b["name"]))
             mapping = [{"env": env, "secret": secret} for env, secret in blade.vault_mapping.items()]
-            out.append({"name": blade.name, "entries": mapping, "read_only": blade.pack is not None})
+            out.append(
+                {
+                    "name": blade.name,
+                    "type": labels.get(blade.template or "", ""),
+                    "description": blade.description,
+                    "entries": mapping,
+                    "read_only": blade.pack is not None,
+                }
+            )
         return {"vaults": out}
+
+    async def vault_names(self, body: Any) -> dict[str, Any]:
+        """The secrets in a vault, saved or the form's draft, each with a variable to map it to. Names
+        only: no value is read or sent."""
+        return await self._blades.vault_names(body)
 
     async def source(self, body: Any) -> dict[str, Any]:
         """Point a password at its source: `{"code", "secret", "from": "keyring" | "env" | "vault", "env",

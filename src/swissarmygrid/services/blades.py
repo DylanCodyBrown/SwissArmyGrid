@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Protocol
 
 from swissarmygrid.domain import blades as rules
+from swissarmygrid.domain import connections as connection_rules
 from swissarmygrid.domain.analysis import whole_view_queries
 from swissarmygrid.domain.blades import (
     Blade,
@@ -32,7 +33,7 @@ from swissarmygrid.domain.blades import (
     install_command,
     pip_name,
 )
-from swissarmygrid.domain.connections import code_names, connection_kind
+from swissarmygrid.domain.connections import code_names, connection_kind, opens_in_code
 from swissarmygrid.domain.datasets import DatasetInfo
 from swissarmygrid.domain.grids import Grid
 from swissarmygrid.services.catalogs import CatalogService
@@ -204,7 +205,9 @@ class BladeService:
         pinned = self._blades.pinned()
         found = [self.summary(b, everything, pinned) for b in everything]
         # A connection's variable in the Workbench (named in a fixed order, so a name never moves).
-        named = code_names(sorted((str(b["name"]) for b in found if b["connection"]), key=str.casefold))
+        # A vault is no variable: its secrets are environment variables there already.
+        opened = (str(b["name"]) for b in found if opens_in_code(b["connection"]))
+        named = code_names(sorted(opened, key=str.casefold))
         return {"blades": [b | {"code_name": named.get(str(b["name"]))} for b in found]}
 
     def environment_names(self) -> list[str]:
@@ -308,6 +311,31 @@ class BladeService:
             raise ValueError('Send the typed passwords as {"secrets": {"name": "value"}}.')
         values = {k: v for k, v in (typed or {}).items() if v}
         return await self._run_blade(blade, "test", self._typed_values(blade, data), {"secrets": values})
+
+    async def vault_names(self, data: Any) -> dict[str, Any]:
+        """A vault's secret names (its names()), saved (`{"name"}`) or a draft (the form: code, variable,
+        typed passwords), in a child process. Names only: `{"names": [{"secret", "env"}] or None}`, None
+        when its code has no names()."""
+        if not isinstance(data, dict):
+            raise ValueError('Send {"name": "Azure Key Vault"} or the vault\'s form.')
+        if not data.get("code"):
+            blade = self._blades.get(str(data.get("name") or ""))
+            if blade.kind != "vault":
+                raise BladeError(f"{blade.name} is not a vault.")
+            answer = await self._run_blade(blade, "names", self._typed_values(blade, data))
+        else:
+            # A draft may map nothing yet: it is read as plain code (its mapping is not needed to list).
+            draft = {**data, "kind": "other", "name": str(data.get("name") or "").strip() or "Vault"}
+            blade = rules.parse_blade(draft)
+            typed = data.get("secrets") or {}
+            if not isinstance(typed, dict) or not all(isinstance(v, str) for v in typed.values()):
+                raise ValueError('Send the typed passwords as {"secrets": {"name": "value"}}.')
+            values = {k: v for k, v in typed.items() if v}
+            answer = await self._run_blade(
+                blade, "names", self._typed_values(blade, data), {"secrets": values}
+            )
+        found = answer.get("names")
+        return {"names": None if found is None else connection_rules.vault_names(found)}
 
     # ===== analysis blades: the user's own analyses in the Analyze menu =====
 

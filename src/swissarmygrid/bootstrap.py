@@ -153,6 +153,22 @@ def bootstrap(
         job = blade_runner.payload(blade_store, blade, mode, typed, extra)
         return await blade_runner.run(job, settings.blade_timeout_seconds)
 
+    async def vault_environment() -> tuple[dict[str, str], list[str]]:
+        """Every vault's entries for a Workbench kernel about to start, and the vaults that failed."""
+        job = blade_runner.load_payload(blade_store)
+        if job is None:
+            return {}, []
+        try:
+            answer = await blade_runner.run(job, settings.vault_timeout_seconds)
+        except blade_runner.RefreshError as error:
+            why = str(error)
+            if "did not finish" in why:
+                seconds = settings.vault_timeout_seconds
+                why = f"Reading the vaults took over {seconds:.0f} seconds: this kernel started without them."
+            return {}, [why]
+        values = {str(k): str(v) for k, v in dict(answer.get("values") or {}).items()}
+        return values, [str(p) for p in answer.get("problems") or []]
+
     # ===== the workspace: the ports every use case shares =====
     ws = Workspace(
         settings=settings,
@@ -233,6 +249,7 @@ def bootstrap(
             now=time.time,
             folder_of=lambda path: str(Path(path).expanduser().parent),
             secret_names=blades.environment_names,
+            vault_environment=vault_environment,
         ),
         handoff=Handoff(ws, verifier),
         models=models,

@@ -754,3 +754,52 @@ def test_a_new_environment_needs_a_full_path(folder: str) -> None:
         environments.check_request({"folder": folder, "packages": []})
     for full in ("C:\\Users\\ana\\.venv", "\\\\server\\share\\env", "/home/ana/.venv"):
         assert environments.is_full_path(full)
+
+
+VAULT = {
+    "name": "Team vault",
+    "kind": "vault",
+    "template": "azure_key_vault",
+    "variable": "get",
+    "code": "values = {'warehouse-password': 'made-up-not-real'}\n\n\n"
+    "def get(name):\n    return values[name]\n",
+    "vault_mapping": [{"env": "WAREHOUSE_PASSWORD", "secret": "warehouse-password"}],
+}
+
+
+def test_a_kernel_starts_with_every_vaults_variables_set(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("WAREHOUSE_PASSWORD", raising=False)  # another test's blade may have set it here
+    assert client.post("/connections", json=VAULT, headers=AUTH).status_code == 200
+    broken = VAULT | {"name": "Broken vault", "code": "def get(name):\n    raise KeyError(name)\n"}
+    broken |= {"vault_mapping": [{"env": "OTHER_PASSWORD", "secret": "other"}]}
+    assert client.post("/connections", json=broken, headers=AUTH).status_code == 200
+    started = client.post("/workbench/kernels", json={}, headers=AGENT)  # the agent too (the golden rule)
+    assert started.status_code == 200, started.text
+    vaults = started.json()["vaults"]
+    assert vaults["set"] == ["WAREHOUSE_PASSWORD"] and "made-up" not in started.text
+    assert len(vaults["problems"]) == 1 and "Broken vault" in vaults["problems"][0]
+    kernel = started.json()["kernel"]
+    try:
+        out = run(client, kernel, "import os\nos.environ['WAREHOUSE_PASSWORD'] == 'made-up-not-real'")
+        assert out[0]["data"]["text/plain"] == "True"
+        assert run(client, kernel, "'OTHER_PASSWORD' in os.environ")[0]["data"]["text/plain"] == "False"
+        # A restart keeps them.
+        assert client.post(f"/workbench/kernels/{kernel}/restart", headers=AUTH).status_code == 200
+        out = run(client, kernel, "import os\nos.environ.get('WAREHOUSE_PASSWORD') == 'made-up-not-real'")
+        assert out[0]["data"]["text/plain"] == "True"
+    finally:
+        client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)
+    # The server never kept the value: not in its own environment.
+    import os
+
+    assert "WAREHOUSE_PASSWORD" not in os.environ
+
+
+def test_no_vault_starts_no_child_process(client: TestClient) -> None:
+    started = client.post("/workbench/kernels", json={}, headers=AUTH).json()
+    try:
+        assert started["vaults"] == {"set": [], "problems": []}
+    finally:
+        client.delete(f"/workbench/kernels/{started['kernel']}", headers=AUTH)

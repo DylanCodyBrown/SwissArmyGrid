@@ -6,8 +6,10 @@ blade's code and variable, its saved secrets, the vault blades to run first and 
 typed for secret blades. It answers on stdout with one JSON object and exits. What the blade prints
 goes to stderr, so it cannot break that answer. A time limit stops a blade that hangs.
 
-Only the user's click starts it (the routes refuse the agent). The answer is names and types (a
-catalog) or a plain error with every secret value replaced by ****.
+The answer is names and types (a catalog), a vault's secret names, or a plain error with every secret
+value replaced by ****. One answer holds values: `load`, every vault's entries for a Workbench kernel
+about to start. The server passes them straight into that kernel's environment; they are never saved,
+never sent to the page or the agent, and never logged.
 """
 
 from __future__ import annotations
@@ -72,6 +74,29 @@ def payload(
             for v in vaults
         ],
         "env": typed,
+    }
+
+
+def load_payload(store: BladeStore) -> dict[str, Any] | None:
+    """Every vault blade, to read all their entries at once (a Workbench kernel's environment); None when
+    there are none (no child is started)."""
+    vaults = [b for b in store.all() if b.kind == "vault" and b.vault_mapping]
+    if not vaults:
+        return None
+    return {
+        "mode": "load",
+        "label": "the vaults",
+        "kind": "load",
+        "vaults": [
+            {
+                "label": v.name,
+                "code": v.code,
+                "variable": v.variable,
+                "mapping": v.vault_mapping,
+                "secrets": store.saved_secrets(v),
+            }
+            for v in vaults
+        ],
     }
 
 
@@ -153,6 +178,8 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
         run_vault,
     )
 
+    if job["mode"] == "load":
+        return _load(job)
     os.environ.update({k: str(v) for k, v in job.get("env", {}).items()})
     secrets: dict[str, str] = dict(job.get("secrets", {}))
     hidden = {**secrets, **{f"env:{k}": str(v) for k, v in job.get("env", {}).items()}}
@@ -162,6 +189,8 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
                 vault["code"], vault["variable"], vault["mapping"], vault["secrets"], vault["label"]
             )
             hidden.update({f"vault:{k}": v for k, v in values.items()})
+        if job["mode"] == "names":
+            return _names(job, secrets)
         if job["kind"] == "vault":
             values = run_vault(job["code"], job["variable"], job["vault_mapping"], secrets, job["label"])
             return {"ok": True, "variables": sorted(values)}  # names only: the values stay in this process
@@ -184,6 +213,49 @@ def _child(job: dict[str, Any]) -> dict[str, Any]:
             if secret and len(secret) >= 3:
                 message = message.replace(secret, "****")
         return {"error": message, "missing_module": error.missing_module}
+
+
+def _names(job: dict[str, Any], secrets: dict[str, str]) -> dict[str, Any]:
+    """A vault's secret names, from its `names()`: names only, no value is read. None when the vault's
+    code has no names() (the user types the names instead)."""
+    from swissarmygrid.adapters.blade_run import BladeRunError, run_code
+
+    _, made = run_code(job["code"], job["variable"], secrets, job["label"])
+    lister = made.get("names")
+    if not callable(lister):
+        return {"names": None}
+    try:
+        found = lister()
+    except BaseException as error:
+        if isinstance(error, KeyboardInterrupt | SystemExit):
+            raise
+        raise BladeRunError(
+            f"{job['label']} could not list its secrets: {type(error).__name__}: {error}"
+        ) from None
+    return {"names": [str(n) for n in list(found)[:20_000]]}
+
+
+def _load(job: dict[str, Any]) -> dict[str, Any]:
+    """Every vault's entries: {"values": {variable: value}, "problems": [a vault that failed, why]}. One
+    vault failing leaves the others' values (a kernel still starts)."""
+    from swissarmygrid.adapters.blade_run import BladeRunError, run_vault
+
+    values: dict[str, str] = {}
+    problems: list[str] = []
+    for vault in job.get("vaults", []):
+        try:
+            values.update(
+                run_vault(
+                    vault["code"], vault["variable"], vault["mapping"], vault["secrets"], vault["label"]
+                )
+            )
+        except BladeRunError as error:
+            message = str(error)
+            for secret in [*vault["secrets"].values(), *values.values()]:
+                if secret and len(secret) >= 3:
+                    message = message.replace(secret, "****")
+            problems.append(message)
+    return {"values": values, "problems": problems}
 
 
 def _tested(value: Any) -> dict[str, Any]:

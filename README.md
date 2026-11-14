@@ -252,12 +252,20 @@ run code there.
 
 ## Connections and SQL cells
 
-A **connection** is a database or a file you reach: added in the app (**Connections** in the Application
-row) with a form for its type, the Python it makes shown underneath. Each password says where it comes
-from: saved on this computer (the system keyring), an environment variable, or a key vault (an entry of
-a vault blade: Azure Key Vault, AWS, HashiCorp, 1Password, a `.env` file...). **Test connection** runs
-the form before anything is saved. Connections are kept with the
+A **connection** is a database, a file or a key vault you reach: added in the app (**Connections** in
+the Application row) with a form for its type, the Python it makes shown underneath. Each password says
+where it comes from: saved on this computer (the system keyring), an environment variable, or a key
+vault. **Test connection** runs the form before anything is saved. Connections are kept with the
 blades (so folders, packs, the catalog and Refresh work the same) but listed apart.
+
+A **key vault** (Azure Key Vault, AWS Secrets Manager or Parameter Store, Google Secret Manager,
+HashiCorp, 1Password, a `.env` file, the operating system's vault) is a connection whose secrets become
+environment variables. **Read the vault** lists the secrets' names (never a value); tick the ones you
+need and each gets a variable (`warehouse-password` becomes `WAREHOUSE_PASSWORD`, renamed as you like).
+Every Workbench kernel starts with those variables set, so `os.environ["WAREHOUSE_PASSWORD"]` and a
+connection's `secret("WAREHOUSE_PASSWORD")` just work. The values go straight into the kernel's
+environment: never saved, never shown, never sent to an agent. A password's **A key vault** offers
+**New vault** when there is none yet, and comes back to the connection when it is saved.
 
 ```python
 import swissarmygrid as sag

@@ -6,7 +6,7 @@ audit log names who did each."""
 from __future__ import annotations
 
 import secrets as tokens
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, Protocol
 
 from swissarmygrid.domain import environments as envs
@@ -89,6 +89,7 @@ class Workbench:
         now: Callable[[], float],
         folder_of: Callable[[str], str],
         secret_names: Callable[[], list[str]] = list,
+        vault_environment: Callable[[], Awaitable[tuple[dict[str, str], list[str]]]] | None = None,
     ) -> None:
         self.ws = ws
         self._documents = documents
@@ -98,6 +99,9 @@ class Workbench:
         self._folder_of = folder_of  # a file's folder (pathlib lives in the adapters)
         # The environment variables vaults, secret blades and connection passwords use (names only).
         self._secret_names = secret_names
+        # Every vault's entries (variable -> value) and the vaults that failed, read as a kernel starts: the
+        # values go into that kernel's environment and nowhere else (never in an answer, never saved).
+        self._vault_environment = vault_environment
         self._running: dict[str, Kernel] = {}
 
     # ===== files =====
@@ -213,11 +217,19 @@ class Workbench:
         python = body.get("python") or self.pythons()["pythons"][0]["python"]
         path = body.get("path")
         folder = self._folder_of(path) if isinstance(path, str) and path else None
-        kernel = await self._kernels.start(str(python), folder, dict(self._environ))
+        from_vaults: dict[str, str] = {}
+        problems: list[str] = []
+        if self._vault_environment is not None:
+            from_vaults, problems = await self._vault_environment()
+        kernel = await self._kernels.start(str(python), folder, dict(self._environ) | from_vaults)
         kernel_id = tokens.token_hex(6)
         self._running[kernel_id] = kernel
         self.ws.audit.write("user", "start_kernel", str(python))
-        return {"kernel": kernel_id, "python": kernel.python}
+        if from_vaults:
+            self.ws.audit.write("user", "vault_variables", ", ".join(sorted(from_vaults)))
+        # Names only: which variables the vaults set, and why a vault could not.
+        vaults = {"set": sorted(from_vaults), "problems": problems}
+        return {"kernel": kernel_id, "python": kernel.python, "vaults": vaults}
 
     def _kernel(self, kernel_id: str) -> Kernel:
         kernel = self._running.get(kernel_id)

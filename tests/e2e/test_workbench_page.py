@@ -8,6 +8,7 @@ that would reach the real Credential Manager.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,66 @@ def test_a_connection_is_added_with_a_form_tested_and_saved(
     expect(page.locator(".connection-list")).to_contain_text('sag.connection("orders")')
     listed = call(server, "GET", "/connections")["connections"]
     assert [(c["name"], c["connection"]) for c in listed] == [("orders", "file")]
+
+
+MADE_UP_VAULT = """values = {"warehouse-password": "made-up-not-real", "api-key": "made-up", "3d-token": "x"}
+
+
+def names():
+    return list(values)
+
+
+def get(name):
+    return values[name]
+"""
+
+
+def test_a_key_vault_is_a_connection_made_from_a_password_and_mapped_to_variables(
+    browser: Browser, orders_url: str, server: dict[str, Any]
+) -> None:
+    page = open_grid(browser, orders_url)
+    dialog = page.locator("dialog")
+    try:
+        page.locator(".app-row").get_by_role("button", name="Connections").click()
+        page.get_by_role("button", name="Add connection").click()
+        page.locator(".connection-type", has_text="PostgreSQL").click()
+        dialog.get_by_role("combobox", name="Where Password comes from").select_option("vault")
+        # No vault yet: make one here; the PostgreSQL form waits.
+        dialog.get_by_role("button", name="New vault").click()
+        expect(dialog.locator("h3")).to_have_text(["Key vaults"])  # only vaults from here
+        page.locator(".connection-type", has_text="Azure Key Vault").click()
+        dialog.locator("summary", has_text="Python code").click()
+        code = dialog.get_by_role("textbox", name="The Python this connection runs")
+        code.fill(MADE_UP_VAULT)
+        code.dispatch_event("change")
+        dialog.get_by_role("button", name="Read the vault").click()
+        secrets = dialog.locator(".vault-map tbody tr:not(.vault-new)")
+        expect(secrets).to_have_count(3)
+        expect(secrets.first.get_by_role("textbox")).to_have_value("_3D_TOKEN")
+        expect(dialog.locator(".vault-map")).not_to_contain_text("made-up")  # names only, never a value
+        dialog.get_by_role("checkbox", name="Use warehouse-password").check()
+        dialog.locator(".dialog-foot").get_by_role("button", name="Save").click()
+        # Back on the PostgreSQL form, its password pointed at the new vault's entry.
+        expect(dialog.locator("h3")).to_have_text("New PostgreSQL connection")
+        expect(dialog.get_by_role("combobox", name="Vault", exact=True)).to_have_value("Azure Key Vault")
+        dialog.get_by_role("button", name="Use it").click()
+        expect(code_box(dialog)).to_have_value(re.compile(r'secret\("WAREHOUSE_PASSWORD"\)'))
+        # The vault is a connection: in the list under Key vaults, with what it sets.
+        dialog.locator(".dialog-foot").get_by_role("button", name="Back").click()
+        dialog.locator(".dialog-foot").get_by_role("button", name="Back").click()
+        expect(dialog.get_by_role("heading", name="Key vaults")).to_be_visible()
+        expect(page.locator(".connection-list")).to_contain_text("WAREHOUSE_PASSWORD ← warehouse-password")
+        listed = call(server, "GET", "/connections")["connections"]
+        assert [(c["name"], c["connection"]) for c in listed] == [("Azure Key Vault", "vault")]
+    finally:
+        try:
+            call(server, "DELETE", f"/blades/{quote('Azure Key Vault')}")
+        except Exception:  # noqa: S110 (not saved: the test failed earlier)
+            pass
+
+
+def code_box(dialog: Any) -> Any:
+    return dialog.locator(".connection-code")  # in the folded Python code box
 
 
 def open_workbench(page: Page) -> Page:

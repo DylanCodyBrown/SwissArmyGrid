@@ -1,8 +1,10 @@
-"""Connections: the blades that reach a source of tables, seen and managed apart from blades.
+"""Connections: the blades that reach a source of tables or passwords, seen and managed apart from blades.
 
-A connection is a database blade (kind `sql`: its code makes a connection, its dialect says whose SQL)
-or a file blade (made from a file starter: a CSV, a workbook, a Parquet or JSON file, a folder of
-them; its code makes the path). They live in the blade store (one store: secrets, vaults, catalogs,
+A connection is a database blade (kind `sql`: its code makes a connection, its dialect says whose SQL),
+a file blade (made from a file starter: a CSV, a workbook, a Parquet or JSON file, a folder of them;
+its code makes the path) or a key vault (kind `vault`: its code reads a secret by name; each secret it
+maps becomes an environment variable in every Workbench kernel, the owner's call, 2026-11-14). They
+live in the blade store (one store: secrets, vaults, catalogs,
 folders, packs and the portable file all work the same); what this module decides is which blades are
 connections, what kind each is, and how a starter becomes the Add connection form. Pure rules: no I/O.
 """
@@ -28,9 +30,11 @@ _FOLDER_SETTINGS = frozenset({"folder", "directory"})
 
 
 def connection_kind(kind: str, template: str | None) -> str | None:
-    """The connection a blade is: database, file, or None (a vault, a secret, an analysis, other code)."""
+    """The connection a blade is: database, file, vault, or None (a secret, an analysis, other code)."""
     if kind == "sql":
         return "database"
+    if kind == "vault":
+        return "vault"
     if kind == "other" and template in FILE_STARTERS:
         return "file"
     return None
@@ -38,6 +42,12 @@ def connection_kind(kind: str, template: str | None) -> str | None:
 
 def is_connection(kind: str, template: str | None) -> bool:
     return connection_kind(kind, template) is not None
+
+
+def opens_in_code(connection: str | None) -> bool:
+    """Whether the connection is a variable in the Workbench and a SQL cell's source: a database or a
+    file. A vault is not: its secrets are already environment variables there."""
+    return connection in ("database", "file")
 
 
 def picker(setting: dict[str, Any], template: str | None) -> str | None:
@@ -72,6 +82,7 @@ def form(template: dict[str, Any], inspected: dict[str, Any]) -> dict[str, Any]:
         "secrets": list(inspected.get("secrets", [])),
         "packages": inspected.get("packages", []),
         "install_here": inspected.get("install_here"),
+        "vault_mapping": list(template.get("vault_mapping") or []),
     }
 
 
@@ -93,6 +104,26 @@ def env_name_for(connection: str, secret: str) -> str:
     """A variable's name for a connection's password: Sales DB, password -> SALES_DB_PASSWORD."""
     words = re.sub(r"[^A-Za-z0-9]+", "_", f"{connection}_{secret}").strip("_").upper()
     return words if words and not words[0].isdigit() else f"_{words}"
+
+
+def env_name_for_secret(secret: str) -> str:
+    """A variable's name for a secret in a vault: warehouse-password -> WAREHOUSE_PASSWORD,
+    op://Private/Warehouse/password -> PRIVATE_WAREHOUSE_PASSWORD."""
+    bare = re.sub(r"^[a-z][a-z0-9+.-]*://", "", secret.strip(), flags=re.IGNORECASE)
+    words = re.sub(r"[^A-Za-z0-9]+", "_", bare).strip("_").upper()[:128] or "SECRET"
+    return words if not words[0].isdigit() else f"_{words}"[:128]
+
+
+MAX_VAULT_NAMES: int = 5_000
+
+
+def vault_names(found: Any) -> list[dict[str, str]]:
+    """What a vault's names() gave, as rows to map: each secret's name and a variable for it. Sorted,
+    each once, at most five thousand (a name is not a secret; no value is read)."""
+    if not isinstance(found, list):
+        return []
+    names = sorted({str(n) for n in found if isinstance(n, str | int) and str(n).strip()}, key=str.casefold)
+    return [{"secret": n, "env": env_name_for_secret(n)} for n in names[:MAX_VAULT_NAMES]]
 
 
 def rename_secret(code: str, old: str, new: str) -> str:

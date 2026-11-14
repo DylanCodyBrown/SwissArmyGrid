@@ -289,7 +289,7 @@ export function mountRail(host: RailHost): Rail {
           pressed: blade.pinned,
         }),
         blade.connection
-          ? h("span", { class: `blade-kind ${blade.connection === "database" ? "sql" : "other"}` }, blade.connection === "database" ? "Database" : "File")
+          ? h("span", { class: `blade-kind ${blade.connection === "database" ? "sql" : "other"}` }, { database: "Database", file: "File", vault: "Key vault" }[blade.connection] ?? "File")
           : h("span", { class: `blade-kind ${blade.kind}` }, kindLabel(blade.kind)),
         h(
           "span",

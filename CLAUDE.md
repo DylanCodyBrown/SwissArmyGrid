@@ -83,8 +83,9 @@ src/swissarmygrid/
     proofs.py            Show the math: each analysis result as a step-by-step proof (markdown)
     themes.py            the Sandbox's 20 themes and imported ones, every colour made readable (WCAG)
     diff.py              compare's diff mode: which cells differ (tolerance, trim, case), as SQL and Python
-    connections.py       which blades are connections (database, file), the Add connection form, a password's
-                         source (renamed in the code: secret("WAREHOUSE_PASSWORD"))
+    connections.py       which blades are connections (database, file, key vault), the Add connection form, a
+                         password's source (renamed in the code: secret("WAREHOUSE_PASSWORD")), a vault's
+                         secret names as variables (warehouse-password -> WAREHOUSE_PASSWORD)
     notebooks.py         the Workbench's notebooks (.ipynb; a SQL cell is a %%sql code cell) and scripts
     environments.py      a notebook's own environment: the libraries offered (groups, presets, imports)
     errors.py            the error panel's words: what an error means and the fixes (replace, import, install,
@@ -167,7 +168,7 @@ src/swissarmygrid/
   cli/                   the agent command layer: commands.py (the one registry of every page action,
                          named by app area: tabs_, table_, column_, cell_, steps_...), api.py (HTTP + event socket as the
                          agent), main.py (the `sag` terminal command; `sag pack new` runs here, no server)
-  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (177 of them).
+  mcp/server.py          the stdio MCP server: one typed tool per command, generated from the registry (178 of them).
                          It holds no logic; add a command in cli/commands.py and it appears
 web/src/                 main.ts (composition) + one module per panel; lazy/ holds Monaco, Vega, Mermaid,
                          Graphviz, Plotly and ECharts (each loads when first needed; svgSafe cleans drawings);

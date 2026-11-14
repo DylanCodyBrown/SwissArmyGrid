@@ -5,7 +5,8 @@ Each template is a starting point the user edits on the save screen: the driver'
 connection with placeholders (`my-server`, `my_database`), `secret("password")` where a password goes,
 the variable it makes, and a catalog command that lists the source's tables and columns. Database
 catalogs are SQL in the source's own dialect; file catalogs are Python that reads only headers and a
-few rows; vault templates make `get`, a function from a secret's name to its value.
+few rows; vault templates make `get`, a function from a secret's name to its value, and most make
+`names`, the secrets' names (the Connections window lists them to map to environment variables).
 
 The packages each needs are read from the code itself (domain/blades.py), so the save screen can offer
 to install them.
@@ -532,6 +533,10 @@ from azure.keyvault.secrets import SecretClient
 client = SecretClient(vault_url="https://my-vault.vault.azure.net", credential=DefaultAzureCredential())
 
 
+def names():
+    return [p.name for p in client.list_properties_of_secrets() if p.enabled]
+
+
 def get(name):
     return client.get_secret(name).value""",
         "Signs in as you (Azure CLI, VS Code or Windows sign-in).",
@@ -542,6 +547,11 @@ def get(name):
         """import boto3
 
 client = boto3.client("secretsmanager", region_name="us-east-1")
+
+
+def names():
+    pages = client.get_paginator("list_secrets").paginate()
+    return [s["Name"] for page in pages for s in page["SecretList"]]
 
 
 def get(name):
@@ -556,6 +566,11 @@ def get(name):
 client = boto3.client("ssm", region_name="us-east-1")
 
 
+def names():
+    pages = client.get_paginator("describe_parameters").paginate()
+    return [p["Name"] for page in pages for p in page["Parameters"]]
+
+
 def get(name):
     return client.get_parameter(Name=name, WithDecryption=True)["Parameter"]["Value"]""",
     ),
@@ -566,6 +581,10 @@ def get(name):
 
 client = secretmanager.SecretManagerServiceClient()
 project = "my-project"
+
+
+def names():
+    return [s.name.rsplit("/", 1)[-1] for s in client.list_secrets(parent=f"projects/{project}")]
 
 
 def get(name):
@@ -605,6 +624,10 @@ def get(name):
         """from dotenv import dotenv_values
 
 values = dotenv_values(r"C:\\projects\\my_project\\.env")
+
+
+def names():
+    return list(values)
 
 
 def get(name):

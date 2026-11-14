@@ -233,6 +233,15 @@ dialect.
 - The source is not in the grid's DuckDB: its tables cannot be queried with `agent_query`. Write the
   SQL for the user to run in their Python (`conn = sag.blade("<name>")` gives them the connection).
 
+## Key vaults
+
+A key vault is a connection (`connections_list` shows it with `connection: "vault"` and its entries: each
+variable and the secret's name in the vault). Every Workbench kernel starts with its entries set as
+environment variables. `connections_vault_secrets(name=...)` lists the secrets in a saved vault, or a
+draft's (`code`, `template`, `variable`), by name only, each with a suggested variable;
+`connections_create(kind="vault", vault_mapping=[{"env", "secret"}], ...)` saves one. You never see a
+value.
+
 ## Blades: making a connection for the user
 
 A blade is the user's saved Python that loads something from outside Python (a database connection, a

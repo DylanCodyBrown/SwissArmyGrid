@@ -578,3 +578,20 @@ service may see the user's code or data, so nothing leaves the computer.
 nothing) and `test_key_finder_ranks_join_columns_with_percent_match` (the result table's header shows
 "Other table" where the compared table's name belongs) failed in two full runs, but pass in
 `pytest tests/e2e` (130 of 130) and alone. Worth finding which earlier test leaves state behind.
+
+## Key vaults are connections (2026-11-14, the owner's call)
+
+"It should be able to add an Azure password vault and then map the needed secrets in it directly into
+environment variables for the workspace", then: "Key vaults should be another connection, not a blade."
+So a vault blade (kind `vault`) is a third kind of connection beside databases and files: made in the
+Connections window, listed there under Key vaults with its entries, marked a connection on the blades
+lists. It is not a variable in the Workbench and not a SQL cell's source (its secrets are already
+environment variables there). Read the vault calls the vault code's `names()` (the starters for Azure,
+AWS Secrets Manager and Parameter Store, Google and a `.env` file have one) in a child process and
+answers names only; the user ticks the ones needed. Every Workbench kernel starts with every vault's
+entries in its environment: the server runs the vaults in a child process as the kernel starts (60
+seconds at most) and passes the values into that kernel's environment, the one place values cross the
+server. They are never saved, never in an answer to the page or the agent, never in the audit log (it
+records the variables' names). A vault that fails is named in a message and the kernel starts without
+it. A restart keeps the variables (jupyter_client reuses the environment). Open: a vault that is slow to
+sign in slows every kernel's start; caching the values for the session was left out on purpose.

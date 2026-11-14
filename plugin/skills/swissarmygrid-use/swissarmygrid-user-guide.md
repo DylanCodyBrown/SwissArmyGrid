@@ -339,6 +339,14 @@ their own, run in an IPython kernel on this computer.
   `workbench_window` tool runs any palette command in the window you were last in (`documents` says
   what is open, `commands` lists them all).
 
+## Connections and key vaults
+
+**Connections** in the Application row lists your databases, files and key vaults, and **Add connection** makes one with a form for its type. A database's password comes from this computer (the system keyring), an environment variable, or a key vault.
+
+- **A key vault** (Azure Key Vault, AWS, Google, HashiCorp, 1Password, a `.env` file, Windows Credential Manager or the macOS Keychain): fill in its address, press **Read the vault** to list its secrets by name, tick the ones you need and save. Each ticked secret becomes an environment variable (`warehouse-password` → `WAREHOUSE_PASSWORD`; you may rename it).
+- **Every Workbench kernel starts with those variables set.** `os.environ["WAREHOUSE_PASSWORD"]` works in any notebook or script, and so does a connection whose password is `secret("WAREHOUSE_PASSWORD")`. The Variables pane's Environment section shows each one as set or not set, never its value. A vault that cannot be read (signed out of Azure, say) says so when the kernel starts, and the kernel starts without its variables.
+- No vault yet? Choose **A key vault** for a password and press **New vault**: the connection's form waits and comes back with the new vault in its list.
+
 ## What the agent may see
 
 A connected agent sees everything the page shows: every table, its rows and columns (up to 1,048,576 rows per read, one Excel sheet), its steps and their values. An export by the agent always waits for your click: a window asks you to Allow or Deny it, and closing the window denies it.

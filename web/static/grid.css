@@ -4252,6 +4252,54 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   padding: 8px 12px;
 }
 
+.vault-entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+
+.vault-secrets .field-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.vault-secrets .field-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.vault-map {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.vault-map th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 6px;
+}
+
+.vault-map th:first-child {
+  width: 28px;
+}
+
+.vault-map td {
+  padding: 3px 6px;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.vault-map td input[type="text"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.vault-map td code {
+  overflow-wrap: anywhere;
+}
+
 .connection-code {
   width: 100%;
   white-space: pre;
@@ -5221,6 +5269,11 @@ dialog .field > .field-row > select {
 
 .wb-vars-table:has(th:nth-child(4)) th:nth-child(3) {
   width: 18%;
+}
+
+/* The Environment table: the variable's name gets the room ("WAREHOUSE_PASSWORD" on one line). */
+.wb-vars-table:not(:has(th:nth-child(3))) th:nth-child(1) {
+  width: 62%;
 }
 
 .wb-vars-table tr.not-open td {

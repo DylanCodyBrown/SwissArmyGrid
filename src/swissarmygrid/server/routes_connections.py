@@ -8,6 +8,7 @@ answer holds a password's value:
   POST   /connections                 save a new one        PUT /connections/{name}   change or rename it
   POST   /connections/test            run the form's code (not saved) with the passwords typed into it
   GET    /connections/vaults          the vault blades a password can come from, with their entries
+  POST   /connections/vaults/secrets  the secrets' names in a vault (saved, or the form's draft)
   POST   /connections/source          point a password at the keyring, an environment variable or a vault
 
 Removing, secrets, Refresh, favourites and export are the blade routes' (routes_blades.py).
@@ -61,6 +62,16 @@ def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRou
         except Exception as error:
             return error_response(error)
 
+    async def vault_names(request: Request) -> Response:
+        try:
+            return json_response(await connections.vault_names(await read_json(request)))
+        except NeedsValues as error:
+            return json_response({"needs": error.missing, "message": str(error)}, status_code=409)
+        except RefreshError as error:
+            return json_response(blades.run_failure(str(error), error.missing_module), status_code=422)
+        except Exception as error:
+            return error_response(error)
+
     async def source(request: Request) -> Response:
         try:
             return json_response(await connections.source(await read_json(request)))
@@ -83,6 +94,7 @@ def routes(connections: ConnectionService, blades: BladeService) -> list[BaseRou
         Route("/connections/types", types),
         Route("/connections/test", test, methods=["POST"]),
         Route("/connections/vaults", vaults),
+        Route("/connections/vaults/secrets", vault_names, methods=["POST"]),
         Route("/connections/source", source, methods=["POST"]),
         Route("/connections/{name}", details),
         Route("/connections/{name}", save, methods=["PUT"]),

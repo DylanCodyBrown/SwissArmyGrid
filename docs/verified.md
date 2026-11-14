@@ -449,3 +449,16 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   and the 1.7.0 .vsix built, and the installers installed the 1.7.0b1 wheel as a uv tool on Linux and
   macOS (install.sh) and Windows (install.ps1); on each the smoke test passed, the Workbench's kernel,
   the error panel, Send to the agent through the prompt hook and every page's linked files included.
+- (2026-11-14) Key vaults as connections (the owner: "add an Azure password vault and then map the
+  needed secrets in it directly into environment variables", then "Key vaults should be another
+  connection, not a blade"). With a made-up vault in plain Python (the Azure starter's shape: names()
+  and get()): Read the vault listed four secrets by name with suggested variables and no value in the
+  answer, for the user and for the agent; a vault without names() said so; saved with two ticked, it was
+  listed among the connections (Key vaults) and not given a Workbench variable; a password's New vault
+  made one and came back to the PostgreSQL form with the vault's entry chosen. A Workbench kernel
+  started with WAREHOUSE_PASSWORD set to the vault's value (and kept it over a restart), a vault that
+  failed was named and the kernel started anyway, the start's answer held the variables' names only, and
+  the server's own environment never got the value. Then: ruff, format, mypy (227 files), the TypeScript
+  check, the non-browser suite (1,845 passed after one test was made independent of the order), and the
+  Workbench and blades page browser tests (31 passed). Not tried: a real Azure Key Vault (no Azure
+  account here; the starter's names() uses azure-keyvault-secrets' list_properties_of_secrets).
