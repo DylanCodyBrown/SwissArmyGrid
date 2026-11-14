@@ -701,8 +701,24 @@ should be code behind in the read only cell using duck db." Decided:
   date · last run 10:42 · Run". The variable changes when the user runs it. The cell keeps the code it
   last ran and compares the text, so undoing a change clears the yellow by itself. "Not run yet" before
   its first run; "Not run since opening" after a reload.
-- **Under its maker:** right under the cell that made the table; a table no cell made goes in a Tables
-  section at the top. The file runs top to bottom.
+- **All tables at the top, in a Tables group** (replaces "under its maker"). Each table is a group of
+  its own: the user's cell that made it (still theirs, editable) and its read-only transformations
+  cell, moved together, so the file still runs top to bottom. The group orders itself: the imports the
+  tables need first, then each table after the tables it is made from (a join after its two sides).
+  Collapsed, a table is one line ("orders · 3 steps · up to date"); the whole group collapses to one
+  line ("Tables · 4 tables · 1 out of date"), so the user works on their script without scrolling past
+  transformations. It **starts collapsed** when a file opens, and the line turns yellow when any table
+  inside is out of date. In a .ipynb the groups are markdown headings ("Tables", one per table), which
+  JupyterLab also folds; in a script they are `# region Tables` / `# endregion` (VS Code folds them)
+  around `# %% [table]` and `# %% [transformations]` cells.
+- **A maker that cannot move stays put, marked.** When the cell that makes a table needs something the
+  user's code defines further down (a helper function, a variable), that table's cells stay where they
+  are, and the Tables group lists it with a link: "orders is made at @cell7 (it needs make_dates)".
+- **Every cell has a number that never changes,** given when the cell is made, never reused or shifted
+  when cells move or go (not the run count `[3]`). Saved in the cell's metadata in a .ipynb and on its
+  marker line in a script (`# %% [7]`), so it survives any editor. **A comment links to a cell as
+  `# @cell7`:** a click in the Workbench jumps there, a hover shows its first line; elsewhere it is a
+  plain comment.
 - **The output is the table's own name.** So a second run never transforms an already-transformed
   table, the app keeps a reference to the original the maker cell made (no copy) and the table's cell
   always starts from it; top to bottom, the maker makes it and the cell transforms it once. Cost: the
