@@ -255,7 +255,10 @@ run code there.
 A **connection** is a database, a file or a key vault you reach: added in the app (**Connections** in
 the Application row) with a form for its type, the Python it makes shown underneath. Each password says
 where it comes from: saved on this computer (the system keyring), an environment variable, or a key
-vault. **Test connection** runs the form before anything is saved. Connections are kept with the
+vault. SQL Server and Azure SQL have a **Sign in** choice: Windows, a user name and password, or MFA
+(Microsoft Entra), each its own connection string, switched keeping what you typed. **Trust server
+certificate** and **Encrypt** are checkboxes (SQL Server, Azure SQL, Trino). **Test connection** runs
+the form before anything is saved. Connections are kept with the
 blades (so folders, packs, the catalog and Refresh work the same) but listed apart.
 
 A **key vault** (Azure Key Vault, AWS Secrets Manager or Parameter Store, Google Secret Manager,

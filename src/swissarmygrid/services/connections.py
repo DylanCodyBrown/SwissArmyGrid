@@ -70,6 +70,9 @@ class ConnectionService:
             "code": blade.code,
             "vault_mapping": [{"env": e, "secret": v} for e, v in blade.vault_mapping.items()],
             "vault_all": blade.vault_all,
+            "sign_ins": next(
+                (t.to_json()["sign_ins"] for t in self._templates if t.id == blade.template), []
+            ),
         }
         return rules.form(template, inspected) | {
             "name": blade.name,

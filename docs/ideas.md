@@ -622,3 +622,17 @@ requests session with trust_env off: otherwise REQUESTS_CA_BUNDLE wins over the 
 that session also ignores HTTPS_PROXY, so a Trino reached through a proxy needs `session.proxies` set in the
 code. Open: signing in with a client certificate (trino.auth.CertificateAuthentication, a .pem and its key)
 instead of a password, as a second starter, if the owner wants it.
+
+## Sign in three ways; Trust server certificate (2026-11-14, the owner's request)
+
+"We need a trust server cert checkbox. Also the Azure and SQL Server connections should allow MFA and
+basic as well as Windows login." A starter may carry several ways to sign in (Template.sign_ins: label,
+a text only that code holds, the code); the form's Sign in swaps the code and fills the new one with the
+values typed so far (by setting name; a value still a placeholder is not carried). SQL Server: Windows
+(Trusted_Connection), user name and password (UID and PWD={secret}: braces, so a password may hold ;),
+MFA (ActiveDirectoryInteractive). Azure SQL: MFA, user name and password, Windows (ActiveDirectoryIntegrated).
+On/off settings are checkboxes: TrustServerCertificate and Encrypt in a connection string (yes/no),
+trust_server_certificate in code (True/False); no other True/False becomes a field. The starters now say
+TrustServerCertificate=no (they said yes): a server with a self-signed certificate needs the tick.
+Open: one Workbench browser test (the console's step-by-step run, "row 1") failed once in a combined run and
+passed three runs after; a timing race to look at.

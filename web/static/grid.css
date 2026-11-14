@@ -4234,6 +4234,14 @@ td.far { color: var(--danger, #a3141f); font-weight: 600; }
   margin: 10px 0;
 }
 
+.connection-fields .field-flag {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  padding-bottom: 8px;
+}
+
 .connection-fields .field-row {
   display: flex;
   gap: 6px;

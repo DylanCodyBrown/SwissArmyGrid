@@ -690,6 +690,7 @@ KEYWORDS: dict[str, str] = {
     "ssl_ca": "certificate file",
     "ca": "certificate file",
     "sslmode": "encryption",
+    "trust_server_certificate": "trust server certificate",
 }
 # The parts of a connection string (ODBC, DB2, OLE DB) that are settings, by their key ignoring case.
 CONNECTION_KEYS: dict[str, str] = {
@@ -706,7 +707,11 @@ CONNECTION_KEYS: dict[str, str] = {
     "dsn": "data source",
     "dbq": "path",
     "driver": "driver",
+    "trustservercertificate": "trust server certificate",
+    "encrypt": "encrypt",
 }
+# Settings that are on or off (a checkbox): True/False in code, yes/no in a connection string.
+FLAGS = frozenset({"trust server certificate", "encrypt"})
 # Never a setting, wherever it appears: these belong in secret("...").
 _SECRET_WORDS = re.compile(r"pass|pwd|token|secret|credential|api_?key|private", re.IGNORECASE)
 # The first argument of these calls is a file or folder.
@@ -771,7 +776,9 @@ class Setting:
             "name": self.name,
             "key": self.key,
             "value": self.value,
-            "type": "number"
+            "type": "flag"
+            if self.name in FLAGS
+            else "number"
             if isinstance(self.value, int | float) and not isinstance(self.value, bool)
             else "text",
             "line": self.line,
@@ -828,6 +835,13 @@ def _literal(node: ast.expr | None) -> ast.Constant | None:
         and isinstance(node.args[0].value, str)
     ):
         return node.args[0]
+    return None
+
+
+def _flag(node: ast.expr | None, name: str | None) -> ast.Constant | None:
+    """A True/False literal for an on/off setting (FLAGS); other booleans are never settings."""
+    if name in FLAGS and isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node
     return None
 
 
@@ -926,6 +940,8 @@ def _detect(code: str) -> list[_Found]:
         else:
             continue
         literal = _literal(value)
+        if isinstance(target, ast.Name):
+            literal = literal or _flag(value, KEYWORDS.get(target.id.casefold()))
         if isinstance(target, ast.Name) and literal is not None:
             # A known setting's own word first (verify = r"...pem" is a certificate file, not any path).
             known = KEYWORDS.get(target.id.casefold())
@@ -940,7 +956,8 @@ def _detect(code: str) -> list[_Found]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             for keyword in node.keywords:
-                literal = _literal(keyword.value)
+                word = KEYWORDS.get(keyword.arg.casefold()) if keyword.arg else None
+                literal = _literal(keyword.value) or _flag(keyword.value, word)
                 if keyword.arg and literal is not None and keyword.arg.casefold() in KEYWORDS:
                     add(literal, KEYWORDS[keyword.arg.casefold()], keyword.arg, "keyword")
             if node.args and _call_name(node) in _PATH_CALLS:
@@ -1004,6 +1021,17 @@ def apply_settings(code: str, values: dict[str, Any]) -> str:
         if spot is None:
             raise FillError("The code changed since its settings were read: read them again.")
         old = spot.setting.value
+        if isinstance(old, bool):  # an on/off setting: True or False
+            on = new is True or str(new).strip().casefold() in ("true", "yes", "1", "on")
+            edits.append((spot.start, spot.end, "True" if on else "False"))
+            continue
+        if spot.inside_string and spot.setting.name in FLAGS:  # yes or no, as the driver reads it
+            on = new is True or str(new).strip().casefold() in ("true", "yes", "1", "on")
+            # true/false where the code said so; else yes/no (Encrypt=strict becomes yes or no)
+            was_bool = str(old).strip().casefold() in ("true", "false")
+            word = ("true" if on else "false") if was_bool else ("yes" if on else "no")
+            edits.append((spot.start, spot.end, word))
+            continue
         if spot.inside_string:
             text = str(new).strip()
             if not text or re.search(r"[;\"'\n]", text):
@@ -1342,6 +1370,9 @@ class Template:
     catalog_command: str | None = None
     vault_mapping: tuple[tuple[str, str], ...] = ()  # (environment variable, secret name) examples
     note: str = ""
+    # Ways to sign in, each its own code (the form's Sign in): (label, a text only that code holds, code).
+    # The first is `code`.
+    sign_ins: tuple[tuple[str, str, str], ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -1359,4 +1390,5 @@ class Template:
             ),
             "vault_mapping": [{"env": e, "secret": s} for e, s in self.vault_mapping],
             "note": self.note,
+            "sign_ins": [{"label": label, "mark": mark, "code": code} for label, mark, code in self.sign_ins],
         }

@@ -6,7 +6,9 @@
  *   [LIST]   each connection: its type, its catalog, Edit, Test, Refresh catalog, Copy for Python, Remove;
  *            a key vault shows its entries (variable <- secret in the vault) instead
  *   [ADD]    pick a type (Databases, Files, Vaults), then its form:
- *   [FORM]   a name; the starter's settings as fields (a file or folder field has Browse…); its
+ *   [FORM]   a name; Sign in, where the type has several ways (SQL Server, Azure SQL: Windows, user name
+ *            and password, MFA), each its own code, switched keeping what was typed; the starter's
+ *            settings as fields (on/off ones as checkboxes; a file or folder field has Browse…); its
  *            passwords (kept in the system keyring); Test connection (runs the form, nothing saved);
  *            Save. The Python it makes shows underneath, editable for the unusual case
  *   [VAULT]  a vault's form lists its secrets by name (never a value) as soon as it can be read (its
@@ -29,7 +31,7 @@ interface Field {
   name: string;
   key: string;
   value: string | number | boolean;
-  type: "text" | "number";
+  type: "text" | "number" | "flag";
   placeholder: boolean;
   picker: "file" | "folder" | null;
   suggestions: { value: string; from: string }[];
@@ -54,6 +56,8 @@ interface Form {
   summary?: { secrets: Record<string, boolean> };
   vault_mapping: Mapping[];
   vault_all?: boolean;
+  /** Ways to sign in, each its own code; `mark` is text only that code holds. */
+  sign_ins?: { label: string; mark: string; code: string }[];
 }
 
 interface Mapping {
@@ -268,6 +272,12 @@ export async function openConnections(): Promise<void> {
     const drawFields = (next: Field[]): void => {
       fields = next;
       const boxes = fields.map((field, i) => {
+        if (field.type === "flag") {
+          // On or off: True/False in the code, yes/no in a connection string.
+          const tick = h("input", { type: "checkbox", checked: ["true", "yes", "1", "on"].includes(String(field.value).toLowerCase()), "aria-label": words(field.name) }) as HTMLInputElement;
+          tick.addEventListener("change", () => void fill(fields[i]!, tick.checked ? "yes" : "no"));
+          return h("label", { class: "field field-flag" }, tick, h("span", {}, words(field.name)));
+        }
         const input = h("input", { type: field.type === "number" ? "number" : "text", value: field.placeholder ? "" : String(field.value), placeholder: String(field.value), "aria-label": words(field.name), spellcheck: false });
         input.addEventListener("change", () => void fill(fields[i]!, input.value));
         const browse = field.picker
@@ -528,6 +538,32 @@ export async function openConnections(): Promise<void> {
       }
     };
 
+    // Sign in (SQL Server, Azure SQL): each way is its own code; switching keeps the values typed so far.
+    const ways = form.sign_ins ?? [];
+    const current = Math.max(0, ways.findIndex((w) => code.toLowerCase().includes(w.mark.toLowerCase())));
+    const signInSelect = h("select", { "aria-label": "Sign in" }, ...ways.map((w, i) => h("option", { value: String(i), selected: i === current }, w.label))) as HTMLSelectElement;
+    signInSelect.addEventListener("change", () => void switchSignIn(ways[Number(signInSelect.value)]!));
+    const signIn = ways.length > 1 ? h("label", { class: "field" }, h("span", {}, "Sign in"), signInSelect) : null;
+    const switchSignIn = async (way: { code: string }): Promise<void> => {
+      const typedSoFar = new Map(fields.filter((f) => !f.placeholder).map((f) => [f.name, f.value]));
+      try {
+        const next = await api<{ settings: Field[]; secrets: string[] }>("/blades/inspect", "POST", { code: way.code, template: form.id || null, name: editing });
+        const keep = Object.fromEntries(next.settings.filter((s) => typedSoFar.has(s.name) && s.name !== "driver").map((s) => [s.id, typedSoFar.get(s.name)]));
+        const answer = Object.keys(keep).length
+          ? await api<{ code: string; settings: Field[] }>("/blades/fill", "POST", { code: way.code, values: keep, template: form.id || null, name: editing })
+          : { code: way.code, settings: next.settings };
+        code = answer.code;
+        codeBox.value = code;
+        drawFields(answer.settings.map((s) => ({ ...s, picker: fields.find((f) => f.name === s.name)?.picker ?? null })));
+        form.secrets = next.secrets;
+        labels.clear();
+        for (const secret of next.secrets) labels.set(secret, secret);
+        passwordsSlot.replaceChildren(drawPasswords() ?? "");
+        result.replaceChildren();
+      } catch (e) {
+        failed(e);
+      }
+    };
     const passwordsSlot = h("div", {}, drawPasswords() ?? "");
     clear(
       body,
@@ -535,6 +571,7 @@ export async function openConnections(): Promise<void> {
       form.note ? h("p", { class: "hint" }, form.note) : null,
       h("label", { class: "field" }, h("span", {}, "Name"), name),
       h("label", { class: "field" }, h("span", {}, "Description"), description),
+      signIn,
       fieldsHost,
       passwordsSlot,
       secretsBox,

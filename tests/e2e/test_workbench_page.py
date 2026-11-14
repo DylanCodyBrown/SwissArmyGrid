@@ -135,6 +135,39 @@ def test_a_key_vault_is_a_connection_made_from_a_password_and_mapped_to_variable
             pass
 
 
+def test_sql_server_signs_in_three_ways_and_trusts_a_certificate_on_a_tick(
+    browser: Browser, orders_url: str
+) -> None:
+    page = open_grid(browser, orders_url)
+    dialog = page.locator("dialog")
+    page.locator(".app-row").get_by_role("button", name="Connections").click()
+    page.get_by_role("button", name="Add connection").click()
+    page.locator(".connection-type", has_text="SQL Server").first.click()
+    sign_in = dialog.get_by_role("combobox", name="Sign in")
+    expect(sign_in.locator("option:checked")).to_have_text("Windows sign-in")
+    expect(dialog.locator(".connection-passwords")).to_have_count(0)  # Windows: no password
+    server = dialog.get_by_role("textbox", name="Server")
+    server.fill("sql01.shop.local")
+    server.press("Tab")
+    expect(code_box(dialog)).to_have_value(re.compile("Server=sql01.shop.local;"))
+    # A user name and password: the server typed stays, a Password box appears.
+    sign_in.select_option(label="User name and password")
+    expect(code_box(dialog)).to_have_value(re.compile(r'PWD=\{" \+ secret\("password"\)'))
+    expect(code_box(dialog)).to_have_value(re.compile("Server=sql01.shop.local;"))
+    expect(dialog.locator(".connection-passwords")).to_be_visible()
+    # Trust server certificate is a checkbox, off by default.
+    trust = dialog.get_by_role("checkbox", name="Trust server certificate")
+    expect(trust).not_to_be_checked()
+    trust.check()
+    expect(code_box(dialog)).to_have_value(re.compile("TrustServerCertificate=yes;"))
+    # MFA: Microsoft Entra, signed in interactively; the tick and the server kept.
+    sign_in.select_option(label="MFA (Microsoft Entra)")
+    expect(code_box(dialog)).to_have_value(re.compile("Authentication=ActiveDirectoryInteractive;"))
+    expect(code_box(dialog)).to_have_value(re.compile("Server=sql01.shop.local;"))
+    expect(dialog.get_by_role("checkbox", name="Trust server certificate")).to_be_checked()
+    expect(dialog.locator(".connection-passwords")).to_have_count(0)
+
+
 def code_box(dialog: Any) -> Any:
     return dialog.locator(".connection-code")  # in the folded Python code box
 

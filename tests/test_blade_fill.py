@@ -55,8 +55,10 @@ def test_a_connection_string_gives_each_part_and_skips_lookalike_keys() -> None:
         ("driver", "Driver", "{ODBC Driver 18 for SQL Server}"),
         ("server", "Server", "my-server"),
         ("database", "Database", "my_database"),
-    ]  # TrustServerCertificate is not "Server"
-    assert [s.line for s in found] == [4, 5, 6] and found[1].where == "connection string"
+        ("trust server certificate", "TrustServerCertificate", "yes"),  # a checkbox, and not "Server"
+    ]
+    assert [s.line for s in found] == [4, 5, 6, 7] and found[1].where == "connection string"
+    assert found[3].to_json()["type"] == "flag"
     assert by_key('conn = pyodbc.connect("DSN=sales_reporting")') == {"DSN": "sales_reporting"}
 
 
@@ -117,6 +119,12 @@ def test_every_setting_of_every_starter_can_be_changed_alone(template: object) -
         new: object = (
             6543 if isinstance(setting.value, int) else ("D:\\x\\y.db" if setting.name == "path" else "db01")
         )
+        if setting.to_json()["type"] == "flag":  # a checkbox: turned the other way
+            new = (
+                (not setting.value)
+                if isinstance(setting.value, bool)
+                else {"yes": "no"}.get(str(setting.value), "yes")
+            )
         changed = apply(code, {setting.id: new})
         after = detect(changed)
         assert len(after) == len(found)

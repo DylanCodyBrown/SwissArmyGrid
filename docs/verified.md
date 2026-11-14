@@ -487,3 +487,10 @@ A chart over 1,000,000 rows sends at most 5,000 points (`tests/test_cards.py`).
   Then: the form shows Certificate file (verify) with Browse… for .pem, .crt and .cer, Scheme (https)
   and the Password box; sslrootcert, ssl_ca and ca are certificate files too. The non-browser suite
   (1,854 passed) and the Workbench and blades page browser tests (31 passed).
+- (2026-11-14) Sign in and Trust server certificate: each of the six SQL Server and Azure SQL versions read
+  as the right fields (the password only for user name and password); in the browser, the SQL Server form
+  switched Windows -> user name and password -> MFA keeping the server typed and the trust tick, the
+  Password box came and went, and the tick wrote TrustServerCertificate=yes; Trino's tick writes
+  trust_server_certificate = True. Not tried: a real SQL Server or Azure SQL (no server or Microsoft account
+  here; the connection strings are Microsoft's ODBC Driver 18 keywords). The non-browser suite: 1,858
+  passed; the Workbench and blades page browser tests: 30 of 31, then 15 of 15 three times (see ideas.md).

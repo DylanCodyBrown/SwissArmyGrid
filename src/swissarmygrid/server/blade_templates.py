@@ -117,8 +117,36 @@ def _db(
     catalog: str,
     note: str = "",
     language: str = "sql",
+    sign_ins: tuple[tuple[str, str, str], ...] = (),
 ) -> Template:
-    return Template(id, label, "Databases", "sql", code, "conn", dialect, language, catalog, note=note)
+    return Template(
+        id, label, "Databases", "sql", code, "conn", dialect, language, catalog, note=note, sign_ins=sign_ins
+    )
+
+
+# SQL Server and Azure SQL: one connection string, three ways to sign in (the form's Sign in). Encrypted;
+# TrustServerCertificate is the form's checkbox (yes for a server whose certificate this computer does
+# not know, such as a self-signed one).
+_WINDOWS = """    "Trusted_Connection=yes;"\n"""
+_SQL_LOGIN = """    "UID=my_user;"\n    "PWD={" + secret("password") + "};"\n"""
+_MFA = """    "Authentication=ActiveDirectoryInteractive;"\n    "UID=my_user@my-company.com;"\n"""
+_INTEGRATED = """    "Authentication=ActiveDirectoryIntegrated;"\n"""
+_AZURE_SERVER = "tcp:my-server.database.windows.net,1433"
+
+
+def _sql_server(server: str, sign_in: str) -> str:
+    return (
+        "import pyodbc\n\nconn = pyodbc.connect(\n"
+        '    "Driver={ODBC Driver 18 for SQL Server};"\n'
+        f'    "Server={server};"\n'
+        '    "Database=my_database;"\n'
+        f"{sign_in}"
+        '    "Encrypt=yes;TrustServerCertificate=no;"\n)'
+    )
+
+
+SQLSERVER_WINDOWS = _sql_server("my-server", _WINDOWS)
+AZURE_MFA = _sql_server(_AZURE_SERVER, _MFA)
 
 
 DATABASES: tuple[Template, ...] = (
@@ -126,33 +154,31 @@ DATABASES: tuple[Template, ...] = (
         "sqlserver",
         "SQL Server",
         "sqlserver",
-        """import pyodbc
-
-conn = pyodbc.connect(
-    "Driver={ODBC Driver 18 for SQL Server};"
-    "Server=my-server;"
-    "Database=my_database;"
-    "Trusted_Connection=yes;"  # Windows sign-in; or UID=...;PWD= + secret("password")
-    "Encrypt=yes;TrustServerCertificate=yes;"
-)""",
+        SQLSERVER_WINDOWS,
         INFORMATION_SCHEMA,
         "Needs Microsoft's ODBC Driver 18 for SQL Server on this computer.",
+        sign_ins=(
+            ("Windows sign-in", "Trusted_Connection=yes", SQLSERVER_WINDOWS),
+            ("User name and password", "PWD=", _sql_server("my-server", _SQL_LOGIN)),
+            ("MFA (Microsoft Entra)", "ActiveDirectoryInteractive", _sql_server("my-server", _MFA)),
+        ),
     ),
     _db(
         "azuresql",
         "Azure SQL Database / Synapse",
         "sqlserver",
-        """import pyodbc
-
-conn = pyodbc.connect(
-    "Driver={ODBC Driver 18 for SQL Server};"
-    "Server=tcp:my-server.database.windows.net,1433;"
-    "Database=my_database;"
-    "Authentication=ActiveDirectoryInteractive;"  # signs in with your Microsoft account
-    "Encrypt=yes;"
-)""",
+        AZURE_MFA,
         INFORMATION_SCHEMA,
         "Needs Microsoft's ODBC Driver 18 for SQL Server on this computer.",
+        sign_ins=(
+            ("MFA (Microsoft Entra)", "ActiveDirectoryInteractive", AZURE_MFA),
+            ("User name and password", "PWD=", _sql_server(_AZURE_SERVER, _SQL_LOGIN)),
+            (
+                "Windows sign-in (Microsoft Entra)",
+                "ActiveDirectoryIntegrated",
+                _sql_server(_AZURE_SERVER, _INTEGRATED),
+            ),
+        ),
     ),
     _db(
         "postgres",
@@ -317,9 +343,10 @@ import trino
 
 user = "my_user"
 verify = r"C:\\certs\\my-company-ca.pem"
+trust_server_certificate = False
 
 session = requests.Session()
-session.verify = verify
+session.verify = False if trust_server_certificate else verify
 session.trust_env = False  # this .pem, even where REQUESTS_CA_BUNDLE names another
 
 conn = trino.dbapi.connect(
