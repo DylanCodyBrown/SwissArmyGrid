@@ -527,3 +527,11 @@ def test_catalogs_load_themselves_when_saved_at_start_up_and_on_first_use(tmp_pa
         assert asked.status_code == 200 and asked.json()["state"] in ("loading", "loaded")
         _wait_for(client, "Entra", None, True)
         assert client.post("/connections/Nope/catalog", headers=AUTH).status_code == 404
+
+
+def test_a_form_not_named_yet_can_be_tested(client: TestClient, tmp_path: Path) -> None:
+    (tmp_path / "orders.csv").write_text("order_id\n1\n", encoding="utf-8")
+    draft = csv_connection(tmp_path / "orders.csv") | {"name": ""}
+    tested = client.post("/connections/test", json=draft, headers=AUTH)
+    assert tested.status_code == 200, tested.text  # once: "Blade name '' is not allowed"
+    assert "blade" not in tested.text.lower()

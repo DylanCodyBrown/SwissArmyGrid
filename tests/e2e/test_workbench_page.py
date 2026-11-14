@@ -94,6 +94,8 @@ def test_a_key_vault_is_a_connection_made_from_a_password_and_mapped_to_variable
         code = dialog.get_by_role("textbox", name="The Python this connection runs")
         code.fill(MADE_UP_VAULT)
         code.dispatch_event("change")
+        # The plain code needs no package: the Azure starter's "Not installed" note goes with it.
+        expect(dialog).not_to_contain_text("Not installed")
         # The secrets are listed on their own, once the vault can be read (no button to press).
         secrets = dialog.locator(".vault-map tbody tr:not(.vault-new)")
         expect(secrets).to_have_count(3)
@@ -224,6 +226,8 @@ def test_the_workbench_runs_a_notebook_with_a_sql_cell_saves_it_and_reopens_it(
     named.get_by_role("button", name="Delete cell").click()
     second = workbench.locator(".wb-cell").nth(1)
     second.get_by_label("Cell kind").select_option("sql")
+    # The box shows the connection the cell will run on, straight away (it once showed a placeholder).
+    expect(second.get_by_label("Connection")).to_have_value("Orders")
     second.get_by_label("Connection").select_option("Orders")
     second.locator(".monaco-editor").click()
     workbench.keyboard.type("SELECT sum(amount) AS total FROM orders")

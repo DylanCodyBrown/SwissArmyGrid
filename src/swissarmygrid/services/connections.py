@@ -176,6 +176,9 @@ class ConnectionService:
         return {"code": rules.rename_secret(code, secret, env), "secret": env, "vault": vault.name}
 
     async def test(self, body: Any) -> dict[str, Any]:
-        """Run the form's code (not saved) with the passwords typed into it."""
+        """Run the form's code (not saved) with the passwords typed into it. A form not named yet is
+        tested all the same (the name is only needed to save)."""
         self._check(body)
+        if not str(body.get("name") or "").strip():
+            body = {**body, "name": "Untitled"}
         return await self._blades.test_draft(body)

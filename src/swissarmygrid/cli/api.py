@@ -25,8 +25,8 @@ from typing import Any
 from urllib.parse import urlencode
 
 NOT_RUNNING = (
-    "SwissArmyGrid isn't running. It runs inside VS Code: open VS Code and the SwissArmyGrid "
-    "extension starts it (or click SwissArmyGrid in VS Code's status bar to start it again)."
+    "SwissArmyGrid isn't running. Start it with the swissarmygrid command (installed with uv), or "
+    "VS Code's Open SwissArmyGrid button."
 )
 
 

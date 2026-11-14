@@ -35,8 +35,8 @@ _MIB: int = 1024 * 1024
 _NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _TIMEOUT_SECONDS: float = 300.0
 NOT_RUNNING: str = (
-    "SwissArmyGrid isn't running. It runs inside VS Code: open VS Code and the SwissArmyGrid "
-    "extension starts it (or click SwissArmyGrid in VS Code's status bar to start it again)."
+    "SwissArmyGrid isn't running. Start it with the swissarmygrid command (installed with uv), or "
+    "VS Code's Open SwissArmyGrid button."
 )
 
 

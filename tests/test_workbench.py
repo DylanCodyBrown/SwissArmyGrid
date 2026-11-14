@@ -823,3 +823,18 @@ def test_a_vault_that_loads_every_secret_sets_each_under_its_own_name(
         assert {"name": "SqlPassword", "set": True} in shown and "made-up" not in json.dumps(shown)
     finally:
         client.delete(f"/workbench/kernels/{kernel}", headers=AUTH)
+
+
+def test_a_sql_cells_error_reads_like_a_python_one() -> None:
+    from swissarmygrid.client.kernel_errors import _entry
+    from swissarmygrid.domain import errors
+    from swissarmygrid.services.workbench import sql_error_entry
+
+    try:
+        raise KeyError("made-up")
+    except KeyError as error:
+        python = _entry(error, None, {}, 0.0)
+    sql = sql_error_entry('Parser Error: syntax error at or near "SELEC"')
+    assert set(sql) == set(python)  # every field the panel reads (it once failed on a missing "notes")
+    [entry] = errors.explain_detail({"chain": [sql]})["chain"]
+    assert entry["notes"] == [] and entry["group"] == [] and isinstance(entry["fixes"], list)

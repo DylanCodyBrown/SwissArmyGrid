@@ -278,7 +278,7 @@ class Workbench:
                     usage = (usage + str(item.get("text", "")))[-20_000:]
                 if "done" in item and kind == "sql" and "UsageError" in usage:
                     message = usage[usage.index("UsageError") :].split(":", 1)[-1].strip()
-                    entry = {"type": "UsageError", "message": message, "facts": {}, "frames": []}
+                    entry = sql_error_entry(message)
                     yield {"error_detail": errors.explain_detail({"chain": [entry]})}
                 if item.get("done", {}).get("dead"):
                     await self.stop(kernel_id)  # gone: it no longer counts against the limit
@@ -375,3 +375,21 @@ class Workbench:
     async def stop_all(self) -> None:
         for kernel_id in list(self._running):
             await self.stop(kernel_id)
+
+
+def sql_error_entry(message: str) -> dict[str, Any]:
+    """A SQL cell's error (IPython's usage error) as an error entry with every field the kernel's own
+    entries carry (client/kernel_errors.py), so the page's error panel reads it as it reads a Python one."""
+    return {
+        "type": "UsageError",
+        "module": "",
+        "message": message,
+        "hint": "",
+        "relation": None,
+        "notes": [],
+        "facts": {},
+        "syntax": None,
+        "frames": [],
+        "group": [],
+        "your_frame": None,
+    }

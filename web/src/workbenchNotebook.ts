@@ -175,6 +175,9 @@ export function notebookView(
     cell.element.classList.add(`kind-${kind}`);
     cell.connectionPicker.hidden = kind !== "sql";
     if (kind === "sql" && !cell.connection) cell.connection = connections()[0] ?? null;
+    // The box shows the connection the cell runs on (it is drawn again on focus; once showed the
+    // %sql_connect placeholder while the cell ran on the first connection).
+    if (kind === "sql") cell.connectionPicker.dispatchEvent(new Event("focus"));
     cell.editor?.setLanguage(LANGUAGE[kind]);
     relabel();
     changed();

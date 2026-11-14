@@ -13,7 +13,7 @@ In a plain script call `sag.watch()` once. `push` still works, for what the watc
 
 The client needs only the standard library (pyarrow, when present, keeps column types), so it goes into
 any project's environment. It only connects: the grid server (installed once per machine with the
-[server] extra) runs inside VS Code, whose SwissArmyGrid extension starts it and shows the grids.
+[server] extra, a uv tool) is started by the `swissarmygrid` command and shows the grids.
 The design is Plans/swissarmygrid-build-plan.md and Plans/autodetect-and-reload.plan.md.
 
 The client is loaded on first use (a module-level `__getattr__`, PEP 562), so `import swissarmygrid`

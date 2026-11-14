@@ -128,8 +128,8 @@ export function errorPanel(detail: ErrorDetail, traceback: HTMLElement | null, a
     parts.push(where);
   }
   if (entry.explanation) parts.push(h("p", { class: "wb-err-explain" }, entry.explanation));
-  for (const note of entry.notes) parts.push(h("p", { class: "hint" }, note));
-  if (entry.group.length) parts.push(h("ul", { class: "wb-err-group" }, ...entry.group.map((g) => h("li", { class: "mono" }, g))));
+  for (const note of entry.notes ?? []) parts.push(h("p", { class: "hint" }, note));
+  if (entry.group?.length) parts.push(h("ul", { class: "wb-err-group" }, ...entry.group.map((g) => h("li", { class: "mono" }, g))));
   if (entry.fixes.length) {
     parts.push(h("div", { class: "wb-err-fixes", role: "group", "aria-label": "Fixes" }, ...entry.fixes.map((f) => button(f.title.replace(/`/g, ""), () => actions.fix(f, detail), { icon: f.kind === "install" ? "import" : f.kind === "define" ? "play" : "edit", class: "ghost" }))));
   }

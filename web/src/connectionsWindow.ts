@@ -510,8 +510,11 @@ export async function openConnections(): Promise<void> {
     // The code edited by hand: read its fields and passwords again.
     codeBox.addEventListener("change", () => {
       code = codeBox.value;
-      void api<{ settings: Field[]; secrets: string[] }>("/blades/inspect", "POST", { code, template: form.id || null, name: editing }).then(
+      void api<{ settings: Field[]; secrets: string[]; install_here: string | null }>("/blades/inspect", "POST", { code, template: form.id || null, name: editing }).then(
         (found) => {
+          // The packages the code needs now (a stale "Not installed" once stayed after the code changed).
+          form.install_here = found.install_here;
+          drawInstall();
           drawFields(found.settings.map((s) => ({ ...s, picker: fields.find((f) => f.name === s.name)?.picker ?? null })));
           if (found.secrets.join() !== form.secrets.join()) {
             form.secrets = found.secrets;
@@ -597,6 +600,10 @@ export async function openConnections(): Promise<void> {
       }
     };
     const passwordsSlot = h("div", {}, drawPasswords() ?? "");
+    const installSlot = h("div", {});
+    const drawInstall = (): void =>
+      void installSlot.replaceChildren(...(form.install_here ? [h("p", { class: "hint" }, isVault ? "Not installed: " : "Driver not installed: ", h("code", {}, form.install_here))] : []));
+    drawInstall();
     clear(
       body,
       h("h3", {}, editing ? `Edit ${editing}` : isVault ? `New ${plain(form.label)}` : `New ${plain(form.label)} connection`),
@@ -607,7 +614,7 @@ export async function openConnections(): Promise<void> {
       fieldsHost,
       passwordsSlot,
       secretsBox,
-      form.install_here ? h("p", { class: "hint" }, isVault ? "Not installed: " : "Driver not installed: ", h("code", {}, form.install_here)) : null,
+      installSlot,
       result,
       h("details", { class: "connection-code-box" }, h("summary", {}, "Python code"), codeBox),
     );
